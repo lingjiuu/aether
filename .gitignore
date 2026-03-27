@@ -1,0 +1,6 @@
+.env
+.m2/
+target/
+.idea/
+
+references
