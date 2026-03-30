@@ -1,22 +1,14 @@
 package io.github.lingjiuu;
 
+import io.github.lingjiuu.cli.ConsoleAgentSessionRenderer;
+import io.github.lingjiuu.session.AgentSession;
+import io.github.lingjiuu.session.AgentSessionFactory;
 
 public class App {
     public static void main( String[] args ) {
-
-
-        StreamAgent streamAgent = new StreamAgent();
-        streamAgent.runAgentLoop("现在几点啊？");
-
-
+        AgentSessionFactory agentSessionFactory = AgentSessionFactory.createDefault();
+        AgentSession agentSession = agentSessionFactory.openSession();
+        agentSession.subscribe(new ConsoleAgentSessionRenderer());
+        agentSession.prompt("现在几点啊？");
     }
-
-
-
-
-
-
-
-
-
 }
