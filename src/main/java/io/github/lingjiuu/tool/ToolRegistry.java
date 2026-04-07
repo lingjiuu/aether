@@ -1,9 +1,6 @@
 package io.github.lingjiuu.tool;
 
 import com.openai.models.responses.Tool;
-import io.github.lingjiuu.message.ToolResultMessage;
-import io.github.lingjiuu.message.content.TextContent;
-import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.model.AgentTool;
 
 import java.util.ArrayList;
@@ -13,50 +10,61 @@ import java.util.Map;
 
 public class ToolRegistry {
 
-    private final Map<String, AgentTool> toolsByName = new LinkedHashMap<>();
+    private final Map<String, ToolDefinition> definitionsByName = new LinkedHashMap<>();
+    private final ToolExecutor toolExecutor;
 
-    public void register(AgentTool tool) {
-        if (tool == null) {
-            throw new IllegalArgumentException("tool must not be null");
+    public ToolRegistry() {
+        this(new ToolExecutor());
+    }
+
+    public ToolRegistry(ToolExecutor toolExecutor) {
+        this.toolExecutor = toolExecutor;
+    }
+
+    public void register(ToolDefinition definition) {
+        if (definition == null) {
+            throw new IllegalArgumentException("tool definition must not be null");
         }
-        if (tool.getName() == null || tool.getName().isBlank()) {
-            throw new IllegalArgumentException("tool name must not be blank");
+        if (definition.name() == null || definition.name().isBlank()) {
+            throw new IllegalArgumentException("tool definition name must not be blank");
         }
-        toolsByName.put(tool.getName(), tool);
+        definitionsByName.put(definition.name(), definition);
     }
 
     public int size() {
-        return toolsByName.size();
+        return definitionsByName.size();
     }
 
-    public List<Tool> toOpenAiTools() {
-        List<Tool> tools = new ArrayList<>();
-        for (AgentTool tool : toolsByName.values()) {
-            tools.add(Tool.ofFunction(tool.getSchema()));
+    public List<ToolDefinition> definitions() {
+        return List.copyOf(new ArrayList<>(definitionsByName.values()));
+    }
+
+    public List<AgentTool> toAgentTools() {
+        List<AgentTool> tools = new ArrayList<>();
+        for (ToolDefinition definition : definitionsByName.values()) {
+            tools.add(AgentTool.builder()
+                    .name(definition.name())
+                    .label(definition.label())
+                    .description(definition.description())
+                    .schema(definition.schema())
+                    .build());
         }
         return tools;
     }
 
-    public ToolResultMessage execute(ToolCallContent toolCall) {
-        AgentTool tool = require(toolCall.getToolName());
-        String output = tool.getExecutor().execute(toolCall.getArgumentsJson());
-        return ToolResultMessage.builder()
-                .toolCallId(toolCall.getToolCallId())
-                .toolName(toolCall.getToolName())
-                .isError(false)
-                .contents(List.of(
-                        TextContent.builder()
-                                .text(output)
-                                .build()
-                ))
-                .build();
+    public io.github.lingjiuu.message.ToolResultMessage execute(
+            io.github.lingjiuu.message.AssistantMessage assistantMessage,
+            io.github.lingjiuu.message.content.ToolCallContent toolCall,
+            ToolUpdateCallback onUpdate
+    ) {
+        return toolExecutor.execute(requireDefinition(toolCall.getToolName()), assistantMessage, toolCall, onUpdate);
     }
 
-    private AgentTool require(String name) {
-        AgentTool tool = toolsByName.get(name);
-        if (tool == null) {
+    public ToolDefinition requireDefinition(String name) {
+        ToolDefinition definition = definitionsByName.get(name);
+        if (definition == null) {
             throw new IllegalArgumentException("Unsupported tool: " + name);
         }
-        return tool;
+        return definition;
     }
 }

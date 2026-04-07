@@ -50,6 +50,15 @@ public class ConsoleAgentSessionRenderer implements AgentSessionEventListener {
                     System.out.println("[TOOL] arguments=" + event.getToolCall().getArgumentsJson());
                 }
             }
+            case TOOL_EXECUTION_START -> {
+                if (event.getToolCall() != null) {
+                    System.out.println("[TOOL] executing " + event.getToolCall().getToolName());
+                }
+            }
+            case TOOL_EXECUTION_UPDATE -> {
+            }
+            case TOOL_EXECUTION_END -> {
+            }
             case TOOL_RESULT -> {
                 if (event.getToolResult() != null) {
                     System.out.println("[TOOL] result=" + MessageContents.text(event.getToolResult()));

@@ -9,7 +9,7 @@ import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.model.AgentState;
-import io.github.lingjiuu.model.AgentTool;
+import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
 
 import java.util.ArrayList;
@@ -72,12 +72,13 @@ public class AgentSession {
                 .build());
     }
 
-    public synchronized void registerTool(AgentTool tool) {
-        if (tool == null) {
-            throw new IllegalArgumentException("tool must not be null");
+    public synchronized void registerTool(ToolDefinition definition) {
+        if (definition == null) {
+            throw new IllegalArgumentException("tool definition must not be null");
         }
-        state.getTools().add(tool);
-        toolRegistry.register(tool);
+        toolRegistry.register(definition);
+        state.getTools().clear();
+        state.getTools().addAll(toolRegistry.toAgentTools());
         updatedAt = System.currentTimeMillis();
     }
 
@@ -191,6 +192,9 @@ public class AgentSession {
             case REASONING_DELTA -> AgentSessionEvent.Type.REASONING_DELTA;
             case ASSISTANT_MESSAGE -> AgentSessionEvent.Type.ASSISTANT_MESSAGE;
             case TOOL_CALL -> AgentSessionEvent.Type.TOOL_CALL;
+            case TOOL_EXECUTION_START -> AgentSessionEvent.Type.TOOL_EXECUTION_START;
+            case TOOL_EXECUTION_UPDATE -> AgentSessionEvent.Type.TOOL_EXECUTION_UPDATE;
+            case TOOL_EXECUTION_END -> AgentSessionEvent.Type.TOOL_EXECUTION_END;
             case TOOL_RESULT -> AgentSessionEvent.Type.TOOL_RESULT;
             case FINAL_ANSWER -> AgentSessionEvent.Type.FINAL_ANSWER;
             case RUN_END -> AgentSessionEvent.Type.RUN_END;
@@ -205,6 +209,7 @@ public class AgentSession {
                 .assistantMessage(event.getAssistantMessage())
                 .toolCall(event.getToolCall())
                 .toolResult(event.getToolResult())
+                .partialToolResult(event.getPartialToolResult())
                 .build());
     }
 

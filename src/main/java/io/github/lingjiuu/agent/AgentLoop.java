@@ -11,7 +11,9 @@ import io.github.lingjiuu.model.AgentState;
 import io.github.lingjiuu.provider.AssistantMessageEvent;
 import io.github.lingjiuu.provider.AssistantMessageEventStream;
 import io.github.lingjiuu.provider.ProviderOptions;
+import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRegistry;
+import io.github.lingjiuu.tool.ToolUpdateCallback;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -88,7 +90,7 @@ public class AgentLoop {
                         .turn(currentTurn)
                         .toolCall(toolCall)
                         .build());
-                toolResults.add(executeToolCall(toolCall));
+                toolResults.add(executeToolCall(assistantMessage, toolCall, currentTurn, listener));
             }
 
             for (ToolResultMessage toolResult : toolResults) {
@@ -120,8 +122,31 @@ public class AgentLoop {
                 .build());
     }
 
-    private ToolResultMessage executeToolCall(ToolCallContent toolCall) {
-        return toolRegistry.execute(toolCall);
+    private ToolResultMessage executeToolCall(
+            AssistantMessage assistantMessage,
+            ToolCallContent toolCall,
+            int turn,
+            AgentEventListener listener
+    ) {
+        emit(listener, AgentEvent.builder()
+                .type(AgentEvent.Type.TOOL_EXECUTION_START)
+                .turn(turn)
+                .toolCall(toolCall)
+                .build());
+        ToolResultMessage result = toolRegistry.execute(assistantMessage, toolCall, partialResult -> emit(listener, AgentEvent.builder()
+                .type(AgentEvent.Type.TOOL_EXECUTION_UPDATE)
+                .turn(turn)
+                .toolCall(toolCall)
+                .partialToolResult(partialResult)
+                .build()));
+        emit(listener, AgentEvent.builder()
+                .type(AgentEvent.Type.TOOL_EXECUTION_END)
+                .turn(turn)
+                .toolCall(toolCall)
+                .toolResult(result)
+                .text(MessageContents.text(result))
+                .build());
+        return result;
     }
 
     private void handleAssistantEvent(

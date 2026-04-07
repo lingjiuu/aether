@@ -25,6 +25,8 @@ public class ToolResultMessage implements Message{
 
     private String toolName;
 
+    private Object details;
+
     private boolean isError;
 
     @Override

@@ -1,7 +1,5 @@
 package io.github.lingjiuu.session;
 
-import com.openai.core.JsonValue;
-import com.openai.models.responses.FunctionTool;
 import io.github.lingjiuu.agent.AgentLoop;
 import io.github.lingjiuu.ai.AiModel;
 import io.github.lingjiuu.ai.AiStreams;
@@ -9,12 +7,12 @@ import io.github.lingjiuu.ai.ModelRegistry;
 import io.github.lingjiuu.auth.AuthStorage;
 import io.github.lingjiuu.model.AgentState;
 import io.github.lingjiuu.model.AgentTool;
+import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
+import io.github.lingjiuu.tool.builtin.GetTimeTool;
 
-import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public class AgentSessionFactory {
 
@@ -57,10 +55,10 @@ public class AgentSessionFactory {
         ToolRegistry toolRegistry = new ToolRegistry();
         List<AgentTool> sessionTools = new ArrayList<>();
         if (configuration.getDefaultTools() != null) {
-            for (AgentTool tool : configuration.getDefaultTools()) {
-                sessionTools.add(tool);
-                toolRegistry.register(tool);
+            for (ToolDefinition definition : configuration.getDefaultTools()) {
+                toolRegistry.register(definition);
             }
+            sessionTools.addAll(toolRegistry.toAgentTools());
         }
 
         AgentState state = AgentState.builder()
@@ -102,28 +100,8 @@ public class AgentSessionFactory {
         throw new IllegalStateException("No model configured for " + resolvedProvider + "/" + resolvedModelId + ".");
     }
 
-    private static List<AgentTool> buildDefaultTools() {
-        return List.of(
-                AgentTool.builder()
-                        .name("get_time")
-                        .description("Get the current time in Asia/Shanghai.")
-                        .schema(buildGetTimeTool())
-                        .executor(argumentsJson -> ZonedDateTime.now().toString())
-                        .build()
-        );
-    }
-
-    private static FunctionTool buildGetTimeTool() {
-        return FunctionTool.builder()
-                .name("get_time")
-                .description("Get the current time in Asia/Shanghai.")
-                .strict(true)
-                .parameters(FunctionTool.Parameters.builder()
-                        .putAdditionalProperty("type", JsonValue.from("object"))
-                        .putAdditionalProperty("properties", JsonValue.from(Map.of()))
-                        .putAdditionalProperty("required", JsonValue.from(List.of()))
-                        .build())
-                .build();
+    private static List<ToolDefinition> buildDefaultTools() {
+        return List.of(new GetTimeTool());
     }
 
     private static String firstNonBlank(String... values) {

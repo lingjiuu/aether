@@ -4,8 +4,8 @@ import io.github.lingjiuu.ai.AiModel;
 import io.github.lingjiuu.ai.AiStreams;
 import io.github.lingjiuu.ai.ModelRegistry;
 import io.github.lingjiuu.auth.AuthStorage;
-import io.github.lingjiuu.model.AgentTool;
 import io.github.lingjiuu.model.Reasoning;
+import io.github.lingjiuu.tool.ToolDefinition;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -33,5 +33,5 @@ public class AgentConfiguration {
     private Reasoning reasoning;
 
     @Builder.Default
-    private List<AgentTool> defaultTools = new ArrayList<>();
+    private List<ToolDefinition> defaultTools = new ArrayList<>();
 }
