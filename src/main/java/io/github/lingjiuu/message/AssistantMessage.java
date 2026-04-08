@@ -1,6 +1,7 @@
 package io.github.lingjiuu.message;
 
 import io.github.lingjiuu.message.content.MessageContent;
+import io.github.lingjiuu.provider.ProviderReplayData;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -37,6 +38,8 @@ public class AssistantMessage implements Message{
     private Map<String, Object> usage = new LinkedHashMap<>();
 
     private String errorMessage;
+
+    private ProviderReplayData providerState;
 
 
     @Override

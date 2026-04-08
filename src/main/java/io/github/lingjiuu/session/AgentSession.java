@@ -4,11 +4,11 @@ import io.github.lingjiuu.agent.AgentEvent;
 import io.github.lingjiuu.agent.AgentLoop;
 import io.github.lingjiuu.ai.ModelRegistry;
 import io.github.lingjiuu.auth.AuthStorage;
-import io.github.lingjiuu.message.AgentMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
-import io.github.lingjiuu.model.AgentState;
+import io.github.lingjiuu.model.AgentConfig;
+import io.github.lingjiuu.model.ConversationHistory;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
 
@@ -22,7 +22,8 @@ public class AgentSession {
     private final AuthStorage authStorage;
     private final ModelRegistry modelRegistry;
     private final ToolRegistry toolRegistry;
-    private final AgentState state;
+    private final AgentConfig config;
+    private final ConversationHistory history;
     private final AgentLoop agentLoop;
     private final String sessionId;
     private final long createdAt;
@@ -34,7 +35,8 @@ public class AgentSession {
             AuthStorage authStorage,
             ModelRegistry modelRegistry,
             ToolRegistry toolRegistry,
-            AgentState state,
+            AgentConfig config,
+            ConversationHistory history,
             AgentLoop agentLoop
     ) {
         this.authStorage = authStorage;
@@ -44,7 +46,8 @@ public class AgentSession {
         this.createdAt = System.currentTimeMillis();
         this.updatedAt = createdAt;
         this.status = AgentSessionStatus.IDLE;
-        this.state = state;
+        this.config = config;
+        this.history = history;
         this.agentLoop = agentLoop;
     }
 
@@ -64,7 +67,7 @@ public class AgentSession {
 
     public synchronized void reset() {
         ensureNotRunning();
-        state.getMessages().clear();
+        history.clear();
         updatedAt = System.currentTimeMillis();
         emit(AgentSessionEvent.builder()
                 .type(AgentSessionEvent.Type.SESSION_RESET)
@@ -77,21 +80,21 @@ public class AgentSession {
             throw new IllegalArgumentException("tool definition must not be null");
         }
         toolRegistry.register(definition);
-        state.getTools().clear();
-        state.getTools().addAll(toolRegistry.toAgentTools());
+        config.getTools().clear();
+        config.getTools().addAll(toolRegistry.toAgentTools());
         updatedAt = System.currentTimeMillis();
     }
 
     public synchronized boolean canContinue() {
-        if (state.getMessages().isEmpty()) {
+        if (history.isEmpty()) {
             return false;
         }
-        AgentMessage lastMessage = state.getMessages().get(state.getMessages().size() - 1);
-        return !(lastMessage instanceof Message message && message.role() == Message.Role.ASSISTANT);
+        Message lastMessage = history.lastMessage();
+        return lastMessage == null || lastMessage.role() != Message.Role.ASSISTANT;
     }
 
-    public synchronized List<AgentMessage> messages() {
-        return List.copyOf(new ArrayList<>(state.getMessages()));
+    public synchronized List<Message> messages() {
+        return List.copyOf(new ArrayList<>(history.snapshot()));
     }
 
     public Runnable subscribe(AgentSessionEventListener listener) {
@@ -102,8 +105,15 @@ public class AgentSession {
         return () -> listeners.remove(listener);
     }
 
-    public AgentState state() {
-        return state;
+    public AgentConfig config() {
+        return config;
+    }
+
+    public AgentSessionSnapshot snapshot() {
+        return AgentSessionSnapshot.builder()
+                .config(config)
+                .messages(history.snapshot())
+                .build();
     }
 
     public ModelRegistry modelRegistry() {
@@ -146,7 +156,7 @@ public class AgentSession {
                                 .build()
                 ))
                 .build();
-        state.getMessages().add(userMessage);
+        history.append(userMessage);
         updatedAt = System.currentTimeMillis();
         emit(AgentSessionEvent.builder()
                 .type(AgentSessionEvent.Type.USER_MESSAGE)
@@ -181,36 +191,10 @@ public class AgentSession {
     }
 
     private void forwardAgentEvent(AgentEvent event) {
-        if (event == null || event.getType() == null) {
-            return;
+        AgentSessionEvent mappedEvent = AgentSessionEventMapper.map(sessionId, event);
+        if (mappedEvent != null) {
+            emit(mappedEvent);
         }
-
-        AgentSessionEvent.Type type = switch (event.getType()) {
-            case RUN_START -> AgentSessionEvent.Type.RUN_START;
-            case TURN_START -> AgentSessionEvent.Type.TURN_START;
-            case ASSISTANT_TEXT_DELTA -> AgentSessionEvent.Type.ASSISTANT_TEXT_DELTA;
-            case REASONING_DELTA -> AgentSessionEvent.Type.REASONING_DELTA;
-            case ASSISTANT_MESSAGE -> AgentSessionEvent.Type.ASSISTANT_MESSAGE;
-            case TOOL_CALL -> AgentSessionEvent.Type.TOOL_CALL;
-            case TOOL_EXECUTION_START -> AgentSessionEvent.Type.TOOL_EXECUTION_START;
-            case TOOL_EXECUTION_UPDATE -> AgentSessionEvent.Type.TOOL_EXECUTION_UPDATE;
-            case TOOL_EXECUTION_END -> AgentSessionEvent.Type.TOOL_EXECUTION_END;
-            case TOOL_RESULT -> AgentSessionEvent.Type.TOOL_RESULT;
-            case FINAL_ANSWER -> AgentSessionEvent.Type.FINAL_ANSWER;
-            case RUN_END -> AgentSessionEvent.Type.RUN_END;
-        };
-
-        emit(AgentSessionEvent.builder()
-                .type(type)
-                .sessionId(sessionId)
-                .turn(event.getTurn())
-                .delta(event.getDelta())
-                .text(event.getText())
-                .assistantMessage(event.getAssistantMessage())
-                .toolCall(event.getToolCall())
-                .toolResult(event.getToolResult())
-                .partialToolResult(event.getPartialToolResult())
-                .build());
     }
 
     private void emit(AgentSessionEvent event) {

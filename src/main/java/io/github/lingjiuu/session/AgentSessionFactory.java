@@ -2,10 +2,11 @@ package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.agent.AgentLoop;
 import io.github.lingjiuu.ai.AiModel;
-import io.github.lingjiuu.ai.AiStreams;
+import io.github.lingjiuu.ai.AssistantSampler;
 import io.github.lingjiuu.ai.ModelRegistry;
 import io.github.lingjiuu.auth.AuthStorage;
-import io.github.lingjiuu.model.AgentState;
+import io.github.lingjiuu.model.AgentConfig;
+import io.github.lingjiuu.model.ConversationHistory;
 import io.github.lingjiuu.model.AgentTool;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
@@ -36,13 +37,13 @@ public class AgentSessionFactory {
     public static AgentSessionFactory createDefault(String provider, String modelId) {
         AuthStorage authStorage = AuthStorage.create();
         ModelRegistry modelRegistry = new ModelRegistry(authStorage);
-        AiStreams aiStreams = new AiStreams();
+        AssistantSampler assistantSampler = new AssistantSampler(modelRegistry);
         AiModel model = resolveInitialModel(modelRegistry, provider, modelId);
 
         AgentConfiguration configuration = AgentConfiguration.builder()
                 .authStorage(authStorage)
                 .modelRegistry(modelRegistry)
-                .aiStreams(aiStreams)
+                .assistantSampler(assistantSampler)
                 .systemPrompt(DEFAULT_SYSTEM_PROMPT)
                 .model(model)
                 .defaultTools(buildDefaultTools())
@@ -61,17 +62,21 @@ public class AgentSessionFactory {
             sessionTools.addAll(toolRegistry.toAgentTools());
         }
 
-        AgentState state = AgentState.builder()
+        AgentConfig config = AgentConfig.builder()
                 .systemPrompt(configuration.getSystemPrompt())
                 .model(configuration.getModel())
                 .reasoning(configuration.getReasoning())
                 .tools(sessionTools)
                 .build();
+        ConversationHistory history = new ConversationHistory();
 
         AgentLoop agentLoop = new AgentLoop(
-                state,
-                configuration.getAiStreams(),
-                configuration.getModelRegistry(),
+                config,
+                history,
+                configuration.getAssistantSampler(),
+                configuration.getContextTransformer(),
+                configuration.getLlmMessageConverter(),
+                configuration.getAssistantStreamEventMapper(),
                 toolRegistry
         );
 
@@ -79,7 +84,8 @@ public class AgentSessionFactory {
                 configuration.getAuthStorage(),
                 configuration.getModelRegistry(),
                 toolRegistry,
-                state,
+                config,
+                history,
                 agentLoop
         );
     }

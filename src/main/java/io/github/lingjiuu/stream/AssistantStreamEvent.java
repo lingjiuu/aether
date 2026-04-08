@@ -1,4 +1,4 @@
-package io.github.lingjiuu.provider;
+package io.github.lingjiuu.stream;
 
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AssistantMessageEvent {
+public class AssistantStreamEvent {
 
     private Type type;
 

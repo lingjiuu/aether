@@ -13,8 +13,6 @@ public class TextContent implements MessageContent {
 
     private String text;
 
-    private String textSignature;
-
     @Override
     public Type type() {
         return Type.TEXT;

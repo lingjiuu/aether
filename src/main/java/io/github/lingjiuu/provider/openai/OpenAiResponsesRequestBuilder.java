@@ -1,20 +1,16 @@
-package io.github.lingjiuu.provider;
+package io.github.lingjiuu.provider.openai;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.openai.client.OpenAIClient;
-import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.JsonValue;
 import com.openai.models.ReasoningEffort;
 import com.openai.models.responses.EasyInputMessage;
-import com.openai.models.responses.FunctionTool;
 import com.openai.models.responses.ResponseCreateParams;
 import com.openai.models.responses.ResponseFunctionToolCall;
 import com.openai.models.responses.ResponseInputItem;
 import com.openai.models.responses.ResponseOutputMessage;
 import com.openai.models.responses.ResponseOutputText;
 import com.openai.models.responses.ResponseReasoningItem;
-import io.github.lingjiuu.ai.AiModel;
+import io.github.lingjiuu.ai.AssistantRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
@@ -24,41 +20,27 @@ import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
+import io.github.lingjiuu.model.AgentTool;
 import io.github.lingjiuu.model.Reasoning;
+import io.github.lingjiuu.provider.ProviderOptions;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
-public class OpenAiResponsesProvider implements Provider {
+public class OpenAiResponsesRequestBuilder {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
-    @Override
-    public String name() {
-        return "openai";
-    }
+    public ResponseCreateParams buildRequest(AssistantRequest request) {
+        if (request == null || request.getConfig() == null || request.getConfig().getModel() == null) {
+            throw new IllegalArgumentException("request config and model must not be null");
+        }
 
-    @Override
-    public AssistantMessageEventStream streamSimple(AiModel model, ProviderContext context, ProviderOptions options) {
-        OpenAIClient client = createClient(model, options);
-        ResponseCreateParams params = buildParams(model, context, options);
-        return new OpenAiResponsesStream(
-                client.responses().createStreaming(params),
-                model.getId(),
-                model.getProvider()
-        );
-    }
-
-    private ResponseCreateParams buildParams(AiModel model, ProviderContext context, ProviderOptions options) {
-        ProviderContext safeContext = context == null ? ProviderContext.builder().build() : context;
-        ProviderOptions safeOptions = options == null ? ProviderOptions.builder().build() : options;
-
+        ProviderOptions safeOptions = request.getOptions() == null ? ProviderOptions.builder().build() : request.getOptions();
         ResponseCreateParams.Builder builder = ResponseCreateParams.builder()
-                .model(model.getId())
+                .model(request.getConfig().getModel().getId())
                 .store(false)
-                .inputOfResponse(toInputItems(safeContext));
+                .inputOfResponse(toInputItems(request));
 
         if (safeOptions.getTemperature() != null) {
             builder.temperature(safeOptions.getTemperature());
@@ -70,49 +52,31 @@ public class OpenAiResponsesProvider implements Provider {
             builder.reasoning(toOpenAiReasoning(safeOptions.getReasoning()));
         }
 
-        for (ProviderTool tool : safeContext.getTools()) {
-            builder.addTool(toFunctionTool(tool));
+        if (request.getConfig().getTools() != null) {
+            for (AgentTool tool : request.getConfig().getTools()) {
+                if (tool != null && tool.getSchema() != null) {
+                    builder.addTool(tool.getSchema());
+                }
+            }
         }
 
         return builder.build();
     }
 
-    private OpenAIClient createClient(AiModel model, ProviderOptions options) {
-        String apiKey = options == null ? null : options.getApiKey();
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("No API key for provider: " + model.getProvider());
-        }
-
-        Map<String, String> headers = new LinkedHashMap<>();
-        if (model.getHeaders() != null) {
-            headers.putAll(model.getHeaders());
-        }
-        if (options != null && options.getHeaders() != null) {
-            headers.putAll(options.getHeaders());
-        }
-
-        OpenAIOkHttpClient.Builder builder = OpenAIOkHttpClient.builder()
-                .apiKey(apiKey)
-                .baseUrl(model.getBaseUrl());
-        if (!headers.isEmpty()) {
-            headers.forEach(builder::putHeader);
-        }
-        return builder.build();
-    }
-
-    private List<ResponseInputItem> toInputItems(ProviderContext context) {
+    private List<ResponseInputItem> toInputItems(AssistantRequest request) {
         List<ResponseInputItem> inputItems = new ArrayList<>();
 
-        if (context.getSystemPrompt() != null && !context.getSystemPrompt().isBlank()) {
+        String systemPrompt = request.getConfig().getSystemPrompt();
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
             inputItems.add(ResponseInputItem.ofEasyInputMessage(
                     EasyInputMessage.builder()
                             .role(EasyInputMessage.Role.DEVELOPER)
-                            .content(context.getSystemPrompt())
+                            .content(systemPrompt)
                             .build()
             ));
         }
 
-        for (Message message : context.getMessages()) {
+        for (Message message : request.getMessages()) {
             switch (message.role()) {
                 case USER -> appendUserMessage(inputItems, (UserMessage) message);
                 case ASSISTANT -> appendAssistantMessage(inputItems, (AssistantMessage) message);
@@ -136,16 +100,19 @@ public class OpenAiResponsesProvider implements Provider {
     }
 
     private void appendAssistantMessage(List<ResponseInputItem> inputItems, AssistantMessage assistantMessage) {
+        if (assistantMessage.getProviderState() instanceof OpenAiReplayData replayData && replayData.getItems() != null
+                && !replayData.getItems().isEmpty()) {
+            appendReplayItems(inputItems, replayData);
+            return;
+        }
+
         int textIndex = 0;
         int reasoningIndex = 0;
-
         for (MessageContent content : assistantMessage.messageContents()) {
             if (content instanceof TextContent textContent) {
                 String text = textContent.getText() == null ? "" : textContent.getText().trim();
                 if (!text.isBlank()) {
-                    inputItems.add(ResponseInputItem.ofResponseOutputMessage(
-                            toResponseOutputMessage(textContent, textIndex++)
-                    ));
+                    inputItems.add(ResponseInputItem.ofResponseOutputMessage(toResponseOutputMessage(text, textIndex++)));
                 }
             } else if (content instanceof ThinkingContent thinkingContent) {
                 ResponseReasoningItem reasoningItem = toReasoningItem(thinkingContent, reasoningIndex++);
@@ -164,6 +131,28 @@ public class OpenAiResponsesProvider implements Provider {
         }
     }
 
+    private void appendReplayItems(List<ResponseInputItem> inputItems, OpenAiReplayData replayData) {
+        for (OpenAiReplayData.ReplayItem item : replayData.getItems()) {
+            if (item == null || item.getType() == null || item.getJson() == null || item.getJson().isBlank()) {
+                continue;
+            }
+            try {
+                switch (item.getType()) {
+                    case OUTPUT_MESSAGE -> inputItems.add(ResponseInputItem.ofResponseOutputMessage(
+                            objectMapper.readValue(item.getJson(), ResponseOutputMessage.class)
+                    ));
+                    case REASONING -> inputItems.add(ResponseInputItem.ofReasoning(
+                            objectMapper.readValue(item.getJson(), ResponseReasoningItem.class)
+                    ));
+                    case FUNCTION_CALL -> inputItems.add(ResponseInputItem.ofFunctionCall(
+                            objectMapper.readValue(item.getJson(), ResponseFunctionToolCall.class)
+                    ));
+                }
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     private void appendToolResultMessage(List<ResponseInputItem> inputItems, ToolResultMessage toolResultMessage) {
         inputItems.add(ResponseInputItem.ofFunctionCallOutput(
                 ResponseInputItem.FunctionCallOutput.builder()
@@ -174,53 +163,28 @@ public class OpenAiResponsesProvider implements Provider {
         ));
     }
 
-    private ResponseOutputMessage toResponseOutputMessage(TextContent textContent, int index) {
+    private ResponseOutputMessage toResponseOutputMessage(String text, int index) {
         return ResponseOutputMessage.builder()
-                .id(resolveTextMessageId(textContent, index))
+                .id("msg_" + index)
                 .status(ResponseOutputMessage.Status.COMPLETED)
                 .role(JsonValue.from("assistant"))
                 .addContent(ResponseOutputText.builder()
-                        .text(textContent.getText())
+                        .text(text)
                         .annotations(List.of())
                         .build())
                 .build();
     }
 
     private ResponseReasoningItem toReasoningItem(ThinkingContent thinkingContent, int index) {
-        if (thinkingContent.getThinkingSignature() != null && !thinkingContent.getThinkingSignature().isBlank()) {
-            try {
-                return objectMapper.readValue(thinkingContent.getThinkingSignature(), ResponseReasoningItem.class);
-            } catch (Exception ignored) {
-            }
-        }
-
         if (thinkingContent.getThinking() == null || thinkingContent.getThinking().isBlank()) {
             return null;
         }
-
         return ResponseReasoningItem.builder()
                 .id("rs_" + index)
                 .addSummary(ResponseReasoningItem.Summary.builder()
                         .text(thinkingContent.getThinking())
                         .build())
                 .build();
-    }
-
-    private String resolveTextMessageId(TextContent textContent, int index) {
-        String signature = textContent.getTextSignature();
-        if (signature == null || signature.isBlank()) {
-            return "msg_" + index;
-        }
-
-        try {
-            JsonNode node = objectMapper.readTree(signature);
-            if (node.hasNonNull("id")) {
-                return node.get("id").asText();
-            }
-        } catch (Exception ignored) {
-        }
-
-        return signature;
     }
 
     private String resolveArgumentsJson(ToolCallContent toolCallContent) {
@@ -265,26 +229,4 @@ public class OpenAiResponsesProvider implements Provider {
             case DETAILED -> com.openai.models.Reasoning.GenerateSummary.DETAILED;
         };
     }
-
-    private FunctionTool toFunctionTool(ProviderTool tool) {
-        FunctionTool.Builder builder = FunctionTool.builder()
-                .name(tool.getName());
-
-        if (tool.getDescription() != null && !tool.getDescription().isBlank()) {
-            builder.description(tool.getDescription());
-        }
-        if (tool.getStrict() != null) {
-            builder.strict(tool.getStrict());
-        }
-        if (tool.getParameters() != null && tool.getParameters().isObject()) {
-            FunctionTool.Parameters.Builder parametersBuilder = FunctionTool.Parameters.builder();
-            tool.getParameters().fields().forEachRemaining(entry ->
-                    parametersBuilder.putAdditionalProperty(entry.getKey(), JsonValue.fromJsonNode(entry.getValue()))
-            );
-            builder.parameters(parametersBuilder.build());
-        }
-
-        return builder.build();
-    }
-
 }

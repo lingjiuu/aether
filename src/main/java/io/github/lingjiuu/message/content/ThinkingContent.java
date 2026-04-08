@@ -13,8 +13,6 @@ public class ThinkingContent implements MessageContent {
 
     private String thinking;
 
-    private String thinkingSignature;
-
     @Override
     public Type type() {
         return Type.THINKING;

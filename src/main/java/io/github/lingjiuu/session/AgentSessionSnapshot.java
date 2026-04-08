@@ -1,6 +1,7 @@
-package io.github.lingjiuu.provider;
+package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.model.AgentConfig;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -13,13 +14,10 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ProviderContext {
+public class AgentSessionSnapshot {
 
-    private String systemPrompt;
+    private AgentConfig config;
 
     @Builder.Default
     private List<Message> messages = new ArrayList<>();
-
-    @Builder.Default
-    private List<ProviderTool> tools = new ArrayList<>();
 }

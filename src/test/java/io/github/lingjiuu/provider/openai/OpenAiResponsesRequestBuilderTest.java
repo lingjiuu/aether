@@ -1,0 +1,179 @@
+package io.github.lingjiuu.provider.openai;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openai.core.JsonValue;
+import com.openai.models.responses.EasyInputMessage;
+import com.openai.models.responses.ResponseCreateParams;
+import com.openai.models.responses.ResponseFunctionToolCall;
+import com.openai.models.responses.ResponseInputItem;
+import com.openai.models.responses.ResponseOutputMessage;
+import com.openai.models.responses.ResponseOutputText;
+import io.github.lingjiuu.ai.AiModel;
+import io.github.lingjiuu.ai.AssistantRequest;
+import io.github.lingjiuu.message.AssistantMessage;
+import io.github.lingjiuu.message.ToolResultMessage;
+import io.github.lingjiuu.message.UserMessage;
+import io.github.lingjiuu.message.content.TextContent;
+import io.github.lingjiuu.message.content.ToolCallContent;
+import io.github.lingjiuu.model.AgentConfig;
+import io.github.lingjiuu.provider.ProviderOptions;
+import junit.framework.TestCase;
+
+import java.util.List;
+
+public class OpenAiResponsesRequestBuilderTest extends TestCase {
+
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+
+    public void testProjectorPrefersReplayDataWhenPresent() throws Exception {
+        OpenAiResponsesRequestBuilder requestBuilder = new OpenAiResponsesRequestBuilder();
+
+        OpenAiReplayData replayData = OpenAiReplayData.builder()
+                .responseId("resp_123")
+                .items(List.of(
+                        OpenAiReplayData.ReplayItem.builder()
+                                .type(OpenAiReplayData.Type.OUTPUT_MESSAGE)
+                                .json(objectMapper.writeValueAsString(ResponseOutputMessage.builder()
+                                        .id("msg_replay")
+                                        .role(JsonValue.from("assistant"))
+                                        .status(ResponseOutputMessage.Status.COMPLETED)
+                                        .addContent(ResponseOutputText.builder()
+                                                .text("replayed answer")
+                                                .annotations(List.of())
+                                                .build())
+                                        .build()))
+                                .build(),
+                        OpenAiReplayData.ReplayItem.builder()
+                                .type(OpenAiReplayData.Type.FUNCTION_CALL)
+                                .json(objectMapper.writeValueAsString(ResponseFunctionToolCall.builder()
+                                        .callId("call-replay")
+                                        .name("get_time")
+                                        .arguments("{\"timezone\":\"UTC\"}")
+                                        .build()))
+                                .build()
+                ))
+                .build();
+
+        AssistantMessage assistantMessage = AssistantMessage.builder()
+                .provider("openai")
+                .model("gpt-4.1")
+                .stopReason(AssistantMessage.StopReason.TOOLUSE)
+                .providerState(replayData)
+                .contents(List.of(
+                        TextContent.builder().text("fallback answer").build(),
+                        ToolCallContent.builder()
+                                .toolCallId("call-fallback")
+                                .toolName("fallback_tool")
+                                .argumentsJson("{\"unused\":true}")
+                                .build()
+                ))
+                .build();
+
+        ResponseCreateParams params = requestBuilder.buildRequest(AssistantRequest.builder()
+                .config(AgentConfig.builder()
+                        .systemPrompt("You are helpful")
+                        .model(AiModel.builder()
+                                .id("gpt-4.1")
+                                .provider("openai")
+                                .api("openai")
+                                .baseUrl("https://api.openai.com/v1")
+                                .build())
+                        .build())
+                .messages(List.of(
+                        UserMessage.builder()
+                                .contents(List.of(TextContent.builder().text("What time is it?").build()))
+                                .build(),
+                        assistantMessage,
+                        ToolResultMessage.builder()
+                                .toolCallId("call-replay")
+                                .toolName("get_time")
+                                .contents(List.of(TextContent.builder().text("{\"time\":\"12:00\"}").build()))
+                                .build()
+                ))
+                .options(ProviderOptions.builder().build())
+                .build());
+
+        assertTrue(params.input().isPresent());
+        List<ResponseInputItem> inputItems = params.input().get().asResponse();
+
+        assertEquals(5, inputItems.size());
+
+        ResponseInputItem developerMessage = inputItems.get(0);
+        assertTrue(developerMessage.isEasyInputMessage());
+        assertEquals(EasyInputMessage.Role.DEVELOPER, developerMessage.asEasyInputMessage().role());
+        assertEquals("You are helpful", developerMessage.asEasyInputMessage().content().asTextInput());
+
+        ResponseInputItem userMessage = inputItems.get(1);
+        assertTrue(userMessage.isEasyInputMessage());
+        assertEquals(EasyInputMessage.Role.USER, userMessage.asEasyInputMessage().role());
+        assertEquals("What time is it?", userMessage.asEasyInputMessage().content().asTextInput());
+
+        ResponseInputItem replayedOutputMessage = inputItems.get(2);
+        assertTrue(replayedOutputMessage.isResponseOutputMessage());
+        assertEquals(
+                "replayed answer",
+                replayedOutputMessage.asResponseOutputMessage().content().getFirst().asOutputText().text()
+        );
+
+        ResponseInputItem replayedFunctionCall = inputItems.get(3);
+        assertTrue(replayedFunctionCall.isFunctionCall());
+        assertEquals("call-replay", replayedFunctionCall.asFunctionCall().callId());
+        assertEquals("get_time", replayedFunctionCall.asFunctionCall().name());
+
+        ResponseInputItem functionCallOutput = inputItems.get(4);
+        assertTrue(functionCallOutput.isFunctionCallOutput());
+        assertEquals("call-replay", functionCallOutput.asFunctionCallOutput().callId());
+        assertEquals("{\"time\":\"12:00\"}", functionCallOutput.asFunctionCallOutput().output().asString());
+
+        for (ResponseInputItem item : inputItems) {
+            assertFalse(item.toString().contains("fallback answer"));
+            assertFalse(item.toString().contains("call-fallback"));
+        }
+    }
+
+    public void testProjectorFallsBackToGenericContentsWithoutReplayData() throws Exception {
+        OpenAiResponsesRequestBuilder requestBuilder = new OpenAiResponsesRequestBuilder();
+
+        AssistantMessage assistantMessage = AssistantMessage.builder()
+                .provider("openai")
+                .model("gpt-4.1")
+                .stopReason(AssistantMessage.StopReason.TOOLUSE)
+                .contents(List.of(
+                        TextContent.builder().text("fallback answer").build(),
+                        ToolCallContent.builder()
+                                .toolCallId("call-fallback")
+                                .toolName("get_time")
+                                .argumentsJson("{\"timezone\":\"UTC\"}")
+                                .build()
+                ))
+                .build();
+
+        ResponseCreateParams params = requestBuilder.buildRequest(AssistantRequest.builder()
+                .config(AgentConfig.builder()
+                        .model(AiModel.builder()
+                                .id("gpt-4.1")
+                                .provider("openai")
+                                .api("openai")
+                                .baseUrl("https://api.openai.com/v1")
+                                .build())
+                        .build())
+                .messages(List.of(assistantMessage))
+                .options(ProviderOptions.builder().build())
+                .build());
+
+        assertTrue(params.input().isPresent());
+        List<ResponseInputItem> inputItems = params.input().get().asResponse();
+
+        assertEquals(2, inputItems.size());
+
+        ResponseInputItem outputMessage = inputItems.get(0);
+        assertTrue(outputMessage.isResponseOutputMessage());
+        assertEquals("fallback answer", outputMessage.asResponseOutputMessage().content().getFirst().asOutputText().text());
+
+        ResponseInputItem functionCall = inputItems.get(1);
+        assertTrue(functionCall.isFunctionCall());
+        assertEquals("call-fallback", functionCall.asFunctionCall().callId());
+        assertEquals("get_time", functionCall.asFunctionCall().name());
+        assertEquals("{\"timezone\":\"UTC\"}", functionCall.asFunctionCall().arguments());
+    }
+}
