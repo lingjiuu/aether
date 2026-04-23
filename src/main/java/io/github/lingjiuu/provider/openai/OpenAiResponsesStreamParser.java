@@ -13,8 +13,8 @@ import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
-import io.github.lingjiuu.stream.AssistantStream;
-import io.github.lingjiuu.stream.AssistantStreamEvent;
+import io.github.lingjiuu.llm.AssistantStream;
+import io.github.lingjiuu.llm.AssistantStreamEvent;
 
 import java.io.IOException;
 import java.util.ArrayList;

@@ -1,6 +1,4 @@
-package io.github.lingjiuu.ai;
-
-import io.github.lingjiuu.provider.Provider;
+package io.github.lingjiuu.provider;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

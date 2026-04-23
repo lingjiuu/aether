@@ -1,14 +1,14 @@
 package io.github.lingjiuu.agent;
 
-import io.github.lingjiuu.ai.AiModel;
-import io.github.lingjiuu.ai.AssistantSampler;
-import io.github.lingjiuu.ai.ProviderRegistry;
+import io.github.lingjiuu.llm.AssistantStreamEvent;
+import io.github.lingjiuu.llm.LlmClient;
+import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.model.AgentConfig;
+import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.tool.ToolRegistry;
-import io.github.lingjiuu.stream.AssistantStreamEvent;
 import junit.framework.TestCase;
 
 import java.util.ArrayList;
@@ -19,7 +19,7 @@ public class AgentRuntimeTest extends TestCase {
     public void testRunOwnsMultiTurnEventOrderingAndStateGrowth() throws Exception {
         AgentConfig config = AgentConfig.builder()
                 .systemPrompt("You are a helpful assistant")
-                .model(AiModel.builder()
+                .model(LlmModel.builder()
                         .id("test-model")
                         .name("Test Model")
                         .api("fake")
@@ -56,14 +56,14 @@ public class AgentRuntimeTest extends TestCase {
                 ),
                 callOrder
         );
-        AssistantSampler assistantSampler = new AssistantSampler(
+        LlmClient llmClient = new LlmClient(
                 new AgentLoopTest.StubModelRegistry(),
                 new ProviderRegistry().register(provider)
         );
 
         AgentLoop agentLoop = new AgentLoop(
                 config,
-                assistantSampler,
+                llmClient,
                 new AgentLoopTest.RecordingContextTransformer(callOrder),
                 new AgentLoopTest.RecordingLlmMessageConverter(callOrder),
                 new AssistantStreamEventMapper(),

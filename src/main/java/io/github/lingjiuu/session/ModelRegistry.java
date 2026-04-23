@@ -1,9 +1,11 @@
-package io.github.lingjiuu.ai;
+package io.github.lingjiuu.session;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.lingjiuu.auth.AuthStorage;
 import io.github.lingjiuu.config.AetherPaths;
 import io.github.lingjiuu.config.ConfigValueResolver;
+import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.provider.RequestAuth;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -26,7 +28,7 @@ public class ModelRegistry {
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final AuthStorage authStorage;
     private final Path modelsPath;
-    private final List<AiModel> models = new ArrayList<>();
+    private final List<LlmModel> models = new ArrayList<>();
     private final Map<String, ProviderRequestConfig> providerRequestConfigs = new LinkedHashMap<>();
 
     public ModelRegistry(AuthStorage authStorage) {
@@ -47,33 +49,33 @@ public class ModelRegistry {
         loadCustomModels();
     }
 
-    public AiModel find(String provider, String modelId) {
+    public LlmModel find(String provider, String modelId) {
         return models.stream()
                 .filter(model -> model.getProvider().equals(provider) && model.getId().equals(modelId))
                 .findFirst()
                 .orElse(null);
     }
 
-    public AiModel require(String provider, String modelId) {
-        AiModel model = find(provider, modelId);
+    public LlmModel require(String provider, String modelId) {
+        LlmModel model = find(provider, modelId);
         if (model == null) {
             throw new IllegalArgumentException("No model found for " + provider + "/" + modelId);
         }
         return model;
     }
 
-    public AiModel findFirstAvailable() {
+    public LlmModel findFirstAvailable() {
         return models.stream()
                 .filter(this::hasConfiguredAuth)
                 .findFirst()
                 .orElse(models.isEmpty() ? null : models.getFirst());
     }
 
-    public boolean hasConfiguredAuth(AiModel model) {
+    public boolean hasConfiguredAuth(LlmModel model) {
         return authStorage.hasAuth(model.getProvider()) || providerRequestConfigs.get(model.getProvider()) != null;
     }
 
-    public ResolvedRequestAuth getApiKeyAndHeaders(AiModel model) {
+    public RequestAuth getRequestAuth(LlmModel model) {
         try {
             ProviderRequestConfig providerConfig = providerRequestConfigs.get(model.getProvider());
             String apiKeyFromAuthStorage = authStorage.getApiKey(model.getProvider(), false);
@@ -110,7 +112,7 @@ public class ModelRegistry {
 
             if (providerConfig != null && Boolean.TRUE.equals(providerConfig.getAuthHeader())) {
                 if (apiKey == null || apiKey.isBlank()) {
-                    return ResolvedRequestAuth.error("No API key found for \"" + model.getProvider() + "\"");
+                    return RequestAuth.error("No API key found for \"" + model.getProvider() + "\"");
                 }
                 if (headers == null) {
                     headers = new LinkedHashMap<>();
@@ -118,9 +120,9 @@ public class ModelRegistry {
                 headers.put("Authorization", "Bearer " + apiKey);
             }
 
-            return ResolvedRequestAuth.ok(apiKey, headers);
+            return RequestAuth.ok(apiKey, headers);
         } catch (Exception e) {
-            return ResolvedRequestAuth.error(e.getMessage());
+            return RequestAuth.error(e.getMessage());
         }
     }
 
@@ -136,7 +138,7 @@ public class ModelRegistry {
         storeProviderRequestConfig("openai", ProviderRequestConfig.builder()
                 .apiKey("OPENAI_API_KEY")
                 .build());
-        models.add(AiModel.builder()
+        models.add(LlmModel.builder()
                 .provider("openai")
                 .api(API_OPENAI)
                 .id("gpt-4.1")
@@ -147,7 +149,7 @@ public class ModelRegistry {
         storeProviderRequestConfig("bailian", ProviderRequestConfig.builder()
                 .apiKey("BAILIAN_API_KEY")
                 .build());
-        models.add(AiModel.builder()
+        models.add(LlmModel.builder()
                 .provider("bailian")
                 .api(API_OPENAI)
                 .id("qwen3.5-plus-2026-02-15")
@@ -158,7 +160,7 @@ public class ModelRegistry {
         storeProviderRequestConfig("siliconflow", ProviderRequestConfig.builder()
                 .apiKey("SILICONFLOW_API_KEY")
                 .build());
-        models.add(AiModel.builder()
+        models.add(LlmModel.builder()
                 .provider("siliconflow")
                 .api(API_OPENAI)
                 .id("qwen3.5-plus-2026-02-15")
@@ -195,7 +197,7 @@ public class ModelRegistry {
             for (ModelDefinition modelDefinition : config.getModels()) {
                 String api = modelDefinition.getApi() != null ? modelDefinition.getApi() : config.getApi();
                 String baseUrl = modelDefinition.getBaseUrl() != null ? modelDefinition.getBaseUrl() : config.getBaseUrl();
-                models.add(AiModel.builder()
+                models.add(LlmModel.builder()
                         .provider(providerName)
                         .api(api)
                         .id(modelDefinition.getId())
@@ -209,7 +211,7 @@ public class ModelRegistry {
 
         if (config.getBaseUrl() != null || (config.getHeaders() != null && !config.getHeaders().isEmpty())) {
             for (int i = 0; i < models.size(); i++) {
-                AiModel current = models.get(i);
+                LlmModel current = models.get(i);
                 if (!current.getProvider().equals(providerName)) {
                     continue;
                 }
@@ -217,7 +219,7 @@ public class ModelRegistry {
                 if (config.getHeaders() != null) {
                     mergedHeaders.putAll(config.getHeaders());
                 }
-                models.set(i, AiModel.builder()
+                models.set(i, LlmModel.builder()
                         .provider(current.getProvider())
                         .api(current.getApi())
                         .id(current.getId())

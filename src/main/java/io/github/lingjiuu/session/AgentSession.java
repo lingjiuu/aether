@@ -4,7 +4,6 @@ import io.github.lingjiuu.agent.AgentEvent;
 import io.github.lingjiuu.agent.AgentLoop;
 import io.github.lingjiuu.agent.AgentRuntime;
 import io.github.lingjiuu.agent.AgentRuntimeState;
-import io.github.lingjiuu.ai.ModelRegistry;
 import io.github.lingjiuu.auth.AuthStorage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.UserMessage;

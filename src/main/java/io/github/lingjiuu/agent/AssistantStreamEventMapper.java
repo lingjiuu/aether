@@ -1,6 +1,6 @@
 package io.github.lingjiuu.agent;
 
-import io.github.lingjiuu.stream.AssistantStreamEvent;
+import io.github.lingjiuu.llm.AssistantStreamEvent;
 
 import java.util.ArrayList;
 import java.util.List;

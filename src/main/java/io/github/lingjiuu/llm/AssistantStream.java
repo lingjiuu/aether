@@ -1,4 +1,4 @@
-package io.github.lingjiuu.stream;
+package io.github.lingjiuu.llm;
 
 import io.github.lingjiuu.message.AssistantMessage;
 

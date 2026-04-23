@@ -10,7 +10,9 @@ import com.openai.models.responses.ResponseInputItem;
 import com.openai.models.responses.ResponseOutputMessage;
 import com.openai.models.responses.ResponseOutputText;
 import com.openai.models.responses.ResponseReasoningItem;
-import io.github.lingjiuu.ai.AssistantRequest;
+import io.github.lingjiuu.llm.LlmCallOptions;
+import io.github.lingjiuu.llm.LlmRequest;
+import io.github.lingjiuu.llm.ReasoningOptions;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
@@ -21,8 +23,6 @@ import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.model.AgentTool;
-import io.github.lingjiuu.model.Reasoning;
-import io.github.lingjiuu.provider.ProviderOptions;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,12 +31,12 @@ public class OpenAiResponsesRequestBuilder {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
-    public ResponseCreateParams buildRequest(AssistantRequest request) {
+    public ResponseCreateParams buildRequest(LlmRequest request) {
         if (request == null || request.getConfig() == null || request.getConfig().getModel() == null) {
             throw new IllegalArgumentException("request config and model must not be null");
         }
 
-        ProviderOptions safeOptions = request.getOptions() == null ? ProviderOptions.builder().build() : request.getOptions();
+        LlmCallOptions safeOptions = request.getCallOptions() == null ? LlmCallOptions.builder().build() : request.getCallOptions();
         ResponseCreateParams.Builder builder = ResponseCreateParams.builder()
                 .model(request.getConfig().getModel().getId())
                 .store(false)
@@ -63,7 +63,7 @@ public class OpenAiResponsesRequestBuilder {
         return builder.build();
     }
 
-    private List<ResponseInputItem> toInputItems(AssistantRequest request) {
+    private List<ResponseInputItem> toInputItems(LlmRequest request) {
         List<ResponseInputItem> inputItems = new ArrayList<>();
 
         String systemPrompt = request.getConfig().getSystemPrompt();
@@ -200,7 +200,7 @@ public class OpenAiResponsesRequestBuilder {
         return "{}";
     }
 
-    private com.openai.models.Reasoning toOpenAiReasoning(Reasoning reasoning) {
+    private com.openai.models.Reasoning toOpenAiReasoning(ReasoningOptions reasoning) {
         com.openai.models.Reasoning.Builder builder = com.openai.models.Reasoning.builder();
         if (reasoning.getReasoningEffort() != null) {
             builder.effort(mapReasoningEffort(reasoning.getReasoningEffort()));
@@ -211,7 +211,7 @@ public class OpenAiResponsesRequestBuilder {
         return builder.build();
     }
 
-    private ReasoningEffort mapReasoningEffort(Reasoning.ReasoningEffort effort) {
+    private ReasoningEffort mapReasoningEffort(ReasoningOptions.ReasoningEffort effort) {
         return switch (effort) {
             case NONE -> ReasoningEffort.NONE;
             case MINIMAL -> ReasoningEffort.MINIMAL;
@@ -222,7 +222,7 @@ public class OpenAiResponsesRequestBuilder {
         };
     }
 
-    private com.openai.models.Reasoning.GenerateSummary mapSummaryEffort(Reasoning.ReasoningSummaryEffort summaryEffort) {
+    private com.openai.models.Reasoning.GenerateSummary mapSummaryEffort(ReasoningOptions.ReasoningSummaryEffort summaryEffort) {
         return switch (summaryEffort) {
             case AUTO -> com.openai.models.Reasoning.GenerateSummary.AUTO;
             case CONCISE -> com.openai.models.Reasoning.GenerateSummary.CONCISE;

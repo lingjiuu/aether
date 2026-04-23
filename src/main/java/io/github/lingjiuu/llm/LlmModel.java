@@ -1,4 +1,4 @@
-package io.github.lingjiuu.ai;
+package io.github.lingjiuu.llm;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,7 +12,7 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AiModel {
+public class LlmModel {
 
     private String id;
 

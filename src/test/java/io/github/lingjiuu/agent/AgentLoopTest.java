@@ -2,13 +2,12 @@ package io.github.lingjiuu.agent;
 
 import com.openai.core.JsonValue;
 import com.openai.models.responses.FunctionTool;
-import io.github.lingjiuu.ai.AiModel;
-import io.github.lingjiuu.ai.AssistantRequest;
-import io.github.lingjiuu.ai.AssistantSampler;
-import io.github.lingjiuu.ai.ModelRegistry;
-import io.github.lingjiuu.ai.ProviderRegistry;
-import io.github.lingjiuu.ai.ResolvedRequestAuth;
 import io.github.lingjiuu.auth.AuthStorage;
+import io.github.lingjiuu.llm.AssistantStream;
+import io.github.lingjiuu.llm.AssistantStreamEvent;
+import io.github.lingjiuu.llm.LlmClient;
+import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
@@ -17,8 +16,9 @@ import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.model.AgentConfig;
 import io.github.lingjiuu.provider.Provider;
-import io.github.lingjiuu.stream.AssistantStream;
-import io.github.lingjiuu.stream.AssistantStreamEvent;
+import io.github.lingjiuu.provider.ProviderRegistry;
+import io.github.lingjiuu.provider.RequestAuth;
+import io.github.lingjiuu.session.ModelRegistry;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
 import io.github.lingjiuu.tool.ToolExecutionResult;
@@ -37,7 +37,7 @@ public class AgentLoopTest extends TestCase {
     public void testRunTurnReturnsToolResultsWithoutMutatingRuntimeState() throws Exception {
         AgentConfig config = AgentConfig.builder()
                 .systemPrompt("You are a helpful assistant")
-                .model(AiModel.builder()
+                .model(LlmModel.builder()
                         .id("test-model")
                         .name("Test Model")
                         .api("fake")
@@ -65,14 +65,14 @@ public class AgentLoopTest extends TestCase {
                         .build())),
                 callOrder
         );
-        AssistantSampler assistantSampler = new AssistantSampler(
+        LlmClient llmClient = new LlmClient(
                 new StubModelRegistry(),
                 new ProviderRegistry().register(provider)
         );
 
         AgentLoop agentLoop = new AgentLoop(
                 config,
-                assistantSampler,
+                llmClient,
                 new RecordingContextTransformer(callOrder),
                 new RecordingLlmMessageConverter(callOrder),
                 new AssistantStreamEventMapper(),
@@ -108,7 +108,7 @@ public class AgentLoopTest extends TestCase {
     public void testRunTurnReturnsFinalAnswerWithoutMutatingRuntimeState() throws Exception {
         AgentConfig config = AgentConfig.builder()
                 .systemPrompt("You are a helpful assistant")
-                .model(AiModel.builder()
+                .model(LlmModel.builder()
                         .id("test-model")
                         .name("Test Model")
                         .api("fake")
@@ -131,12 +131,12 @@ public class AgentLoopTest extends TestCase {
                 )),
                 new ArrayList<>()
         );
-        AssistantSampler assistantSampler = new AssistantSampler(
+        LlmClient llmClient = new LlmClient(
                 new StubModelRegistry(),
                 new ProviderRegistry().register(provider)
         );
 
-        AgentLoop agentLoop = new AgentLoop(config, assistantSampler, new ToolRegistry());
+        AgentLoop agentLoop = new AgentLoop(config, llmClient, new ToolRegistry());
 
         TurnResult turnResult = agentLoop.runTurn(runtimeState);
 
@@ -185,7 +185,7 @@ public class AgentLoopTest extends TestCase {
         private final List<AssistantMessage> responses;
         private final List<List<AssistantStreamEvent>> eventBatches;
         private final List<String> callOrder;
-        private final List<AssistantRequest> requestsSeen = new ArrayList<>();
+        private final List<LlmRequest> requestsSeen = new ArrayList<>();
         private int invocationCount;
 
         FakeProvider(List<AssistantMessage> responses, List<List<AssistantStreamEvent>> eventBatches, List<String> callOrder) {
@@ -200,14 +200,14 @@ public class AgentLoopTest extends TestCase {
         }
 
         @Override
-        public AssistantStream stream(AssistantRequest request) {
+        public AssistantStream stream(LlmRequest request) {
             callOrder.add("provider.stream:" + request.getMessages().size());
             requestsSeen.add(request);
             int index = invocationCount++;
             return new StubAssistantStream(responses.get(index), eventBatches.get(index));
         }
 
-        List<AssistantRequest> requestsSeen() {
+        List<LlmRequest> requestsSeen() {
             return requestsSeen;
         }
     }
@@ -246,8 +246,8 @@ public class AgentLoopTest extends TestCase {
         }
 
         @Override
-        public ResolvedRequestAuth getApiKeyAndHeaders(AiModel model) {
-            return ResolvedRequestAuth.ok("test-key", Map.of());
+        public RequestAuth getRequestAuth(LlmModel model) {
+            return RequestAuth.ok("test-key", Map.of());
         }
     }
 

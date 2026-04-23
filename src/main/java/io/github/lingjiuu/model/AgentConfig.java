@@ -1,6 +1,7 @@
 package io.github.lingjiuu.model;
 
-import io.github.lingjiuu.ai.AiModel;
+import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.llm.ReasoningOptions;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -17,9 +18,9 @@ public class AgentConfig {
 
     private String systemPrompt;
 
-    private AiModel model;
+    private LlmModel model;
 
-    private Reasoning reasoning;
+    private ReasoningOptions reasoning;
 
     @Builder.Default
     private List<AgentTool> tools = new ArrayList<>();

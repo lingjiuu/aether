@@ -1,26 +1,19 @@
-package io.github.lingjiuu.provider;
+package io.github.lingjiuu.llm;
 
-import io.github.lingjiuu.model.Reasoning;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.util.Map;
-
 @Getter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ProviderOptions {
-
-    private String apiKey;
-
-    private Map<String, String> headers;
+public class LlmCallOptions {
 
     private Double temperature;
 
     private Integer maxTokens;
 
-    private Reasoning reasoning;
+    private ReasoningOptions reasoning;
 }

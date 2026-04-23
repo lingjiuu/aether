@@ -1,20 +1,21 @@
-package io.github.lingjiuu.ai;
+package io.github.lingjiuu.llm;
 
 import io.github.lingjiuu.provider.Provider;
-import io.github.lingjiuu.provider.ProviderOptions;
+import io.github.lingjiuu.provider.ProviderRegistry;
+import io.github.lingjiuu.provider.RequestAuth;
 import io.github.lingjiuu.provider.openai.OpenAiResponsesProvider;
-import io.github.lingjiuu.stream.AssistantStream;
+import io.github.lingjiuu.session.ModelRegistry;
 
-public class AssistantSampler {
+public class LlmClient {
 
     private final ModelRegistry modelRegistry;
     private final ProviderRegistry providerRegistry;
 
-    public AssistantSampler(ModelRegistry modelRegistry) {
+    public LlmClient(ModelRegistry modelRegistry) {
         this(modelRegistry, defaultRegistry());
     }
 
-    public AssistantSampler(ModelRegistry modelRegistry, ProviderRegistry providerRegistry) {
+    public LlmClient(ModelRegistry modelRegistry, ProviderRegistry providerRegistry) {
         if (modelRegistry == null) {
             throw new IllegalArgumentException("modelRegistry must not be null");
         }
@@ -25,31 +26,32 @@ public class AssistantSampler {
         this.providerRegistry = providerRegistry;
     }
 
-    public AssistantStream stream(AssistantRequest request) {
+    public AssistantStream stream(LlmRequest request) {
         if (request == null || request.getConfig() == null || request.getConfig().getModel() == null) {
             throw new IllegalArgumentException("request config and model must not be null");
         }
 
-        ResolvedRequestAuth auth = modelRegistry.getApiKeyAndHeaders(request.getConfig().getModel());
+        RequestAuth auth = request.getAuth() != null
+                ? request.getAuth()
+                : modelRegistry.getRequestAuth(request.getConfig().getModel());
         if (!auth.isOk()) {
             throw new IllegalStateException(auth.getError());
         }
 
         Provider provider = providerRegistry.require(request.getConfig().getModel().getApi());
         return provider.stream(request.toBuilder()
-                .options(mergeOptions(request, auth))
+                .auth(auth)
+                .callOptions(mergeOptions(request))
                 .build());
     }
 
-    public AssistantStream sample(AssistantRequest request) {
+    public AssistantStream sample(LlmRequest request) {
         return stream(request);
     }
 
-    private ProviderOptions mergeOptions(AssistantRequest request, ResolvedRequestAuth auth) {
-        ProviderOptions safeOptions = request.getOptions() == null ? ProviderOptions.builder().build() : request.getOptions();
-        return ProviderOptions.builder()
-                .apiKey(auth.getApiKey())
-                .headers(auth.getHeaders())
+    private LlmCallOptions mergeOptions(LlmRequest request) {
+        LlmCallOptions safeOptions = request.getCallOptions() == null ? LlmCallOptions.builder().build() : request.getCallOptions();
+        return LlmCallOptions.builder()
                 .temperature(safeOptions.getTemperature())
                 .maxTokens(safeOptions.getMaxTokens())
                 .reasoning(safeOptions.getReasoning() != null

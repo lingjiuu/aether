@@ -12,11 +12,13 @@ import java.util.List;
         @JsonSubTypes.Type(value = AssistantMessage.class, name = "ASSISTANT"),
         @JsonSubTypes.Type(value = ToolResultMessage.class, name = "TOOLRESULT")
 })
-public interface Message extends AgentMessage{
+public interface Message {
 
     Role role();
 
     List<MessageContent> messageContents();
+
+    long timestamp();
 
     enum Role{
         USER,

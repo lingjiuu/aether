@@ -1,4 +1,4 @@
-package io.github.lingjiuu.ai;
+package io.github.lingjiuu.provider;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -11,7 +11,7 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ResolvedRequestAuth {
+public class RequestAuth {
 
     private boolean ok;
 
@@ -21,16 +21,16 @@ public class ResolvedRequestAuth {
 
     private String error;
 
-    public static ResolvedRequestAuth ok(String apiKey, Map<String, String> headers) {
-        return ResolvedRequestAuth.builder()
+    public static RequestAuth ok(String apiKey, Map<String, String> headers) {
+        return RequestAuth.builder()
                 .ok(true)
                 .apiKey(apiKey)
                 .headers(headers)
                 .build();
     }
 
-    public static ResolvedRequestAuth error(String error) {
-        return ResolvedRequestAuth.builder()
+    public static RequestAuth error(String error) {
+        return RequestAuth.builder()
                 .ok(false)
                 .error(error)
                 .build();

@@ -3,10 +3,10 @@ package io.github.lingjiuu.provider.openai;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.core.http.StreamResponse;
 import com.openai.models.responses.ResponseStreamEvent;
+import io.github.lingjiuu.llm.AssistantStream;
+import io.github.lingjiuu.llm.AssistantStreamEvent;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.MessageContents;
-import io.github.lingjiuu.stream.AssistantStream;
-import io.github.lingjiuu.stream.AssistantStreamEvent;
 import junit.framework.TestCase;
 
 import java.util.ArrayList;

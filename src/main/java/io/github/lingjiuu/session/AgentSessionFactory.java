@@ -1,10 +1,9 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.agent.AgentLoop;
-import io.github.lingjiuu.ai.AiModel;
-import io.github.lingjiuu.ai.AssistantSampler;
-import io.github.lingjiuu.ai.ModelRegistry;
 import io.github.lingjiuu.auth.AuthStorage;
+import io.github.lingjiuu.llm.LlmClient;
+import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.model.AgentConfig;
 import io.github.lingjiuu.model.ConversationHistory;
 import io.github.lingjiuu.model.AgentTool;
@@ -37,13 +36,13 @@ public class AgentSessionFactory {
     public static AgentSessionFactory createDefault(String provider, String modelId) {
         AuthStorage authStorage = AuthStorage.create();
         ModelRegistry modelRegistry = new ModelRegistry(authStorage);
-        AssistantSampler assistantSampler = new AssistantSampler(modelRegistry);
-        AiModel model = resolveInitialModel(modelRegistry, provider, modelId);
+        LlmClient llmClient = new LlmClient(modelRegistry);
+        LlmModel model = resolveInitialModel(modelRegistry, provider, modelId);
 
         AgentSessionConfig configuration = AgentSessionConfig.builder()
                 .authStorage(authStorage)
                 .modelRegistry(modelRegistry)
-                .assistantSampler(assistantSampler)
+                .llmClient(llmClient)
                 .systemPrompt(DEFAULT_SYSTEM_PROMPT)
                 .model(model)
                 .defaultTools(buildDefaultTools())
@@ -72,7 +71,7 @@ public class AgentSessionFactory {
 
         AgentLoop agentLoop = new AgentLoop(
                 config,
-                configuration.getAssistantSampler(),
+                configuration.getLlmClient(),
                 configuration.getContextTransformer(),
                 configuration.getLlmMessageConverter(),
                 configuration.getAssistantStreamEventMapper(),
@@ -93,11 +92,11 @@ public class AgentSessionFactory {
         return configuration;
     }
 
-    private static AiModel resolveInitialModel(ModelRegistry modelRegistry, String provider, String modelId) {
+    private static LlmModel resolveInitialModel(ModelRegistry modelRegistry, String provider, String modelId) {
         String resolvedProvider = firstNonBlank(provider, System.getenv("AETHER_PROVIDER"), DEFAULT_PROVIDER);
         String resolvedModelId = firstNonBlank(modelId, System.getenv("AETHER_MODEL"), DEFAULT_MODEL_ID);
 
-        AiModel explicit = modelRegistry.find(resolvedProvider, resolvedModelId);
+        LlmModel explicit = modelRegistry.find(resolvedProvider, resolvedModelId);
         if (explicit != null) {
             return explicit;
         }

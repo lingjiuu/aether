@@ -8,15 +8,15 @@ import com.openai.models.responses.ResponseFunctionToolCall;
 import com.openai.models.responses.ResponseInputItem;
 import com.openai.models.responses.ResponseOutputMessage;
 import com.openai.models.responses.ResponseOutputText;
-import io.github.lingjiuu.ai.AiModel;
-import io.github.lingjiuu.ai.AssistantRequest;
+import io.github.lingjiuu.llm.LlmCallOptions;
+import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.model.AgentConfig;
-import io.github.lingjiuu.provider.ProviderOptions;
 import junit.framework.TestCase;
 
 import java.util.List;
@@ -69,10 +69,10 @@ public class OpenAiResponsesRequestBuilderTest extends TestCase {
                 ))
                 .build();
 
-        ResponseCreateParams params = requestBuilder.buildRequest(AssistantRequest.builder()
+        ResponseCreateParams params = requestBuilder.buildRequest(LlmRequest.builder()
                 .config(AgentConfig.builder()
                         .systemPrompt("You are helpful")
-                        .model(AiModel.builder()
+                        .model(LlmModel.builder()
                                 .id("gpt-4.1")
                                 .provider("openai")
                                 .api("openai")
@@ -90,7 +90,7 @@ public class OpenAiResponsesRequestBuilderTest extends TestCase {
                                 .contents(List.of(TextContent.builder().text("{\"time\":\"12:00\"}").build()))
                                 .build()
                 ))
-                .options(ProviderOptions.builder().build())
+                .callOptions(LlmCallOptions.builder().build())
                 .build());
 
         assertTrue(params.input().isPresent());
@@ -148,9 +148,9 @@ public class OpenAiResponsesRequestBuilderTest extends TestCase {
                 ))
                 .build();
 
-        ResponseCreateParams params = requestBuilder.buildRequest(AssistantRequest.builder()
+        ResponseCreateParams params = requestBuilder.buildRequest(LlmRequest.builder()
                 .config(AgentConfig.builder()
-                        .model(AiModel.builder()
+                        .model(LlmModel.builder()
                                 .id("gpt-4.1")
                                 .provider("openai")
                                 .api("openai")
@@ -158,7 +158,7 @@ public class OpenAiResponsesRequestBuilderTest extends TestCase {
                                 .build())
                         .build())
                 .messages(List.of(assistantMessage))
-                .options(ProviderOptions.builder().build())
+                .callOptions(LlmCallOptions.builder().build())
                 .build());
 
         assertTrue(params.input().isPresent());

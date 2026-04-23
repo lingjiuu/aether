@@ -1,4 +1,4 @@
-package io.github.lingjiuu.model;
+package io.github.lingjiuu.llm;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Reasoning {
+public class ReasoningOptions {
 
     private ReasoningEffort reasoningEffort;
     private ReasoningSummaryEffort reasoningSummaryEffort;

@@ -3,11 +3,11 @@ package io.github.lingjiuu.provider.openai;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.responses.ResponseCreateParams;
-import io.github.lingjiuu.ai.AiModel;
-import io.github.lingjiuu.ai.AssistantRequest;
+import io.github.lingjiuu.llm.AssistantStream;
+import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.provider.Provider;
-import io.github.lingjiuu.provider.ProviderOptions;
-import io.github.lingjiuu.stream.AssistantStream;
+import io.github.lingjiuu.provider.RequestAuth;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -32,13 +32,13 @@ public class OpenAiResponsesProvider implements Provider {
     }
 
     @Override
-    public AssistantStream stream(AssistantRequest request) {
+    public AssistantStream stream(LlmRequest request) {
         if (request == null || request.getConfig() == null || request.getConfig().getModel() == null) {
             throw new IllegalArgumentException("request config and model must not be null");
         }
 
-        AiModel model = request.getConfig().getModel();
-        OpenAIClient client = createClient(model, request.getOptions());
+        LlmModel model = request.getConfig().getModel();
+        OpenAIClient client = createClient(model, request.getAuth());
         ResponseCreateParams params = requestBuilder.buildRequest(request);
         return streamParser.parseStream(
                 client.responses().createStreaming(params),
@@ -47,18 +47,15 @@ public class OpenAiResponsesProvider implements Provider {
         );
     }
 
-    private OpenAIClient createClient(AiModel model, ProviderOptions options) {
-        String apiKey = options == null ? null : options.getApiKey();
+    private OpenAIClient createClient(LlmModel model, RequestAuth auth) {
+        String apiKey = auth == null ? null : auth.getApiKey();
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("No API key for provider: " + model.getProvider());
         }
 
         Map<String, String> headers = new LinkedHashMap<>();
-        if (model.getHeaders() != null) {
-            headers.putAll(model.getHeaders());
-        }
-        if (options != null && options.getHeaders() != null) {
-            headers.putAll(options.getHeaders());
+        if (auth != null && auth.getHeaders() != null) {
+            headers.putAll(auth.getHeaders());
         }
 
         OpenAIOkHttpClient.Builder builder = OpenAIOkHttpClient.builder()
