@@ -1,5 +1,6 @@
-package io.github.lingjiuu.agent;
+package io.github.lingjiuu.agent.invocation;
 
+import io.github.lingjiuu.agent.AgentEvent;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
 

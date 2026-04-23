@@ -1,5 +1,7 @@
 package io.github.lingjiuu.agent;
 
+import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
+import io.github.lingjiuu.agent.turn.TurnPreprocessor;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.LlmRequest;
@@ -54,13 +56,7 @@ public class TurnPreprocessorTest extends TestCase {
                         .contents(List.of(TextContent.builder().text("Hello").build()))
                         .build()
         ));
-        List<String> callOrder = new ArrayList<>();
-
-        TurnPreprocessor preprocessor = new TurnPreprocessor(
-                services,
-                new AgentLoopTest.RecordingContextTransformer(callOrder),
-                new AgentLoopTest.RecordingLlmMessageConverter(callOrder)
-        );
+        TurnPreprocessor preprocessor = new TurnPreprocessor(services);
 
         LlmRequest request = preprocessor.prepare(runtimeState);
 
@@ -76,9 +72,5 @@ public class TurnPreprocessorTest extends TestCase {
                 ReasoningOptions.ReasoningEffort.HIGH,
                 request.getCallOptions().getReasoning().getReasoningEffort()
         );
-        assertEquals(List.of(
-                "transformContext:1",
-                "convertToLlm:1"
-        ), callOrder);
     }
 }

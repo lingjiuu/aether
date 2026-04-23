@@ -1,9 +1,9 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.agent.AgentEvent;
-import io.github.lingjiuu.agent.AgentLoop;
-import io.github.lingjiuu.agent.AgentRuntime;
-import io.github.lingjiuu.agent.AgentRuntimeState;
+import io.github.lingjiuu.agent.runtime.AgentRuntime;
+import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
+import io.github.lingjiuu.agent.turn.AgentLoop;
 import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.UserMessage;

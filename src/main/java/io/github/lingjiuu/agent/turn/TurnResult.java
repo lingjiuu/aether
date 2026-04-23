@@ -1,5 +1,7 @@
-package io.github.lingjiuu.agent;
+package io.github.lingjiuu.agent.turn;
 
+import io.github.lingjiuu.agent.AgentEvent;
+import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
 import io.github.lingjiuu.message.Message;
 
 import java.util.List;

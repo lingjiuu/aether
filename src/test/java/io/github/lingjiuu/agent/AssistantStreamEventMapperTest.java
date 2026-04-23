@@ -1,5 +1,6 @@
 package io.github.lingjiuu.agent;
 
+import io.github.lingjiuu.agent.invocation.AssistantStreamEventMapper;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
 import junit.framework.TestCase;
 

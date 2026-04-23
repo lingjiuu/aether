@@ -1,5 +1,8 @@
 package io.github.lingjiuu.agent;
 
+import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
+import io.github.lingjiuu.agent.turn.AgentLoop;
+import io.github.lingjiuu.agent.turn.TurnResult;
 import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.llm.AssistantStream;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
@@ -7,7 +10,6 @@ import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.AssistantMessage;
-import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
@@ -65,12 +67,7 @@ public class AgentLoopTest extends TestCase {
                 llmClient
         );
 
-        AgentLoop agentLoop = new AgentLoop(
-                services,
-                new RecordingContextTransformer(callOrder),
-                new RecordingLlmMessageConverter(callOrder),
-                new AssistantStreamEventMapper()
-        );
+        AgentLoop agentLoop = new AgentLoop(services);
 
         TurnResult turnResult = agentLoop.runTurn(runtimeState);
 
@@ -91,11 +88,7 @@ public class AgentLoopTest extends TestCase {
         assertEquals(1, provider.requestsSeen().getFirst().getMessages().size());
         assertEquals("Let me check that for you.", MessageContents.text(turnResult.appendedMessages().getFirst()));
         assertEquals("Echo: ping", MessageContents.text(turnResult.appendedMessages().get(1)));
-        assertEquals(List.of(
-                "transformContext:1",
-                "convertToLlm:1",
-                "provider.stream:1"
-        ), callOrder);
+        assertEquals(List.of("provider.stream:1"), callOrder);
     }
 
     public void testRunTurnReturnsFinalAnswerWithoutMutatingRuntimeState() throws Exception {
@@ -214,34 +207,6 @@ public class AgentLoopTest extends TestCase {
 
         List<LlmRequest> requestsSeen() {
             return requestsSeen;
-        }
-    }
-
-    static final class RecordingContextTransformer implements ContextTransformer {
-        private final List<String> callOrder;
-
-        RecordingContextTransformer(List<String> callOrder) {
-            this.callOrder = callOrder;
-        }
-
-        @Override
-        public List<Message> transformContext(List<Message> messages) {
-            callOrder.add("transformContext:" + messages.size());
-            return List.copyOf(messages);
-        }
-    }
-
-    static final class RecordingLlmMessageConverter implements LlmMessageConverter {
-        private final List<String> callOrder;
-
-        RecordingLlmMessageConverter(List<String> callOrder) {
-            this.callOrder = callOrder;
-        }
-
-        @Override
-        public List<Message> convertToLlm(List<Message> messages) {
-            callOrder.add("convertToLlm:" + messages.size());
-            return List.copyOf(messages);
         }
     }
 

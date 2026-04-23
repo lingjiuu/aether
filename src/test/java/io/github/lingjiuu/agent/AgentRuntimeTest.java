@@ -1,5 +1,8 @@
 package io.github.lingjiuu.agent;
 
+import io.github.lingjiuu.agent.runtime.AgentRuntime;
+import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
+import io.github.lingjiuu.agent.turn.AgentLoop;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.message.MessageContents;
@@ -57,12 +60,7 @@ public class AgentRuntimeTest extends TestCase {
                 llmClient
         );
 
-        AgentLoop agentLoop = new AgentLoop(
-                services,
-                new AgentLoopTest.RecordingContextTransformer(callOrder),
-                new AgentLoopTest.RecordingLlmMessageConverter(callOrder),
-                new AssistantStreamEventMapper()
-        );
+        AgentLoop agentLoop = new AgentLoop(services);
         AgentRuntime runtime = new AgentRuntime(runtimeState, agentLoop);
 
         List<AgentEvent.Type> eventTypes = new ArrayList<>();
@@ -111,11 +109,7 @@ public class AgentRuntimeTest extends TestCase {
         assertEquals("Echo: ping", MessageContents.text(provider.requestsSeen().get(1).getMessages().get(2)));
         assertEquals("Done.", MessageContents.text(runtime.state().snapshot().get(3)));
         assertEquals(List.of(
-                "transformContext:1",
-                "convertToLlm:1",
                 "provider.stream:1",
-                "transformContext:3",
-                "convertToLlm:3",
                 "provider.stream:3"
         ), callOrder);
     }

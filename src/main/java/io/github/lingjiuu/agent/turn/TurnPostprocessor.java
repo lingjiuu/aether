@@ -1,104 +1,55 @@
-package io.github.lingjiuu.agent;
+package io.github.lingjiuu.agent.turn;
 
+import io.github.lingjiuu.agent.AgentEvent;
+import io.github.lingjiuu.agent.invocation.ModelInvocationResult;
+import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
-import io.github.lingjiuu.session.AgentSessionServices;
 import io.github.lingjiuu.tool.ToolRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class AgentLoop {
+public class TurnPostprocessor {
 
-    private final TurnPreprocessor turnPreprocessor;
-    private final ModelInvoker modelInvoker;
     private final ToolRegistry toolRegistry;
 
-    public AgentLoop(AgentSessionServices services) {
-        this(
-                services,
-                new DefaultContextTransformer(),
-                new DefaultLlmMessageConverter(),
-                new AssistantStreamEventMapper()
-        );
-    }
-
-    public AgentLoop(
-            AgentSessionServices services,
-            ContextTransformer contextTransformer,
-            LlmMessageConverter llmMessageConverter,
-            AssistantStreamEventMapper assistantStreamEventMapper
-    ) {
-        this(
-                new TurnPreprocessor(services, contextTransformer, llmMessageConverter),
-                new ModelInvoker(services.getLlmClient(), assistantStreamEventMapper),
-                services.getToolRegistry()
-        );
-    }
-
-    public AgentLoop(
-            TurnPreprocessor turnPreprocessor,
-            ModelInvoker modelInvoker,
-            ToolRegistry toolRegistry
-    ) {
-        if (turnPreprocessor == null) {
-            throw new IllegalArgumentException("turnPreprocessor must not be null");
-        }
-        if (modelInvoker == null) {
-            throw new IllegalArgumentException("modelInvoker must not be null");
-        }
+    public TurnPostprocessor(ToolRegistry toolRegistry) {
         if (toolRegistry == null) {
             throw new IllegalArgumentException("toolRegistry must not be null");
         }
-        this.turnPreprocessor = turnPreprocessor;
-        this.modelInvoker = modelInvoker;
         this.toolRegistry = toolRegistry;
     }
 
-    public TurnResult runTurn(AgentRuntimeState runtimeState) {
-        if (runtimeState == null) {
-            throw new IllegalArgumentException("runtimeState must not be null");
+    public TurnResult process(ModelInvocationResult invocationResult, int currentTurn) {
+        if (invocationResult == null) {
+            throw new IllegalArgumentException("invocationResult must not be null");
         }
-        if (runtimeState.isEmpty()) {
-            throw new IllegalStateException("Cannot run agent loop without any messages in runtime state.");
-        }
-        return step(runtimeState);
-    }
 
-    private TurnResult step(AgentRuntimeState runtimeState) {
-        int currentTurn = runtimeState.currentTurn();
         List<Message> appendedMessages = new ArrayList<>();
         List<AgentEvent> events = new ArrayList<>();
 
-        events.add(AgentEvent.builder()
-                .type(AgentEvent.Type.TURN_START)
-                .turn(currentTurn)
-                .build());
-
-        ModelInvocationResult sampledAssistantMessage = modelInvoker.invoke(
-                turnPreprocessor.prepare(runtimeState),
-                currentTurn
-        );
-        appendedMessages.add(sampledAssistantMessage.assistantMessage());
-        events.addAll(sampledAssistantMessage.streamEvents());
+        AssistantMessage assistantMessage = invocationResult.assistantMessage();
+        appendedMessages.add(assistantMessage);
+        events.addAll(invocationResult.streamEvents());
         events.add(AgentEvent.builder()
                 .type(AgentEvent.Type.ASSISTANT_MESSAGE)
                 .turn(currentTurn)
-                .assistantMessage(sampledAssistantMessage.assistantMessage())
-                .text(sampledAssistantMessage.assistantText())
+                .assistantMessage(assistantMessage)
+                .text(invocationResult.assistantText())
                 .build());
 
-        if (sampledAssistantMessage.assistantMessage().getStopReason() == AssistantMessage.StopReason.ERROR) {
+        if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ERROR) {
             return TurnResult.finish(
                     appendedMessages,
                     events,
                     AgentRuntimeState.TerminationReason.FAILED
             );
         }
-        if (sampledAssistantMessage.assistantMessage().getStopReason() == AssistantMessage.StopReason.ABORTED) {
+        if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ABORTED) {
             return TurnResult.finish(
                     appendedMessages,
                     events,
@@ -106,12 +57,12 @@ public class AgentLoop {
             );
         }
 
-        if (sampledAssistantMessage.toolCalls().isEmpty()) {
+        if (invocationResult.toolCalls().isEmpty()) {
             events.add(AgentEvent.builder()
                     .type(AgentEvent.Type.FINAL_ANSWER)
                     .turn(currentTurn)
-                    .assistantMessage(sampledAssistantMessage.assistantMessage())
-                    .text(sampledAssistantMessage.assistantText())
+                    .assistantMessage(assistantMessage)
+                    .text(invocationResult.assistantText())
                     .build());
             return TurnResult.finish(
                     appendedMessages,
@@ -121,8 +72,8 @@ public class AgentLoop {
         }
 
         ToolCallStep toolCallStep = executeToolCalls(
-                sampledAssistantMessage.assistantMessage(),
-                sampledAssistantMessage.toolCalls(),
+                assistantMessage,
+                invocationResult.toolCalls(),
                 currentTurn
         );
         appendedMessages.addAll(toolCallStep.toolResults());

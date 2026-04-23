@@ -1,6 +1,6 @@
 package io.github.lingjiuu.session;
 
-import io.github.lingjiuu.agent.AgentLoop;
+import io.github.lingjiuu.agent.turn.AgentLoop;
 import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.llm.AssistantStream;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
