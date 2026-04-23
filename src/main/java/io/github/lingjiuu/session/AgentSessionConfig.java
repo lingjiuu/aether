@@ -23,7 +23,7 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AgentConfiguration {
+public class AgentSessionConfig {
 
     private AuthStorage authStorage;
 

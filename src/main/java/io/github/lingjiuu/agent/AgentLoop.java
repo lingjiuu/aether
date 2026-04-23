@@ -8,7 +8,6 @@ import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.model.AgentConfig;
-import io.github.lingjiuu.model.ConversationHistory;
 import io.github.lingjiuu.provider.ProviderOptions;
 import io.github.lingjiuu.stream.AssistantStream;
 import io.github.lingjiuu.tool.ToolRegistry;
@@ -19,17 +18,15 @@ import java.util.List;
 public class AgentLoop {
 
     private final AgentConfig config;
-    private final ConversationHistory history;
     private final AssistantSampler assistantSampler;
     private final ContextTransformer contextTransformer;
     private final LlmMessageConverter llmMessageConverter;
     private final AssistantStreamEventMapper assistantStreamEventMapper;
     private final ToolRegistry toolRegistry;
 
-    public AgentLoop(AgentConfig config, ConversationHistory history, AssistantSampler assistantSampler, ToolRegistry toolRegistry) {
+    public AgentLoop(AgentConfig config, AssistantSampler assistantSampler, ToolRegistry toolRegistry) {
         this(
                 config,
-                history,
                 assistantSampler,
                 new DefaultContextTransformer(),
                 new DefaultLlmMessageConverter(),
@@ -40,7 +37,6 @@ public class AgentLoop {
 
     public AgentLoop(
             AgentConfig config,
-            ConversationHistory history,
             AssistantSampler assistantSampler,
             ContextTransformer contextTransformer,
             LlmMessageConverter llmMessageConverter,
@@ -48,7 +44,6 @@ public class AgentLoop {
             ToolRegistry toolRegistry
     ) {
         this.config = config;
-        this.history = history;
         this.assistantSampler = assistantSampler;
         this.contextTransformer = contextTransformer;
         this.llmMessageConverter = llmMessageConverter;
@@ -56,29 +51,18 @@ public class AgentLoop {
         this.toolRegistry = toolRegistry;
     }
 
-    public void run(AgentEventListener listener) {
-        if (history.isEmpty()) {
-            throw new IllegalStateException("Cannot run agent loop without any messages in session.");
+    public TurnResult runTurn(AgentRuntimeState runtimeState) {
+        if (runtimeState == null) {
+            throw new IllegalArgumentException("runtimeState must not be null");
         }
-        RunState runState = RunState.start();
-
-        emit(listener, AgentEvent.builder()
-                .type(AgentEvent.Type.RUN_START)
-                .build());
-
-        while (!runState.isTerminal()) {
-            StepResult stepResult = step(runState);
-            applyStepResult(runState, stepResult, listener);
+        if (runtimeState.isEmpty()) {
+            throw new IllegalStateException("Cannot run agent loop without any messages in runtime state.");
         }
-
-        emit(listener, AgentEvent.builder()
-                .type(AgentEvent.Type.RUN_END)
-                .turn(runState.currentTurn())
-                .build());
+        return step(runtimeState);
     }
 
-    private StepResult step(RunState runState) {
-        int currentTurn = runState.currentTurn();
+    private TurnResult step(AgentRuntimeState runtimeState) {
+        int currentTurn = runtimeState.currentTurn();
         List<Message> appendedMessages = new ArrayList<>();
         List<AgentEvent> events = new ArrayList<>();
 
@@ -87,7 +71,7 @@ public class AgentLoop {
                 .turn(currentTurn)
                 .build());
 
-        SampledAssistantMessage sampledAssistantMessage = sampleAssistantMessage(currentTurn);
+        SampledAssistantMessage sampledAssistantMessage = sampleAssistantMessage(runtimeState.snapshot(), currentTurn);
         appendedMessages.add(sampledAssistantMessage.assistantMessage());
         events.addAll(sampledAssistantMessage.streamEvents());
         events.add(AgentEvent.builder()
@@ -98,19 +82,17 @@ public class AgentLoop {
                 .build());
 
         if (sampledAssistantMessage.assistantMessage().getStopReason() == AssistantMessage.StopReason.ERROR) {
-            return new StepResult(
+            return TurnResult.finish(
                     appendedMessages,
                     events,
-                    StepTransition.FAILED,
-                    TerminationReason.FAILED
+                    AgentRuntimeState.TerminationReason.FAILED
             );
         }
         if (sampledAssistantMessage.assistantMessage().getStopReason() == AssistantMessage.StopReason.ABORTED) {
-            return new StepResult(
+            return TurnResult.finish(
                     appendedMessages,
                     events,
-                    StepTransition.ABORTED,
-                    TerminationReason.ABORTED
+                    AgentRuntimeState.TerminationReason.ABORTED
             );
         }
 
@@ -121,11 +103,10 @@ public class AgentLoop {
                     .assistantMessage(sampledAssistantMessage.assistantMessage())
                     .text(sampledAssistantMessage.assistantText())
                     .build());
-            return new StepResult(
+            return TurnResult.finish(
                     appendedMessages,
                     events,
-                    StepTransition.COMPLETE,
-                    TerminationReason.COMPLETED
+                    AgentRuntimeState.TerminationReason.COMPLETED
             );
         }
 
@@ -137,18 +118,13 @@ public class AgentLoop {
         appendedMessages.addAll(toolCallStep.toolResults());
         events.addAll(toolCallStep.events());
 
-        return new StepResult(
-                appendedMessages,
-                events,
-                StepTransition.NEXT_TURN,
-                null
-        );
+        return TurnResult.nextTurn(appendedMessages, events);
     }
 
-    private SampledAssistantMessage sampleAssistantMessage(int turn) {
+    private SampledAssistantMessage sampleAssistantMessage(List<Message> messages, int turn) {
         List<AgentEvent> streamEvents = new ArrayList<>();
         AssistantMessage assistantMessage;
-        List<Message> messagesForModel = contextTransformer.transformContext(history.snapshot());
+        List<Message> messagesForModel = contextTransformer.transformContext(messages);
         List<Message> llmMessages = llmMessageConverter.convertToLlm(messagesForModel);
 
         AssistantRequest request = AssistantRequest.builder()
@@ -221,64 +197,6 @@ public class AgentLoop {
         return new ToolCallStep(toolResults, events);
     }
 
-    private void applyStepResult(
-            RunState runState,
-            StepResult stepResult,
-            AgentEventListener listener
-    ) {
-        int appendedMessageIndex = 0;
-        for (AgentEvent event : stepResult.events()) {
-            if (
-                    event.getType() == AgentEvent.Type.ASSISTANT_MESSAGE
-                            || event.getType() == AgentEvent.Type.TOOL_RESULT
-            ) {
-                if (appendedMessageIndex >= stepResult.appendedMessages().size()) {
-                    throw new IllegalStateException("No pending message available for event: " + event.getType());
-                }
-                history.append(stepResult.appendedMessages().get(appendedMessageIndex++));
-            }
-            emit(listener, event);
-        }
-        if (appendedMessageIndex != stepResult.appendedMessages().size()) {
-            throw new IllegalStateException("Unapplied messages remain after applyStepResult.");
-        }
-
-        if (stepResult.transition() == StepTransition.NEXT_TURN) {
-            runState.advanceTurn();
-            return;
-        }
-
-        runState.finish(stepResult.terminationReason());
-    }
-
-    private void emit(AgentEventListener listener, AgentEvent event) {
-        if (listener != null && event != null) {
-            listener.onEvent(event);
-        }
-    }
-
-    private enum StepTransition {
-        NEXT_TURN,
-        COMPLETE,
-        FAILED,
-        ABORTED
-    }
-
-    private enum TerminationReason {
-        COMPLETED,
-        FAILED,
-        ABORTED,
-        MAX_TURNS
-    }
-
-    private record StepResult(
-            List<Message> appendedMessages,
-            List<AgentEvent> events,
-            StepTransition transition,
-            TerminationReason terminationReason
-    ) {
-    }
-
     private record SampledAssistantMessage(
             AssistantMessage assistantMessage,
             String assistantText,
@@ -291,36 +209,5 @@ public class AgentLoop {
             List<ToolResultMessage> toolResults,
             List<AgentEvent> events
     ) {
-    }
-
-    private static final class RunState {
-        private int currentTurn;
-        private boolean terminal;
-        private TerminationReason terminationReason;
-
-        private RunState(int currentTurn) {
-            this.currentTurn = currentTurn;
-        }
-
-        private static RunState start() {
-            return new RunState(1);
-        }
-
-        private int currentTurn() {
-            return currentTurn;
-        }
-
-        private boolean isTerminal() {
-            return terminal;
-        }
-
-        private void advanceTurn() {
-            currentTurn++;
-        }
-
-        private void finish(TerminationReason terminationReason) {
-            this.terminal = true;
-            this.terminationReason = terminationReason;
-        }
     }
 }

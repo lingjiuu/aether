@@ -21,9 +21,9 @@ public class AgentSessionFactory {
     private static final String DEFAULT_MODEL_ID = "qwen3.5-plus-2026-02-15";
     private static final String DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant";
 
-    private final AgentConfiguration configuration;
+    private final AgentSessionConfig configuration;
 
-    public AgentSessionFactory(AgentConfiguration configuration) {
+    public AgentSessionFactory(AgentSessionConfig configuration) {
         if (configuration == null) {
             throw new IllegalArgumentException("configuration must not be null");
         }
@@ -40,7 +40,7 @@ public class AgentSessionFactory {
         AssistantSampler assistantSampler = new AssistantSampler(modelRegistry);
         AiModel model = resolveInitialModel(modelRegistry, provider, modelId);
 
-        AgentConfiguration configuration = AgentConfiguration.builder()
+        AgentSessionConfig configuration = AgentSessionConfig.builder()
                 .authStorage(authStorage)
                 .modelRegistry(modelRegistry)
                 .assistantSampler(assistantSampler)
@@ -72,7 +72,6 @@ public class AgentSessionFactory {
 
         AgentLoop agentLoop = new AgentLoop(
                 config,
-                history,
                 configuration.getAssistantSampler(),
                 configuration.getContextTransformer(),
                 configuration.getLlmMessageConverter(),
@@ -90,7 +89,7 @@ public class AgentSessionFactory {
         );
     }
 
-    public AgentConfiguration configuration() {
+    public AgentSessionConfig configuration() {
         return configuration;
     }
 

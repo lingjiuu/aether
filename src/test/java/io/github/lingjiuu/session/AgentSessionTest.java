@@ -47,7 +47,7 @@ public class AgentSessionTest extends TestCase {
                 modelRegistry,
                 new ProviderRegistry().register(new SingleResponseProvider())
         );
-        AgentLoop agentLoop = new AgentLoop(config, history, assistantSampler, toolRegistry);
+        AgentLoop agentLoop = new AgentLoop(config, assistantSampler, toolRegistry);
         AgentSession session = new AgentSession(
                 authStorage,
                 modelRegistry,
