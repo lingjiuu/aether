@@ -1,12 +1,11 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.agent.AgentLoop;
-import io.github.lingjiuu.auth.AuthStorage;
+import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.model.AgentConfig;
 import io.github.lingjiuu.model.ConversationHistory;
-import io.github.lingjiuu.model.AgentTool;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
 import io.github.lingjiuu.tool.builtin.GetTimeTool;
@@ -53,12 +52,12 @@ public class AgentSessionFactory {
 
     public AgentSession openSession() {
         ToolRegistry toolRegistry = new ToolRegistry();
-        List<AgentTool> sessionTools = new ArrayList<>();
+        List<ToolDefinition> sessionTools = new ArrayList<>();
         if (configuration.getDefaultTools() != null) {
             for (ToolDefinition definition : configuration.getDefaultTools()) {
                 toolRegistry.register(definition);
             }
-            sessionTools.addAll(toolRegistry.toAgentTools());
+            sessionTools.addAll(toolRegistry.definitions());
         }
 
         AgentConfig config = AgentConfig.builder()

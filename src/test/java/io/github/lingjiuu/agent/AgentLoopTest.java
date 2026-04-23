@@ -1,8 +1,6 @@
 package io.github.lingjiuu.agent;
 
-import com.openai.core.JsonValue;
-import com.openai.models.responses.FunctionTool;
-import io.github.lingjiuu.auth.AuthStorage;
+import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.llm.AssistantStream;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
 import io.github.lingjiuu.llm.LlmClient;
@@ -54,7 +52,7 @@ public class AgentLoopTest extends TestCase {
 
         ToolRegistry toolRegistry = new ToolRegistry();
         toolRegistry.register(new EchoTool());
-        config.getTools().addAll(toolRegistry.toAgentTools());
+        config.getTools().addAll(toolRegistry.definitions());
         List<String> callOrder = new ArrayList<>();
 
         FakeProvider provider = new FakeProvider(
@@ -291,22 +289,17 @@ public class AgentLoopTest extends TestCase {
         }
 
         @Override
-        public FunctionTool schema() {
-            return FunctionTool.builder()
-                    .name(name())
-                    .description(description())
-                    .strict(true)
-                    .parameters(FunctionTool.Parameters.builder()
-                            .putAdditionalProperty("type", JsonValue.from("object"))
-                            .putAdditionalProperty("properties", JsonValue.from(Map.of(
-                                    "text", Map.of(
-                                            "type", "string",
-                                            "description", "The text to echo back"
-                                    )
-                            )))
-                            .putAdditionalProperty("required", JsonValue.from(List.of("text")))
-                            .build())
-                    .build();
+        public Map<String, Object> parametersSchema() {
+            return Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                            "text", Map.of(
+                                    "type", "string",
+                                    "description", "The text to echo back"
+                            )
+                    ),
+                    "required", List.of("text")
+            );
         }
 
         @Override

@@ -1,4 +1,4 @@
-package io.github.lingjiuu.config;
+package io.github.lingjiuu.infra.config;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;

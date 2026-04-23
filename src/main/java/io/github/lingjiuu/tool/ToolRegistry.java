@@ -1,8 +1,5 @@
 package io.github.lingjiuu.tool;
 
-import com.openai.models.responses.Tool;
-import io.github.lingjiuu.model.AgentTool;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,19 +34,6 @@ public class ToolRegistry {
 
     public List<ToolDefinition> definitions() {
         return List.copyOf(new ArrayList<>(definitionsByName.values()));
-    }
-
-    public List<AgentTool> toAgentTools() {
-        List<AgentTool> tools = new ArrayList<>();
-        for (ToolDefinition definition : definitionsByName.values()) {
-            tools.add(AgentTool.builder()
-                    .name(definition.name())
-                    .label(definition.label())
-                    .description(definition.description())
-                    .schema(definition.schema())
-                    .build());
-        }
-        return tools;
     }
 
     public io.github.lingjiuu.message.ToolResultMessage execute(

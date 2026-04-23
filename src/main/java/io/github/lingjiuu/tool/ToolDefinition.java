@@ -1,8 +1,7 @@
 package io.github.lingjiuu.tool;
 
-import com.openai.models.responses.FunctionTool;
-
 import java.util.List;
+import java.util.Map;
 
 public interface ToolDefinition {
 
@@ -12,7 +11,7 @@ public interface ToolDefinition {
 
     String description();
 
-    FunctionTool schema();
+    Map<String, Object> parametersSchema();
 
     default String promptSnippet() {
         return null;

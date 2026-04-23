@@ -22,7 +22,7 @@ import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
-import io.github.lingjiuu.model.AgentTool;
+import io.github.lingjiuu.tool.ToolDefinition;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +30,7 @@ import java.util.List;
 public class OpenAiResponsesRequestBuilder {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    private final OpenAiToolSchemaBuilder toolSchemaBuilder = new OpenAiToolSchemaBuilder();
 
     public ResponseCreateParams buildRequest(LlmRequest request) {
         if (request == null || request.getConfig() == null || request.getConfig().getModel() == null) {
@@ -53,9 +54,9 @@ public class OpenAiResponsesRequestBuilder {
         }
 
         if (request.getConfig().getTools() != null) {
-            for (AgentTool tool : request.getConfig().getTools()) {
-                if (tool != null && tool.getSchema() != null) {
-                    builder.addTool(tool.getSchema());
+            for (ToolDefinition tool : request.getConfig().getTools()) {
+                if (tool != null) {
+                    builder.addTool(toolSchemaBuilder.build(tool));
                 }
             }
         }

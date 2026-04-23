@@ -4,7 +4,7 @@ import io.github.lingjiuu.agent.AgentEvent;
 import io.github.lingjiuu.agent.AgentLoop;
 import io.github.lingjiuu.agent.AgentRuntime;
 import io.github.lingjiuu.agent.AgentRuntimeState;
-import io.github.lingjiuu.auth.AuthStorage;
+import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
@@ -82,7 +82,7 @@ public class AgentSession {
         }
         toolRegistry.register(definition);
         config.getTools().clear();
-        config.getTools().addAll(toolRegistry.toAgentTools());
+        config.getTools().addAll(toolRegistry.definitions());
         updatedAt = System.currentTimeMillis();
     }
 

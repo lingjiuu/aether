@@ -17,9 +17,11 @@ import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.model.AgentConfig;
+import io.github.lingjiuu.tool.builtin.GetTimeTool;
 import junit.framework.TestCase;
 
 import java.util.List;
+import java.util.Map;
 
 public class OpenAiResponsesRequestBuilderTest extends TestCase {
 
@@ -175,5 +177,37 @@ public class OpenAiResponsesRequestBuilderTest extends TestCase {
         assertEquals("call-fallback", functionCall.asFunctionCall().callId());
         assertEquals("get_time", functionCall.asFunctionCall().name());
         assertEquals("{\"timezone\":\"UTC\"}", functionCall.asFunctionCall().arguments());
+    }
+
+    public void testBuildRequestSerializesProviderNeutralTools() {
+        OpenAiResponsesRequestBuilder requestBuilder = new OpenAiResponsesRequestBuilder();
+
+        ResponseCreateParams params = requestBuilder.buildRequest(LlmRequest.builder()
+                .config(AgentConfig.builder()
+                        .model(LlmModel.builder()
+                                .id("gpt-4.1")
+                                .provider("openai")
+                                .api("openai")
+                                .baseUrl("https://api.openai.com/v1")
+                                .build())
+                        .tools(List.of(new GetTimeTool()))
+                        .build())
+                .callOptions(LlmCallOptions.builder().build())
+                .build());
+
+        assertTrue(params.tools().isPresent());
+        assertEquals(1, params.tools().get().size());
+        assertTrue(params.tools().get().getFirst().isFunction());
+        assertEquals("get_time", params.tools().get().getFirst().asFunction().name());
+        assertEquals("Get the current time in Asia/Shanghai.", params.tools().get().getFirst().asFunction().description().orElse(null));
+        assertEquals(Boolean.TRUE, params.tools().get().getFirst().asFunction().strict().orElse(null));
+        assertEquals(
+                Map.of(
+                        "type", JsonValue.from("object"),
+                        "properties", JsonValue.from(Map.of()),
+                        "required", JsonValue.from(List.of())
+                ),
+                params.tools().get().getFirst().asFunction().parameters().orElseThrow()._additionalProperties()
+        );
     }
 }

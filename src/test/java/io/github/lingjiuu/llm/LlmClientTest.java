@@ -1,6 +1,6 @@
 package io.github.lingjiuu.llm;
 
-import io.github.lingjiuu.auth.AuthStorage;
+import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;

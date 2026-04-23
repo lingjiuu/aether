@@ -2,6 +2,7 @@ package io.github.lingjiuu.model;
 
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.ReasoningOptions;
+import io.github.lingjiuu.tool.ToolDefinition;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -23,5 +24,5 @@ public class AgentConfig {
     private ReasoningOptions reasoning;
 
     @Builder.Default
-    private List<AgentTool> tools = new ArrayList<>();
+    private List<ToolDefinition> tools = new ArrayList<>();
 }

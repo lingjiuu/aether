@@ -36,7 +36,7 @@ public class AgentRuntimeTest extends TestCase {
 
         ToolRegistry toolRegistry = new ToolRegistry();
         toolRegistry.register(new AgentLoopTest.EchoTool());
-        config.getTools().addAll(toolRegistry.toAgentTools());
+        config.getTools().addAll(toolRegistry.definitions());
         List<String> callOrder = new ArrayList<>();
 
         AgentLoopTest.FakeProvider provider = new AgentLoopTest.FakeProvider(

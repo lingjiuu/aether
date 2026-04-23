@@ -1,7 +1,4 @@
 package io.github.lingjiuu.tool.builtin;
-
-import com.openai.core.JsonValue;
-import com.openai.models.responses.FunctionTool;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
 import io.github.lingjiuu.tool.ToolExecutionResult;
@@ -29,17 +26,12 @@ public class GetTimeTool implements ToolDefinition {
     }
 
     @Override
-    public FunctionTool schema() {
-        return FunctionTool.builder()
-                .name(name())
-                .description(description())
-                .strict(true)
-                .parameters(FunctionTool.Parameters.builder()
-                        .putAdditionalProperty("type", JsonValue.from("object"))
-                        .putAdditionalProperty("properties", JsonValue.from(Map.of()))
-                        .putAdditionalProperty("required", JsonValue.from(List.of()))
-                        .build())
-                .build();
+    public Map<String, Object> parametersSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(),
+                "required", List.of()
+        );
     }
 
     @Override

@@ -5,7 +5,7 @@ import io.github.lingjiuu.agent.ContextTransformer;
 import io.github.lingjiuu.agent.DefaultContextTransformer;
 import io.github.lingjiuu.agent.DefaultLlmMessageConverter;
 import io.github.lingjiuu.agent.LlmMessageConverter;
-import io.github.lingjiuu.auth.AuthStorage;
+import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.ReasoningOptions;

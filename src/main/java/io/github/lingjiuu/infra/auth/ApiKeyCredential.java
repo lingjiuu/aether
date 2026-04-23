@@ -1,4 +1,4 @@
-package io.github.lingjiuu.auth;
+package io.github.lingjiuu.infra.auth;
 
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import lombok.AllArgsConstructor;

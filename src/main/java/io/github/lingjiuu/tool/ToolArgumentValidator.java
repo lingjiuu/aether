@@ -17,9 +17,9 @@ public class ToolArgumentValidator {
             Map<String, Object> arguments = OBJECT_MAPPER.readValue(json, new TypeReference<>() {
             });
 
-            JsonNode parametersNode = definition.schema() != null && definition.schema().parameters().isPresent()
-                    ? OBJECT_MAPPER.valueToTree(definition.schema().parameters().get())
-                    : null;
+            JsonNode parametersNode = definition.parametersSchema() == null
+                    ? null
+                    : OBJECT_MAPPER.valueToTree(definition.parametersSchema());
 
             if (parametersNode != null && parametersNode.has("required") && parametersNode.get("required").isArray()) {
                 List<String> requiredFields = OBJECT_MAPPER.convertValue(parametersNode.get("required"), new TypeReference<>() {

@@ -1,9 +1,9 @@
-package io.github.lingjiuu.auth;
+package io.github.lingjiuu.infra.auth;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.lingjiuu.config.AetherPaths;
-import io.github.lingjiuu.config.ConfigValueResolver;
+import io.github.lingjiuu.infra.config.AetherPaths;
+import io.github.lingjiuu.infra.config.ConfigValueResolver;
 
 import java.io.IOException;
 import java.nio.file.Files;
