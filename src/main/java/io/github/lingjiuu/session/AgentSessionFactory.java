@@ -71,9 +71,6 @@ public class AgentSessionFactory {
         AgentLoop agentLoop = new AgentLoop(
                 config,
                 configuration.getLlmClient(),
-                configuration.getContextTransformer(),
-                configuration.getLlmMessageConverter(),
-                configuration.getAssistantStreamEventMapper(),
                 toolRegistry
         );
 

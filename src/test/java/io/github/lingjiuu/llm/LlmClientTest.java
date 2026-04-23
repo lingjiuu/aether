@@ -4,7 +4,6 @@ import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
-import io.github.lingjiuu.model.AgentConfig;
 import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.RequestAuth;
@@ -26,24 +25,22 @@ public class LlmClientTest extends TestCase {
         );
 
         LlmRequest request = LlmRequest.builder()
-                .config(AgentConfig.builder()
-                        .systemPrompt("You are helpful")
-                        .model(LlmModel.builder()
-                                .id("fake-model")
-                                .name("Fake Model")
-                                .api("fake")
-                                .provider("fake-provider")
-                                .baseUrl("https://example.test")
-                                .build())
-                        .reasoning(ReasoningOptions.builder()
-                                .reasoningEffort(ReasoningOptions.ReasoningEffort.HIGH)
-                                .build())
+                .systemPrompt("You are helpful")
+                .model(LlmModel.builder()
+                        .id("fake-model")
+                        .name("Fake Model")
+                        .api("fake")
+                        .provider("fake-provider")
+                        .baseUrl("https://example.test")
                         .build())
                 .messages(List.of(UserMessage.builder()
                         .contents(List.of(TextContent.builder().text("Hello").build()))
                         .build()))
                 .callOptions(LlmCallOptions.builder()
                         .temperature(0.2)
+                        .reasoning(ReasoningOptions.builder()
+                                .reasoningEffort(ReasoningOptions.ReasoningEffort.HIGH)
+                                .build())
                         .build())
                 .build();
 
@@ -52,7 +49,7 @@ public class LlmClientTest extends TestCase {
         }
 
         assertNotNull(provider.capturedRequest);
-        assertEquals("You are helpful", provider.capturedRequest.getConfig().getSystemPrompt());
+        assertEquals("You are helpful", provider.capturedRequest.getSystemPrompt());
         assertEquals("Hello", ((TextContent) provider.capturedRequest.getMessages().getFirst().messageContents().getFirst()).getText());
         assertEquals("test-key", provider.capturedRequest.getAuth().getApiKey());
         assertEquals("trace-1", provider.capturedRequest.getAuth().getHeaders().get("X-Test-Trace"));

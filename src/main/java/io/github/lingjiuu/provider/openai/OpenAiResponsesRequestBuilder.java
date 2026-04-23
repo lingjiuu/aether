@@ -33,13 +33,13 @@ public class OpenAiResponsesRequestBuilder {
     private final OpenAiToolSchemaBuilder toolSchemaBuilder = new OpenAiToolSchemaBuilder();
 
     public ResponseCreateParams buildRequest(LlmRequest request) {
-        if (request == null || request.getConfig() == null || request.getConfig().getModel() == null) {
-            throw new IllegalArgumentException("request config and model must not be null");
+        if (request == null || request.getModel() == null) {
+            throw new IllegalArgumentException("request model must not be null");
         }
 
         LlmCallOptions safeOptions = request.getCallOptions() == null ? LlmCallOptions.builder().build() : request.getCallOptions();
         ResponseCreateParams.Builder builder = ResponseCreateParams.builder()
-                .model(request.getConfig().getModel().getId())
+                .model(request.getModel().getId())
                 .store(false)
                 .inputOfResponse(toInputItems(request));
 
@@ -53,8 +53,8 @@ public class OpenAiResponsesRequestBuilder {
             builder.reasoning(toOpenAiReasoning(safeOptions.getReasoning()));
         }
 
-        if (request.getConfig().getTools() != null) {
-            for (ToolDefinition tool : request.getConfig().getTools()) {
+        if (request.getTools() != null) {
+            for (ToolDefinition tool : request.getTools()) {
                 if (tool != null) {
                     builder.addTool(toolSchemaBuilder.build(tool));
                 }
@@ -67,7 +67,7 @@ public class OpenAiResponsesRequestBuilder {
     private List<ResponseInputItem> toInputItems(LlmRequest request) {
         List<ResponseInputItem> inputItems = new ArrayList<>();
 
-        String systemPrompt = request.getConfig().getSystemPrompt();
+        String systemPrompt = request.getSystemPrompt();
         if (systemPrompt != null && !systemPrompt.isBlank()) {
             inputItems.add(ResponseInputItem.ofEasyInputMessage(
                     EasyInputMessage.builder()

@@ -16,7 +16,6 @@ import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
-import io.github.lingjiuu.model.AgentConfig;
 import io.github.lingjiuu.tool.builtin.GetTimeTool;
 import junit.framework.TestCase;
 
@@ -72,14 +71,12 @@ public class OpenAiResponsesRequestBuilderTest extends TestCase {
                 .build();
 
         ResponseCreateParams params = requestBuilder.buildRequest(LlmRequest.builder()
-                .config(AgentConfig.builder()
-                        .systemPrompt("You are helpful")
-                        .model(LlmModel.builder()
-                                .id("gpt-4.1")
-                                .provider("openai")
-                                .api("openai")
-                                .baseUrl("https://api.openai.com/v1")
-                                .build())
+                .systemPrompt("You are helpful")
+                .model(LlmModel.builder()
+                        .id("gpt-4.1")
+                        .provider("openai")
+                        .api("openai")
+                        .baseUrl("https://api.openai.com/v1")
                         .build())
                 .messages(List.of(
                         UserMessage.builder()
@@ -151,13 +148,11 @@ public class OpenAiResponsesRequestBuilderTest extends TestCase {
                 .build();
 
         ResponseCreateParams params = requestBuilder.buildRequest(LlmRequest.builder()
-                .config(AgentConfig.builder()
-                        .model(LlmModel.builder()
-                                .id("gpt-4.1")
-                                .provider("openai")
-                                .api("openai")
-                                .baseUrl("https://api.openai.com/v1")
-                                .build())
+                .model(LlmModel.builder()
+                        .id("gpt-4.1")
+                        .provider("openai")
+                        .api("openai")
+                        .baseUrl("https://api.openai.com/v1")
                         .build())
                 .messages(List.of(assistantMessage))
                 .callOptions(LlmCallOptions.builder().build())
@@ -183,15 +178,13 @@ public class OpenAiResponsesRequestBuilderTest extends TestCase {
         OpenAiResponsesRequestBuilder requestBuilder = new OpenAiResponsesRequestBuilder();
 
         ResponseCreateParams params = requestBuilder.buildRequest(LlmRequest.builder()
-                .config(AgentConfig.builder()
-                        .model(LlmModel.builder()
-                                .id("gpt-4.1")
-                                .provider("openai")
-                                .api("openai")
-                                .baseUrl("https://api.openai.com/v1")
-                                .build())
-                        .tools(List.of(new GetTimeTool()))
+                .model(LlmModel.builder()
+                        .id("gpt-4.1")
+                        .provider("openai")
+                        .api("openai")
+                        .baseUrl("https://api.openai.com/v1")
                         .build())
+                .tools(List.of(new GetTimeTool()))
                 .callOptions(LlmCallOptions.builder().build())
                 .build());
 

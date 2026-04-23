@@ -1,9 +1,6 @@
 package io.github.lingjiuu.agent;
 
-import io.github.lingjiuu.llm.AssistantStream;
-import io.github.lingjiuu.llm.LlmCallOptions;
 import io.github.lingjiuu.llm.LlmClient;
-import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
@@ -17,20 +14,21 @@ import java.util.List;
 
 public class AgentLoop {
 
-    private final AgentConfig config;
-    private final LlmClient llmClient;
-    private final ContextTransformer contextTransformer;
-    private final LlmMessageConverter llmMessageConverter;
-    private final AssistantStreamEventMapper assistantStreamEventMapper;
+    private final TurnPreprocessor turnPreprocessor;
+    private final ModelInvoker modelInvoker;
     private final ToolRegistry toolRegistry;
 
     public AgentLoop(AgentConfig config, LlmClient llmClient, ToolRegistry toolRegistry) {
         this(
-                config,
-                llmClient,
-                new DefaultContextTransformer(),
-                new DefaultLlmMessageConverter(),
-                new AssistantStreamEventMapper(),
+                new TurnPreprocessor(
+                        config,
+                        new DefaultContextTransformer(),
+                        new DefaultLlmMessageConverter()
+                ),
+                new ModelInvoker(
+                        llmClient,
+                        new AssistantStreamEventMapper()
+                ),
                 toolRegistry
         );
     }
@@ -43,11 +41,29 @@ public class AgentLoop {
             AssistantStreamEventMapper assistantStreamEventMapper,
             ToolRegistry toolRegistry
     ) {
-        this.config = config;
-        this.llmClient = llmClient;
-        this.contextTransformer = contextTransformer;
-        this.llmMessageConverter = llmMessageConverter;
-        this.assistantStreamEventMapper = assistantStreamEventMapper;
+        this(
+                new TurnPreprocessor(config, contextTransformer, llmMessageConverter),
+                new ModelInvoker(llmClient, assistantStreamEventMapper),
+                toolRegistry
+        );
+    }
+
+    public AgentLoop(
+            TurnPreprocessor turnPreprocessor,
+            ModelInvoker modelInvoker,
+            ToolRegistry toolRegistry
+    ) {
+        if (turnPreprocessor == null) {
+            throw new IllegalArgumentException("turnPreprocessor must not be null");
+        }
+        if (modelInvoker == null) {
+            throw new IllegalArgumentException("modelInvoker must not be null");
+        }
+        if (toolRegistry == null) {
+            throw new IllegalArgumentException("toolRegistry must not be null");
+        }
+        this.turnPreprocessor = turnPreprocessor;
+        this.modelInvoker = modelInvoker;
         this.toolRegistry = toolRegistry;
     }
 
@@ -71,7 +87,10 @@ public class AgentLoop {
                 .turn(currentTurn)
                 .build());
 
-        SampledAssistantMessage sampledAssistantMessage = sampleAssistantMessage(runtimeState.snapshot(), currentTurn);
+        ModelInvocationResult sampledAssistantMessage = modelInvoker.invoke(
+                turnPreprocessor.prepare(runtimeState),
+                currentTurn
+        );
         appendedMessages.add(sampledAssistantMessage.assistantMessage());
         events.addAll(sampledAssistantMessage.streamEvents());
         events.add(AgentEvent.builder()
@@ -119,32 +138,6 @@ public class AgentLoop {
         events.addAll(toolCallStep.events());
 
         return TurnResult.nextTurn(appendedMessages, events);
-    }
-
-    private SampledAssistantMessage sampleAssistantMessage(List<Message> messages, int turn) {
-        List<AgentEvent> streamEvents = new ArrayList<>();
-        AssistantMessage assistantMessage;
-        List<Message> messagesForModel = contextTransformer.transformContext(messages);
-        List<Message> llmMessages = llmMessageConverter.convertToLlm(messagesForModel);
-
-        LlmRequest request = LlmRequest.builder()
-                .config(config)
-                .messages(llmMessages)
-                .callOptions(LlmCallOptions.builder().build())
-                .build();
-
-        try (AssistantStream streaming = llmClient.stream(request)) {
-            assistantMessage = streaming.consume(event -> streamEvents.addAll(assistantStreamEventMapper.map(event, turn)));
-        } catch (java.io.IOException e) {
-            throw new RuntimeException("Failed to close assistant stream", e);
-        }
-
-        return new SampledAssistantMessage(
-                assistantMessage,
-                MessageContents.text(assistantMessage),
-                MessageContents.toolCalls(assistantMessage),
-                streamEvents
-        );
     }
 
     private ToolCallStep executeToolCalls(
@@ -195,14 +188,6 @@ public class AgentLoop {
         }
 
         return new ToolCallStep(toolResults, events);
-    }
-
-    private record SampledAssistantMessage(
-            AssistantMessage assistantMessage,
-            String assistantText,
-            List<ToolCallContent> toolCalls,
-            List<AgentEvent> streamEvents
-    ) {
     }
 
     private record ToolCallStep(

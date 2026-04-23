@@ -33,11 +33,11 @@ public class OpenAiResponsesProvider implements Provider {
 
     @Override
     public AssistantStream stream(LlmRequest request) {
-        if (request == null || request.getConfig() == null || request.getConfig().getModel() == null) {
-            throw new IllegalArgumentException("request config and model must not be null");
+        if (request == null || request.getModel() == null) {
+            throw new IllegalArgumentException("request model must not be null");
         }
 
-        LlmModel model = request.getConfig().getModel();
+        LlmModel model = request.getModel();
         OpenAIClient client = createClient(model, request.getAuth());
         ResponseCreateParams params = requestBuilder.buildRequest(request);
         return streamParser.parseStream(

@@ -58,7 +58,7 @@ public class AgentSessionIntegrationTest extends TestCase {
                 AgentSessionEvent.Type.RUN_END
         ), eventTypes);
         assertEquals(1, provider.invocationCount);
-        assertEquals("You are a helpful assistant", provider.lastRequest.getConfig().getSystemPrompt());
+        assertEquals("You are a helpful assistant", provider.lastRequest.getSystemPrompt());
         assertEquals(1, provider.lastRequest.getMessages().size());
         assertEquals("Hello", MessageContents.text(provider.lastRequest.getMessages().getFirst()));
         assertEquals(2, session.messages().size());

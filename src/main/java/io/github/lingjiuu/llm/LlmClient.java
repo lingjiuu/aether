@@ -27,37 +27,26 @@ public class LlmClient {
     }
 
     public AssistantStream stream(LlmRequest request) {
-        if (request == null || request.getConfig() == null || request.getConfig().getModel() == null) {
-            throw new IllegalArgumentException("request config and model must not be null");
+        if (request == null || request.getModel() == null) {
+            throw new IllegalArgumentException("request model must not be null");
         }
 
         RequestAuth auth = request.getAuth() != null
                 ? request.getAuth()
-                : modelRegistry.getRequestAuth(request.getConfig().getModel());
+                : modelRegistry.getRequestAuth(request.getModel());
         if (!auth.isOk()) {
             throw new IllegalStateException(auth.getError());
         }
 
-        Provider provider = providerRegistry.require(request.getConfig().getModel().getApi());
+        Provider provider = providerRegistry.require(request.getModel().getApi());
         return provider.stream(request.toBuilder()
                 .auth(auth)
-                .callOptions(mergeOptions(request))
+                .callOptions(request.getCallOptions() == null ? LlmCallOptions.builder().build() : request.getCallOptions())
                 .build());
     }
 
     public AssistantStream sample(LlmRequest request) {
         return stream(request);
-    }
-
-    private LlmCallOptions mergeOptions(LlmRequest request) {
-        LlmCallOptions safeOptions = request.getCallOptions() == null ? LlmCallOptions.builder().build() : request.getCallOptions();
-        return LlmCallOptions.builder()
-                .temperature(safeOptions.getTemperature())
-                .maxTokens(safeOptions.getMaxTokens())
-                .reasoning(safeOptions.getReasoning() != null
-                        ? safeOptions.getReasoning()
-                        : request.getConfig().getReasoning())
-                .build();
     }
 
     private static ProviderRegistry defaultRegistry() {
