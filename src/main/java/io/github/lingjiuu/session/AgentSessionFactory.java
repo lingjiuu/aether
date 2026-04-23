@@ -4,13 +4,10 @@ import io.github.lingjiuu.agent.AgentLoop;
 import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.model.AgentConfig;
-import io.github.lingjiuu.model.ConversationHistory;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
 import io.github.lingjiuu.tool.builtin.GetTimeTool;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class AgentSessionFactory {
@@ -52,36 +49,22 @@ public class AgentSessionFactory {
 
     public AgentSession openSession() {
         ToolRegistry toolRegistry = new ToolRegistry();
-        List<ToolDefinition> sessionTools = new ArrayList<>();
         if (configuration.getDefaultTools() != null) {
             for (ToolDefinition definition : configuration.getDefaultTools()) {
                 toolRegistry.register(definition);
             }
-            sessionTools.addAll(toolRegistry.definitions());
         }
 
-        AgentConfig config = AgentConfig.builder()
-                .systemPrompt(configuration.getSystemPrompt())
-                .model(configuration.getModel())
-                .reasoning(configuration.getReasoning())
-                .tools(sessionTools)
-                .build();
-        ConversationHistory history = new ConversationHistory();
-
-        AgentLoop agentLoop = new AgentLoop(
-                config,
-                configuration.getLlmClient(),
-                toolRegistry
-        );
-
-        return new AgentSession(
-                configuration.getAuthStorage(),
+        AgentSessionServices services = new AgentSessionServices(
+                configuration,
                 configuration.getModelRegistry(),
                 toolRegistry,
-                config,
-                history,
-                agentLoop
+                configuration.getLlmClient()
         );
+
+        AgentLoop agentLoop = new AgentLoop(services);
+
+        return new AgentSession(services, agentLoop);
     }
 
     public AgentSessionConfig configuration() {

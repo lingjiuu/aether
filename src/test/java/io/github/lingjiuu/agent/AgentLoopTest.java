@@ -12,10 +12,11 @@ import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
-import io.github.lingjiuu.model.AgentConfig;
 import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.RequestAuth;
+import io.github.lingjiuu.session.AgentSessionConfig;
+import io.github.lingjiuu.session.AgentSessionServices;
 import io.github.lingjiuu.session.ModelRegistry;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
@@ -33,17 +34,6 @@ import java.util.Map;
 public class AgentLoopTest extends TestCase {
 
     public void testRunTurnReturnsToolResultsWithoutMutatingRuntimeState() throws Exception {
-        AgentConfig config = AgentConfig.builder()
-                .systemPrompt("You are a helpful assistant")
-                .model(LlmModel.builder()
-                        .id("test-model")
-                        .name("Test Model")
-                        .api("fake")
-                        .provider("fake")
-                        .baseUrl("https://example.test/v1")
-                        .build())
-                .build();
-
         AgentRuntimeState runtimeState = new AgentRuntimeState(List.of(
                 UserMessage.builder()
                         .contents(List.of(TextContent.builder().text("What time is it?").build()))
@@ -52,8 +42,8 @@ public class AgentLoopTest extends TestCase {
 
         ToolRegistry toolRegistry = new ToolRegistry();
         toolRegistry.register(new EchoTool());
-        config.getTools().addAll(toolRegistry.definitions());
         List<String> callOrder = new ArrayList<>();
+        StubModelRegistry modelRegistry = new StubModelRegistry();
 
         FakeProvider provider = new FakeProvider(
                 List.of(responseWithToolCall()),
@@ -64,17 +54,22 @@ public class AgentLoopTest extends TestCase {
                 callOrder
         );
         LlmClient llmClient = new LlmClient(
-                new StubModelRegistry(),
+                modelRegistry,
                 new ProviderRegistry().register(provider)
+        );
+        AgentSessionConfig config = sessionConfig(modelRegistry, llmClient);
+        AgentSessionServices services = new AgentSessionServices(
+                config,
+                modelRegistry,
+                toolRegistry,
+                llmClient
         );
 
         AgentLoop agentLoop = new AgentLoop(
-                config,
-                llmClient,
+                services,
                 new RecordingContextTransformer(callOrder),
                 new RecordingLlmMessageConverter(callOrder),
-                new AssistantStreamEventMapper(),
-                toolRegistry
+                new AssistantStreamEventMapper()
         );
 
         TurnResult turnResult = agentLoop.runTurn(runtimeState);
@@ -104,20 +99,9 @@ public class AgentLoopTest extends TestCase {
     }
 
     public void testRunTurnReturnsFinalAnswerWithoutMutatingRuntimeState() throws Exception {
-        AgentConfig config = AgentConfig.builder()
-                .systemPrompt("You are a helpful assistant")
-                .model(LlmModel.builder()
-                        .id("test-model")
-                        .name("Test Model")
-                        .api("fake")
-                        .provider("fake")
-                        .baseUrl("https://example.test/v1")
-                        .build())
-                .build();
-
         AgentRuntimeState runtimeState = new AgentRuntimeState(List.of(
                 UserMessage.builder()
-                .contents(List.of(TextContent.builder().text("What time is it?").build()))
+                        .contents(List.of(TextContent.builder().text("What time is it?").build()))
                         .build()
         ));
 
@@ -129,12 +113,20 @@ public class AgentLoopTest extends TestCase {
                 )),
                 new ArrayList<>()
         );
+        StubModelRegistry modelRegistry = new StubModelRegistry();
         LlmClient llmClient = new LlmClient(
-                new StubModelRegistry(),
+                modelRegistry,
                 new ProviderRegistry().register(provider)
         );
+        AgentSessionConfig config = sessionConfig(modelRegistry, llmClient);
+        AgentSessionServices services = new AgentSessionServices(
+                config,
+                modelRegistry,
+                new ToolRegistry(),
+                llmClient
+        );
 
-        AgentLoop agentLoop = new AgentLoop(config, llmClient, new ToolRegistry());
+        AgentLoop agentLoop = new AgentLoop(services);
 
         TurnResult turnResult = agentLoop.runTurn(runtimeState);
 
@@ -150,6 +142,21 @@ public class AgentLoopTest extends TestCase {
         assertEquals(TurnResult.Transition.FINISH, turnResult.transition());
         assertEquals(AgentRuntimeState.TerminationReason.COMPLETED, turnResult.terminationReason());
         assertEquals("Done.", MessageContents.text(turnResult.appendedMessages().getFirst()));
+    }
+
+    static AgentSessionConfig sessionConfig(ModelRegistry modelRegistry, LlmClient llmClient) {
+        return AgentSessionConfig.builder()
+                .modelRegistry(modelRegistry)
+                .llmClient(llmClient)
+                .systemPrompt("You are a helpful assistant")
+                .model(LlmModel.builder()
+                        .id("test-model")
+                        .name("Test Model")
+                        .api("fake")
+                        .provider("fake")
+                        .baseUrl("https://example.test/v1")
+                        .build())
+                .build();
     }
 
     static AssistantMessage responseWithToolCall() {
@@ -285,7 +292,7 @@ public class AgentLoopTest extends TestCase {
 
         @Override
         public String description() {
-            return "Echoes the provided text.";
+            return "Echo the provided text";
         }
 
         @Override
@@ -293,10 +300,7 @@ public class AgentLoopTest extends TestCase {
             return Map.of(
                     "type", "object",
                     "properties", Map.of(
-                            "text", Map.of(
-                                    "type", "string",
-                                    "description", "The text to echo back"
-                            )
+                            "text", Map.of("type", "string")
                     ),
                     "required", List.of("text")
             );
@@ -304,7 +308,8 @@ public class AgentLoopTest extends TestCase {
 
         @Override
         public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
-            return ToolExecutionResult.text("Echo: " + context.getArguments().get("text"));
+            String text = String.valueOf(context.getArguments().get("text"));
+            return ToolExecutionResult.text("Echo: " + text);
         }
     }
 }

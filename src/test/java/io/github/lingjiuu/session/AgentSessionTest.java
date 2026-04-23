@@ -10,8 +10,6 @@ import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
-import io.github.lingjiuu.model.AgentConfig;
-import io.github.lingjiuu.model.ConversationHistory;
 import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.RequestAuth;
@@ -27,7 +25,18 @@ import java.util.Map;
 public class AgentSessionTest extends TestCase {
 
     public void testPromptKeepsSessionApiBehaviorAndSnapshot() throws Exception {
-        AgentConfig config = AgentConfig.builder()
+        ToolRegistry toolRegistry = new ToolRegistry();
+        StubModelRegistry modelRegistry = new StubModelRegistry();
+        AuthStorage authStorage = AuthStorage.create(Files.createTempDirectory("aether-auth-test").resolve("auth.json"));
+
+        LlmClient llmClient = new LlmClient(
+                modelRegistry,
+                new ProviderRegistry().register(new SingleResponseProvider())
+        );
+        AgentSessionConfig config = AgentSessionConfig.builder()
+                .authStorage(authStorage)
+                .modelRegistry(modelRegistry)
+                .llmClient(llmClient)
                 .systemPrompt("You are a helpful assistant")
                 .model(LlmModel.builder()
                         .id("test-model")
@@ -37,24 +46,14 @@ public class AgentSessionTest extends TestCase {
                         .baseUrl("https://example.test/v1")
                         .build())
                 .build();
-        ConversationHistory history = new ConversationHistory();
-        ToolRegistry toolRegistry = new ToolRegistry();
-        StubModelRegistry modelRegistry = new StubModelRegistry();
-        AuthStorage authStorage = AuthStorage.create(Files.createTempDirectory("aether-auth-test").resolve("auth.json"));
-
-        LlmClient llmClient = new LlmClient(
-                modelRegistry,
-                new ProviderRegistry().register(new SingleResponseProvider())
-        );
-        AgentLoop agentLoop = new AgentLoop(config, llmClient, toolRegistry);
-        AgentSession session = new AgentSession(
-                authStorage,
+        AgentSessionServices services = new AgentSessionServices(
+                config,
                 modelRegistry,
                 toolRegistry,
-                config,
-                history,
-                agentLoop
+                llmClient
         );
+        AgentLoop agentLoop = new AgentLoop(services);
+        AgentSession session = new AgentSession(services, agentLoop);
 
         List<AgentSessionEvent.Type> eventTypes = new ArrayList<>();
         session.subscribe(event -> eventTypes.add(event.getType()));

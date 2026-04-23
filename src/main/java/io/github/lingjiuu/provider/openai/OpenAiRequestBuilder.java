@@ -27,7 +27,7 @@ import io.github.lingjiuu.tool.ToolDefinition;
 import java.util.ArrayList;
 import java.util.List;
 
-public class OpenAiResponsesRequestBuilder {
+public class OpenAiRequestBuilder {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final OpenAiToolSchemaBuilder toolSchemaBuilder = new OpenAiToolSchemaBuilder();

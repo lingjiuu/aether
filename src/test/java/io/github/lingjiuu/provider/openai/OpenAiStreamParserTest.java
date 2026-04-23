@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
-public class OpenAiResponsesStreamParserTest extends TestCase {
+public class OpenAiStreamParserTest extends TestCase {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
@@ -138,7 +138,7 @@ public class OpenAiResponsesStreamParserTest extends TestCase {
                         """)
         );
 
-        OpenAiResponsesStreamParser parser = new OpenAiResponsesStreamParser();
+        OpenAiStreamParser parser = new OpenAiStreamParser();
         AssistantStream stream = parser.parseStream(new FakeStreamResponse(events), "gpt-4.1", "openai");
 
         List<AssistantStreamEvent.Type> eventTypes = new ArrayList<>();

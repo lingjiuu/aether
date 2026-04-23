@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
-public class OpenAiResponsesStreamParser {
+public class OpenAiStreamParser {
 
     public AssistantStream parseStream(
             StreamResponse<ResponseStreamEvent> streamResponse,

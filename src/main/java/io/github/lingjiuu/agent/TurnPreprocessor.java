@@ -3,23 +3,23 @@ package io.github.lingjiuu.agent;
 import io.github.lingjiuu.llm.LlmCallOptions;
 import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.Message;
-import io.github.lingjiuu.model.AgentConfig;
+import io.github.lingjiuu.session.AgentSessionServices;
 
 import java.util.List;
 
 public class TurnPreprocessor {
 
-    private final AgentConfig config;
+    private final AgentSessionServices services;
     private final ContextTransformer contextTransformer;
     private final LlmMessageConverter llmMessageConverter;
 
     public TurnPreprocessor(
-            AgentConfig config,
+            AgentSessionServices services,
             ContextTransformer contextTransformer,
             LlmMessageConverter llmMessageConverter
     ) {
-        if (config == null) {
-            throw new IllegalArgumentException("config must not be null");
+        if (services == null) {
+            throw new IllegalArgumentException("services must not be null");
         }
         if (contextTransformer == null) {
             throw new IllegalArgumentException("contextTransformer must not be null");
@@ -27,7 +27,7 @@ public class TurnPreprocessor {
         if (llmMessageConverter == null) {
             throw new IllegalArgumentException("llmMessageConverter must not be null");
         }
-        this.config = config;
+        this.services = services;
         this.contextTransformer = contextTransformer;
         this.llmMessageConverter = llmMessageConverter;
     }
@@ -41,12 +41,12 @@ public class TurnPreprocessor {
         List<Message> llmMessages = llmMessageConverter.convertToLlm(messagesForModel);
 
         return LlmRequest.builder()
-                .systemPrompt(config.getSystemPrompt())
-                .model(config.getModel())
-                .tools(config.getTools())
+                .systemPrompt(services.getConfig().getSystemPrompt())
+                .model(services.getConfig().getModel())
+                .tools(services.getToolRegistry().definitions())
                 .messages(llmMessages)
                 .callOptions(LlmCallOptions.builder()
-                        .reasoning(config.getReasoning())
+                        .reasoning(services.getConfig().getReasoning())
                         .build())
                 .build();
     }

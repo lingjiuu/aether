@@ -22,12 +22,12 @@ import junit.framework.TestCase;
 import java.util.List;
 import java.util.Map;
 
-public class OpenAiResponsesRequestBuilderTest extends TestCase {
+public class OpenAiRequestBuilderTest extends TestCase {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     public void testProjectorPrefersReplayDataWhenPresent() throws Exception {
-        OpenAiResponsesRequestBuilder requestBuilder = new OpenAiResponsesRequestBuilder();
+        OpenAiRequestBuilder requestBuilder = new OpenAiRequestBuilder();
 
         OpenAiReplayData replayData = OpenAiReplayData.builder()
                 .responseId("resp_123")
@@ -131,7 +131,7 @@ public class OpenAiResponsesRequestBuilderTest extends TestCase {
     }
 
     public void testProjectorFallsBackToGenericContentsWithoutReplayData() throws Exception {
-        OpenAiResponsesRequestBuilder requestBuilder = new OpenAiResponsesRequestBuilder();
+        OpenAiRequestBuilder requestBuilder = new OpenAiRequestBuilder();
 
         AssistantMessage assistantMessage = AssistantMessage.builder()
                 .provider("openai")
@@ -175,7 +175,7 @@ public class OpenAiResponsesRequestBuilderTest extends TestCase {
     }
 
     public void testBuildRequestSerializesProviderNeutralTools() {
-        OpenAiResponsesRequestBuilder requestBuilder = new OpenAiResponsesRequestBuilder();
+        OpenAiRequestBuilder requestBuilder = new OpenAiRequestBuilder();
 
         ResponseCreateParams params = requestBuilder.buildRequest(LlmRequest.builder()
                 .model(LlmModel.builder()

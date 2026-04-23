@@ -2,12 +2,12 @@ package io.github.lingjiuu.agent;
 
 import io.github.lingjiuu.llm.AssistantStreamEvent;
 import io.github.lingjiuu.llm.LlmClient;
-import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
-import io.github.lingjiuu.model.AgentConfig;
 import io.github.lingjiuu.provider.ProviderRegistry;
+import io.github.lingjiuu.session.AgentSessionConfig;
+import io.github.lingjiuu.session.AgentSessionServices;
 import io.github.lingjiuu.tool.ToolRegistry;
 import junit.framework.TestCase;
 
@@ -17,17 +17,6 @@ import java.util.List;
 public class AgentRuntimeTest extends TestCase {
 
     public void testRunOwnsMultiTurnEventOrderingAndStateGrowth() throws Exception {
-        AgentConfig config = AgentConfig.builder()
-                .systemPrompt("You are a helpful assistant")
-                .model(LlmModel.builder()
-                        .id("test-model")
-                        .name("Test Model")
-                        .api("fake")
-                        .provider("fake")
-                        .baseUrl("https://example.test/v1")
-                        .build())
-                .build();
-
         AgentRuntimeState runtimeState = new AgentRuntimeState(List.of(
                 UserMessage.builder()
                         .contents(List.of(TextContent.builder().text("What time is it?").build()))
@@ -36,8 +25,8 @@ public class AgentRuntimeTest extends TestCase {
 
         ToolRegistry toolRegistry = new ToolRegistry();
         toolRegistry.register(new AgentLoopTest.EchoTool());
-        config.getTools().addAll(toolRegistry.definitions());
         List<String> callOrder = new ArrayList<>();
+        AgentLoopTest.StubModelRegistry modelRegistry = new AgentLoopTest.StubModelRegistry();
 
         AgentLoopTest.FakeProvider provider = new AgentLoopTest.FakeProvider(
                 List.of(
@@ -57,17 +46,22 @@ public class AgentRuntimeTest extends TestCase {
                 callOrder
         );
         LlmClient llmClient = new LlmClient(
-                new AgentLoopTest.StubModelRegistry(),
+                modelRegistry,
                 new ProviderRegistry().register(provider)
+        );
+        AgentSessionConfig config = AgentLoopTest.sessionConfig(modelRegistry, llmClient);
+        AgentSessionServices services = new AgentSessionServices(
+                config,
+                modelRegistry,
+                toolRegistry,
+                llmClient
         );
 
         AgentLoop agentLoop = new AgentLoop(
-                config,
-                llmClient,
+                services,
                 new AgentLoopTest.RecordingContextTransformer(callOrder),
                 new AgentLoopTest.RecordingLlmMessageConverter(callOrder),
-                new AssistantStreamEventMapper(),
-                toolRegistry
+                new AssistantStreamEventMapper()
         );
         AgentRuntime runtime = new AgentRuntime(runtimeState, agentLoop);
 

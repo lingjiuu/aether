@@ -3,7 +3,7 @@ package io.github.lingjiuu.llm;
 import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.RequestAuth;
-import io.github.lingjiuu.provider.openai.OpenAiResponsesProvider;
+import io.github.lingjiuu.provider.openai.OpenAiProvider;
 import io.github.lingjiuu.session.ModelRegistry;
 
 public class LlmClient {
@@ -51,6 +51,6 @@ public class LlmClient {
 
     private static ProviderRegistry defaultRegistry() {
         return new ProviderRegistry()
-                .register(new OpenAiResponsesProvider());
+                .register(new OpenAiProvider());
     }
 }

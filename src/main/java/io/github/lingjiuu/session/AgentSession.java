@@ -8,10 +8,7 @@ import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
-import io.github.lingjiuu.model.AgentConfig;
-import io.github.lingjiuu.model.ConversationHistory;
 import io.github.lingjiuu.tool.ToolDefinition;
-import io.github.lingjiuu.tool.ToolRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,12 +17,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 public class AgentSession {
 
-    private final AuthStorage authStorage;
-    private final ModelRegistry modelRegistry;
-    private final ToolRegistry toolRegistry;
-    private final AgentConfig config;
-    private final ConversationHistory history;
+    private final AgentSessionServices services;
     private final AgentLoop agentLoop;
+    private final List<Message> messages = new ArrayList<>();
     private final String sessionId;
     private final long createdAt;
     private final List<AgentSessionEventListener> listeners = new CopyOnWriteArrayList<>();
@@ -33,22 +27,20 @@ public class AgentSession {
     private volatile AgentSessionStatus status;
 
     public AgentSession(
-            AuthStorage authStorage,
-            ModelRegistry modelRegistry,
-            ToolRegistry toolRegistry,
-            AgentConfig config,
-            ConversationHistory history,
+            AgentSessionServices services,
             AgentLoop agentLoop
     ) {
-        this.authStorage = authStorage;
-        this.modelRegistry = modelRegistry;
-        this.toolRegistry = toolRegistry;
+        if (services == null) {
+            throw new IllegalArgumentException("services must not be null");
+        }
+        if (agentLoop == null) {
+            throw new IllegalArgumentException("agentLoop must not be null");
+        }
+        this.services = services;
         this.sessionId = UUID.randomUUID().toString();
         this.createdAt = System.currentTimeMillis();
         this.updatedAt = createdAt;
         this.status = AgentSessionStatus.IDLE;
-        this.config = config;
-        this.history = history;
         this.agentLoop = agentLoop;
     }
 
@@ -68,7 +60,7 @@ public class AgentSession {
 
     public synchronized void reset() {
         ensureNotRunning();
-        history.clear();
+        clearMessages();
         updatedAt = System.currentTimeMillis();
         emit(AgentSessionEvent.builder()
                 .type(AgentSessionEvent.Type.SESSION_RESET)
@@ -80,22 +72,20 @@ public class AgentSession {
         if (definition == null) {
             throw new IllegalArgumentException("tool definition must not be null");
         }
-        toolRegistry.register(definition);
-        config.getTools().clear();
-        config.getTools().addAll(toolRegistry.definitions());
+        services.getToolRegistry().register(definition);
         updatedAt = System.currentTimeMillis();
     }
 
     public synchronized boolean canContinue() {
-        if (history.isEmpty()) {
+        if (messages.isEmpty()) {
             return false;
         }
-        Message lastMessage = history.lastMessage();
+        Message lastMessage = lastMessage();
         return lastMessage == null || lastMessage.role() != Message.Role.ASSISTANT;
     }
 
     public synchronized List<Message> messages() {
-        return List.copyOf(new ArrayList<>(history.snapshot()));
+        return snapshotMessages();
     }
 
     public Runnable subscribe(AgentSessionEventListener listener) {
@@ -106,27 +96,27 @@ public class AgentSession {
         return () -> listeners.remove(listener);
     }
 
-    public AgentConfig config() {
-        return config;
+    public AgentSessionConfig config() {
+        return services.getConfig();
     }
 
     public AgentSessionSnapshot snapshot() {
         return AgentSessionSnapshot.builder()
-                .config(config)
-                .messages(history.snapshot())
+                .config(config())
+                .messages(snapshotMessages())
                 .build();
     }
 
     public ModelRegistry modelRegistry() {
-        return modelRegistry;
+        return services.getModelRegistry();
     }
 
-    public ToolRegistry toolRegistry() {
-        return toolRegistry;
+    public io.github.lingjiuu.tool.ToolRegistry toolRegistry() {
+        return services.getToolRegistry();
     }
 
     public AuthStorage authStorage() {
-        return authStorage;
+        return config().getAuthStorage();
     }
 
     public String sessionId() {
@@ -157,7 +147,7 @@ public class AgentSession {
                                 .build()
                 ))
                 .build();
-        history.append(userMessage);
+        appendMessage(userMessage);
         updatedAt = System.currentTimeMillis();
         emit(AgentSessionEvent.builder()
                 .type(AgentSessionEvent.Type.USER_MESSAGE)
@@ -170,7 +160,7 @@ public class AgentSession {
     private void runLoop() {
         status = AgentSessionStatus.RUNNING;
         updatedAt = System.currentTimeMillis();
-        AgentRuntime runtime = new AgentRuntime(new AgentRuntimeState(history.snapshot()), agentLoop);
+        AgentRuntime runtime = new AgentRuntime(new AgentRuntimeState(snapshotMessages()), agentLoop);
         try {
             runtime.run(this::forwardAgentEvent);
         } catch (RuntimeException e) {
@@ -194,7 +184,7 @@ public class AgentSession {
     }
 
     private void forwardAgentEvent(AgentEvent event) {
-        AgentSessionEvent mappedEvent = AgentSessionEventMapper.map(sessionId, event);
+        AgentSessionEvent mappedEvent = mapAgentEvent(event);
         if (mappedEvent != null) {
             emit(mappedEvent);
         }
@@ -207,7 +197,63 @@ public class AgentSession {
     }
 
     private void synchronizeHistory(AgentRuntimeState runtimeState) {
-        history.clear();
-        history.appendAll(runtimeState.snapshot());
+        replaceMessages(runtimeState.snapshot());
+    }
+
+    private AgentSessionEvent mapAgentEvent(AgentEvent event) {
+        if (event == null || event.getType() == null) {
+            return null;
+        }
+
+        AgentSessionEvent.Type type = switch (event.getType()) {
+            case RUN_START -> AgentSessionEvent.Type.RUN_START;
+            case TURN_START -> AgentSessionEvent.Type.TURN_START;
+            case ASSISTANT_TEXT_DELTA -> AgentSessionEvent.Type.ASSISTANT_TEXT_DELTA;
+            case REASONING_DELTA -> AgentSessionEvent.Type.REASONING_DELTA;
+            case ASSISTANT_MESSAGE -> AgentSessionEvent.Type.ASSISTANT_MESSAGE;
+            case TOOL_CALL -> AgentSessionEvent.Type.TOOL_CALL;
+            case TOOL_EXECUTION_START -> AgentSessionEvent.Type.TOOL_EXECUTION_START;
+            case TOOL_EXECUTION_UPDATE -> AgentSessionEvent.Type.TOOL_EXECUTION_UPDATE;
+            case TOOL_EXECUTION_END -> AgentSessionEvent.Type.TOOL_EXECUTION_END;
+            case TOOL_RESULT -> AgentSessionEvent.Type.TOOL_RESULT;
+            case FINAL_ANSWER -> AgentSessionEvent.Type.FINAL_ANSWER;
+            case RUN_END -> AgentSessionEvent.Type.RUN_END;
+        };
+
+        return AgentSessionEvent.builder()
+                .type(type)
+                .sessionId(sessionId)
+                .turn(event.getTurn())
+                .delta(event.getDelta())
+                .text(event.getText())
+                .assistantMessage(event.getAssistantMessage())
+                .toolCall(event.getToolCall())
+                .toolResult(event.getToolResult())
+                .partialToolResult(event.getPartialToolResult())
+                .build();
+    }
+
+    private void appendMessage(Message message) {
+        if (message == null) {
+            throw new IllegalArgumentException("message must not be null");
+        }
+        messages.add(message);
+    }
+
+    private void replaceMessages(List<Message> newMessages) {
+        clearMessages();
+        messages.addAll(newMessages);
+    }
+
+    private void clearMessages() {
+        messages.clear();
+    }
+
+    private List<Message> snapshotMessages() {
+        return List.copyOf(messages);
+    }
+
+    private Message lastMessage() {
+        return messages.isEmpty() ? null : messages.getLast();
     }
 }

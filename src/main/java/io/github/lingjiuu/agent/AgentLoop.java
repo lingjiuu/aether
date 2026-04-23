@@ -1,12 +1,11 @@
 package io.github.lingjiuu.agent;
 
-import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
-import io.github.lingjiuu.model.AgentConfig;
+import io.github.lingjiuu.session.AgentSessionServices;
 import io.github.lingjiuu.tool.ToolRegistry;
 
 import java.util.ArrayList;
@@ -18,33 +17,25 @@ public class AgentLoop {
     private final ModelInvoker modelInvoker;
     private final ToolRegistry toolRegistry;
 
-    public AgentLoop(AgentConfig config, LlmClient llmClient, ToolRegistry toolRegistry) {
+    public AgentLoop(AgentSessionServices services) {
         this(
-                new TurnPreprocessor(
-                        config,
-                        new DefaultContextTransformer(),
-                        new DefaultLlmMessageConverter()
-                ),
-                new ModelInvoker(
-                        llmClient,
-                        new AssistantStreamEventMapper()
-                ),
-                toolRegistry
+                services,
+                new DefaultContextTransformer(),
+                new DefaultLlmMessageConverter(),
+                new AssistantStreamEventMapper()
         );
     }
 
     public AgentLoop(
-            AgentConfig config,
-            LlmClient llmClient,
+            AgentSessionServices services,
             ContextTransformer contextTransformer,
             LlmMessageConverter llmMessageConverter,
-            AssistantStreamEventMapper assistantStreamEventMapper,
-            ToolRegistry toolRegistry
+            AssistantStreamEventMapper assistantStreamEventMapper
     ) {
         this(
-                new TurnPreprocessor(config, contextTransformer, llmMessageConverter),
-                new ModelInvoker(llmClient, assistantStreamEventMapper),
-                toolRegistry
+                new TurnPreprocessor(services, contextTransformer, llmMessageConverter),
+                new ModelInvoker(services.getLlmClient(), assistantStreamEventMapper),
+                services.getToolRegistry()
         );
     }
 

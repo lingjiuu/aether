@@ -1,7 +1,6 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.message.Message;
-import io.github.lingjiuu.model.AgentConfig;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -16,7 +15,7 @@ import java.util.List;
 @AllArgsConstructor
 public class AgentSessionSnapshot {
 
-    private AgentConfig config;
+    private AgentSessionConfig config;
 
     @Builder.Default
     private List<Message> messages = new ArrayList<>();

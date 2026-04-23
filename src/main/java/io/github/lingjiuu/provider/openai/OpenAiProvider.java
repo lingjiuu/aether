@@ -12,16 +12,16 @@ import io.github.lingjiuu.provider.RequestAuth;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public class OpenAiResponsesProvider implements Provider {
+public class OpenAiProvider implements Provider {
 
-    private final OpenAiResponsesRequestBuilder requestBuilder;
-    private final OpenAiResponsesStreamParser streamParser;
+    private final OpenAiRequestBuilder requestBuilder;
+    private final OpenAiStreamParser streamParser;
 
-    public OpenAiResponsesProvider() {
-        this(new OpenAiResponsesRequestBuilder(), new OpenAiResponsesStreamParser());
+    public OpenAiProvider() {
+        this(new OpenAiRequestBuilder(), new OpenAiStreamParser());
     }
 
-    public OpenAiResponsesProvider(OpenAiResponsesRequestBuilder requestBuilder, OpenAiResponsesStreamParser streamParser) {
+    public OpenAiProvider(OpenAiRequestBuilder requestBuilder, OpenAiStreamParser streamParser) {
         this.requestBuilder = requestBuilder;
         this.streamParser = streamParser;
     }
