@@ -1,5 +1,6 @@
 package io.github.lingjiuu.message;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.github.lingjiuu.message.content.MessageContent;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -27,7 +28,13 @@ public class ToolResultMessage implements Message{
 
     private Object details;
 
+    @JsonProperty("isError")
     private boolean isError;
+
+    @JsonProperty("isError")
+    public boolean isError() {
+        return isError;
+    }
 
     @Override
     public Role role() {

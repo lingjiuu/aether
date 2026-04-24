@@ -5,6 +5,7 @@ import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.ReasoningOptions;
 import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.transcript.TranscriptStore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -30,6 +31,8 @@ public class AgentSessionConfig {
     private LlmModel model;
 
     private ReasoningOptions reasoning;
+
+    private TranscriptStore transcriptStore;
 
     @Builder.Default
     private List<ToolDefinition> defaultTools = new ArrayList<>();

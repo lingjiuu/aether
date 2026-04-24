@@ -2,11 +2,15 @@ package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.agent.turn.AgentLoop;
 import io.github.lingjiuu.infra.auth.AuthStorage;
+import io.github.lingjiuu.infra.config.AetherPaths;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
 import io.github.lingjiuu.tool.builtin.GetTimeTool;
+import io.github.lingjiuu.transcript.RestoredTranscript;
+import io.github.lingjiuu.transcript.TranscriptRestorer;
+import io.github.lingjiuu.transcript.TranscriptStore;
 
 import java.util.List;
 
@@ -42,12 +46,37 @@ public class AgentSessionFactory {
                 .systemPrompt(DEFAULT_SYSTEM_PROMPT)
                 .model(model)
                 .defaultTools(buildDefaultTools())
+                .transcriptStore(new TranscriptStore(AetherPaths.getTranscriptsDir()))
                 .build();
 
         return new AgentSessionFactory(configuration);
     }
 
     public AgentSession openSession() {
+        AgentSessionServices services = buildSessionServices();
+        return new AgentSession(services, new AgentLoop(services));
+    }
+
+    public AgentSession resumeSession(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            throw new IllegalArgumentException("sessionId must not be blank");
+        }
+        if (configuration.getTranscriptStore() == null) {
+            throw new IllegalStateException("Cannot resume a session without a transcript store.");
+        }
+
+        AgentSessionServices services = buildSessionServices();
+        RestoredTranscript restoredTranscript = new TranscriptRestorer(configuration.getTranscriptStore()).restore(sessionId);
+        return new AgentSession(
+                services,
+                new AgentLoop(services),
+                sessionId,
+                restoredTranscript.getChain().messages(),
+                restoredTranscript.getLastRecordId()
+        );
+    }
+
+    private AgentSessionServices buildSessionServices() {
         ToolRegistry toolRegistry = new ToolRegistry();
         if (configuration.getDefaultTools() != null) {
             for (ToolDefinition definition : configuration.getDefaultTools()) {
@@ -55,16 +84,12 @@ public class AgentSessionFactory {
             }
         }
 
-        AgentSessionServices services = new AgentSessionServices(
+        return new AgentSessionServices(
                 configuration,
                 configuration.getModelRegistry(),
                 toolRegistry,
                 configuration.getLlmClient()
         );
-
-        AgentLoop agentLoop = new AgentLoop(services);
-
-        return new AgentSession(services, agentLoop);
     }
 
     public AgentSessionConfig configuration() {

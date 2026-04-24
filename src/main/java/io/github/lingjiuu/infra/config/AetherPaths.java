@@ -19,4 +19,8 @@ public final class AetherPaths {
     public static Path getModelsPath() {
         return getAgentDir().resolve("models.json");
     }
+
+    public static Path getTranscriptsDir() {
+        return getAgentDir().resolve("transcripts");
+    }
 }

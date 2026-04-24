@@ -9,6 +9,7 @@ import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.transcript.TranscriptRecorder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +20,7 @@ public class AgentSession {
 
     private final AgentSessionServices services;
     private final AgentLoop agentLoop;
+    private final TranscriptRecorder transcriptRecorder;
     private final List<Message> messages = new ArrayList<>();
     private final String sessionId;
     private final long createdAt;
@@ -30,18 +32,41 @@ public class AgentSession {
             AgentSessionServices services,
             AgentLoop agentLoop
     ) {
+        this(services, agentLoop, UUID.randomUUID().toString(), List.of(), null);
+    }
+
+    AgentSession(
+            AgentSessionServices services,
+            AgentLoop agentLoop,
+            String sessionId,
+            List<Message> initialMessages,
+            String lastTranscriptRecordId
+    ) {
         if (services == null) {
             throw new IllegalArgumentException("services must not be null");
         }
         if (agentLoop == null) {
             throw new IllegalArgumentException("agentLoop must not be null");
         }
+        if (sessionId == null || sessionId.isBlank()) {
+            throw new IllegalArgumentException("sessionId must not be blank");
+        }
         this.services = services;
-        this.sessionId = UUID.randomUUID().toString();
+        this.sessionId = sessionId;
         this.createdAt = System.currentTimeMillis();
         this.updatedAt = createdAt;
         this.status = AgentSessionStatus.IDLE;
         this.agentLoop = agentLoop;
+        this.transcriptRecorder = services.getTranscriptStore() == null
+                ? null
+                : new TranscriptRecorder(
+                services.getTranscriptStore(),
+                sessionId,
+                lastTranscriptRecordId
+        );
+        if (initialMessages != null) {
+            messages.addAll(initialMessages);
+        }
     }
 
     public synchronized void prompt(String content) {
@@ -61,6 +86,9 @@ public class AgentSession {
     public synchronized void reset() {
         ensureNotRunning();
         clearMessages();
+        if (transcriptRecorder != null) {
+            transcriptRecorder.resetParent(null);
+        }
         updatedAt = System.currentTimeMillis();
         emit(AgentSessionEvent.builder()
                 .type(AgentSessionEvent.Type.SESSION_RESET)
@@ -148,6 +176,7 @@ public class AgentSession {
                 ))
                 .build();
         appendMessage(userMessage);
+        recordTranscript(userMessage, 0);
         updatedAt = System.currentTimeMillis();
         emit(AgentSessionEvent.builder()
                 .type(AgentSessionEvent.Type.USER_MESSAGE)
@@ -184,9 +213,28 @@ public class AgentSession {
     }
 
     private void forwardAgentEvent(AgentEvent event) {
+        recordTranscript(event);
         AgentSessionEvent mappedEvent = mapAgentEvent(event);
         if (mappedEvent != null) {
             emit(mappedEvent);
+        }
+    }
+
+    private void recordTranscript(AgentEvent event) {
+        if (event == null || event.getType() == null) {
+            return;
+        }
+        switch (event.getType()) {
+            case ASSISTANT_MESSAGE -> recordTranscript(event.getAssistantMessage(), event.getTurn());
+            case TOOL_RESULT -> recordTranscript(event.getToolResult(), event.getTurn());
+            default -> {
+            }
+        }
+    }
+
+    private void recordTranscript(Message message, int turn) {
+        if (transcriptRecorder != null && message != null) {
+            transcriptRecorder.record(message, turn);
         }
     }
 

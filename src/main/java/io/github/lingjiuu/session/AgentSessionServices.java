@@ -2,6 +2,7 @@ package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.tool.ToolRegistry;
+import io.github.lingjiuu.transcript.TranscriptStore;
 import lombok.Getter;
 
 @Getter
@@ -11,12 +12,29 @@ public class AgentSessionServices {
     private final ModelRegistry modelRegistry;
     private final ToolRegistry toolRegistry;
     private final LlmClient llmClient;
+    private final TranscriptStore transcriptStore;
 
     public AgentSessionServices(
             AgentSessionConfig config,
             ModelRegistry modelRegistry,
             ToolRegistry toolRegistry,
             LlmClient llmClient
+    ) {
+        this(
+                config,
+                modelRegistry,
+                toolRegistry,
+                llmClient,
+                config == null ? null : config.getTranscriptStore()
+        );
+    }
+
+    public AgentSessionServices(
+            AgentSessionConfig config,
+            ModelRegistry modelRegistry,
+            ToolRegistry toolRegistry,
+            LlmClient llmClient,
+            TranscriptStore transcriptStore
     ) {
         if (config == null) {
             throw new IllegalArgumentException("config must not be null");
@@ -34,5 +52,6 @@ public class AgentSessionServices {
         this.modelRegistry = modelRegistry;
         this.toolRegistry = toolRegistry;
         this.llmClient = llmClient;
+        this.transcriptStore = transcriptStore;
     }
 }
