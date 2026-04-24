@@ -5,6 +5,7 @@ import io.github.lingjiuu.llm.LlmCallOptions;
 import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.session.AgentSessionServices;
+import io.github.lingjiuu.tool.ToolDefinition;
 
 import java.util.List;
 
@@ -25,11 +26,16 @@ public class TurnPreprocessor {
         }
 
         List<Message> messagesForModel = runtimeState.snapshot();
+        List<ToolDefinition> visibleTools = services.getToolPoolCompiler().compile(services.getToolRegistry());
+        String systemPrompt = services.getSystemPromptBuilder().build(
+                services.getConfig().getSystemPrompt(),
+                visibleTools
+        );
 
         return LlmRequest.builder()
-                .systemPrompt(services.getConfig().getSystemPrompt())
+                .systemPrompt(systemPrompt)
                 .model(services.getConfig().getModel())
-                .tools(services.getToolRegistry().definitions())
+                .tools(visibleTools)
                 .messages(messagesForModel)
                 .callOptions(LlmCallOptions.builder()
                         .reasoning(services.getConfig().getReasoning())

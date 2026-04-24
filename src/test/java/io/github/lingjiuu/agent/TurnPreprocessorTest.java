@@ -60,7 +60,9 @@ public class TurnPreprocessorTest extends TestCase {
 
         LlmRequest request = preprocessor.prepare(runtimeState);
 
-        assertEquals("You are a helpful assistant", request.getSystemPrompt());
+        assertTrue(request.getSystemPrompt().startsWith("You are a helpful assistant"));
+        assertTrue(request.getSystemPrompt().contains("- get_time: Get the current time"));
+        assertTrue(request.getSystemPrompt().contains("Use get_time when the user asks for the current time or date."));
         assertEquals(config.getModel(), request.getModel());
         assertEquals(1, request.getTools().size());
         assertEquals("get_time", request.getTools().getFirst().name());

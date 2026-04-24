@@ -9,13 +9,25 @@ import java.util.Map;
 public class ToolExecutor {
 
     private final ToolArgumentValidator argumentValidator;
+    private final ToolResultMapper resultMapper;
 
     public ToolExecutor() {
-        this(new ToolArgumentValidator());
+        this(new ToolArgumentValidator(), new ToolResultMapper());
     }
 
     public ToolExecutor(ToolArgumentValidator argumentValidator) {
+        this(argumentValidator, new ToolResultMapper());
+    }
+
+    public ToolExecutor(ToolArgumentValidator argumentValidator, ToolResultMapper resultMapper) {
+        if (argumentValidator == null) {
+            throw new IllegalArgumentException("argumentValidator must not be null");
+        }
+        if (resultMapper == null) {
+            throw new IllegalArgumentException("resultMapper must not be null");
+        }
         this.argumentValidator = argumentValidator;
+        this.resultMapper = resultMapper;
     }
 
     public ToolResultMessage execute(
@@ -37,7 +49,7 @@ public class ToolExecutor {
 
         definition.beforeExecute(context);
         if (context.isBlocked()) {
-            return toToolResultMessage(toolCall, ToolExecutionResult.errorText(
+            return resultMapper.toMessage(toolCall, ToolExecutionResult.errorText(
                     context.getBlockedReason() == null || context.getBlockedReason().isBlank()
                             ? "Tool execution was blocked."
                             : context.getBlockedReason()
@@ -50,16 +62,6 @@ public class ToolExecutor {
                 .result(result)
                 .build());
 
-        return toToolResultMessage(toolCall, result);
-    }
-
-    private ToolResultMessage toToolResultMessage(ToolCallContent toolCall, ToolExecutionResult result) {
-        return ToolResultMessage.builder()
-                .toolCallId(toolCall.getToolCallId())
-                .toolName(toolCall.getToolName())
-                .details(result.getDetails())
-                .isError(result.isError())
-                .contents(result.getContents())
-                .build();
+        return resultMapper.toMessage(toolCall, result);
     }
 }

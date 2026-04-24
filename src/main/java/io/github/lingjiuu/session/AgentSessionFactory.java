@@ -8,10 +8,13 @@ import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
 import io.github.lingjiuu.tool.builtin.GetTimeTool;
+import io.github.lingjiuu.tool.builtin.ReadTool;
+import io.github.lingjiuu.tool.fs.FileAccessPolicy;
 import io.github.lingjiuu.transcript.RestoredTranscript;
 import io.github.lingjiuu.transcript.TranscriptRestorer;
 import io.github.lingjiuu.transcript.TranscriptStore;
 
+import java.nio.file.Path;
 import java.util.List;
 
 public class AgentSessionFactory {
@@ -109,7 +112,10 @@ public class AgentSessionFactory {
     }
 
     private static List<ToolDefinition> buildDefaultTools() {
-        return List.of(new GetTimeTool());
+        return List.of(
+                new GetTimeTool(),
+                new ReadTool(FileAccessPolicy.rootedAt(Path.of(System.getProperty("user.dir"))))
+        );
     }
 
     private static String firstNonBlank(String... values) {
