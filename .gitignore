@@ -6,4 +6,6 @@ target/
 
 references
 AGENTS.md
-docs
+docs/*
+!docs/exec-plans/
+!docs/exec-plans/**
