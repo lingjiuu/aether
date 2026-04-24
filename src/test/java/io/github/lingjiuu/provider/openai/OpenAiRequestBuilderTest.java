@@ -154,14 +154,21 @@ public class OpenAiRequestBuilderTest extends TestCase {
                         .api("openai")
                         .baseUrl("https://api.openai.com/v1")
                         .build())
-                .messages(List.of(assistantMessage))
+                .messages(List.of(
+                        assistantMessage,
+                        ToolResultMessage.builder()
+                                .toolCallId("call-fallback")
+                                .toolName("get_time")
+                                .contents(List.of(TextContent.builder().text("{\"time\":\"12:00\"}").build()))
+                                .build()
+                ))
                 .callOptions(LlmCallOptions.builder().build())
                 .build());
 
         assertTrue(params.input().isPresent());
         List<ResponseInputItem> inputItems = params.input().get().asResponse();
 
-        assertEquals(2, inputItems.size());
+        assertEquals(3, inputItems.size());
 
         ResponseInputItem outputMessage = inputItems.get(0);
         assertTrue(outputMessage.isResponseOutputMessage());
@@ -172,6 +179,11 @@ public class OpenAiRequestBuilderTest extends TestCase {
         assertEquals("call-fallback", functionCall.asFunctionCall().callId());
         assertEquals("get_time", functionCall.asFunctionCall().name());
         assertEquals("{\"timezone\":\"UTC\"}", functionCall.asFunctionCall().arguments());
+
+        ResponseInputItem functionCallOutput = inputItems.get(2);
+        assertTrue(functionCallOutput.isFunctionCallOutput());
+        assertEquals("call-fallback", functionCallOutput.asFunctionCallOutput().callId());
+        assertEquals("{\"time\":\"12:00\"}", functionCallOutput.asFunctionCallOutput().output().asString());
     }
 
     public void testBuildRequestSerializesProviderNeutralTools() {
