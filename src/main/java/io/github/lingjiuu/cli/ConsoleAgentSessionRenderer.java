@@ -65,6 +65,10 @@ public class ConsoleAgentSessionRenderer implements AgentSessionEventListener {
                 }
                 System.out.println("[STATE] history+ tool_result");
             }
+            case SYSTEM_MESSAGE -> {
+            }
+            case ATTACHMENT_MESSAGE -> {
+            }
             case FINAL_ANSWER -> {
                 System.out.println("[AGENT] final answer");
                 if (event.getText() != null && !event.getText().isBlank()) {

@@ -10,9 +10,13 @@ import java.util.List;
 @JsonSubTypes({
         @JsonSubTypes.Type(value = UserMessage.class, name = "USER"),
         @JsonSubTypes.Type(value = AssistantMessage.class, name = "ASSISTANT"),
-        @JsonSubTypes.Type(value = ToolResultMessage.class, name = "TOOLRESULT")
+        @JsonSubTypes.Type(value = ToolResultMessage.class, name = "TOOLRESULT"),
+        @JsonSubTypes.Type(value = SystemMessage.class, name = "SYSTEM"),
+        @JsonSubTypes.Type(value = AttachmentMessage.class, name = "ATTACHMENT")
 })
 public interface Message {
+
+    String id();
 
     Role role();
 
@@ -23,7 +27,9 @@ public interface Message {
     enum Role{
         USER,
         ASSISTANT,
-        TOOLRESULT
+        TOOLRESULT,
+        SYSTEM,
+        ATTACHMENT
     }
 
 }

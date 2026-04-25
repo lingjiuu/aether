@@ -40,6 +40,23 @@ public class AgentRuntimeState {
         }
     }
 
+    public void replaceActiveMessages(List<Message> replacementMessages) {
+        if (replacementMessages == null) {
+            throw new IllegalArgumentException("replacementMessages must not be null");
+        }
+        messages.clear();
+        appendAll(replacementMessages);
+    }
+
+    public void apply(RuntimeStatePatch patch) {
+        if (patch == null || patch.isEmpty()) {
+            return;
+        }
+        if (patch.hasReplacement()) {
+            replaceActiveMessages(patch.replacementMessages());
+        }
+    }
+
     public boolean isEmpty() {
         return messages.isEmpty();
     }

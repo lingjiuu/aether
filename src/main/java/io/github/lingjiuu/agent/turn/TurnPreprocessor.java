@@ -1,6 +1,11 @@
 package io.github.lingjiuu.agent.turn;
 
 import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
+import io.github.lingjiuu.agent.runtime.RuntimeStatePatch;
+import io.github.lingjiuu.agent.turn.pipeline.DefaultPreModelPipeline;
+import io.github.lingjiuu.agent.turn.pipeline.PreModelContext;
+import io.github.lingjiuu.agent.turn.pipeline.PreModelPipeline;
+import io.github.lingjiuu.agent.turn.pipeline.PreModelPipelineResult;
 import io.github.lingjiuu.llm.LlmCallOptions;
 import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.Message;
@@ -13,20 +18,38 @@ import java.util.List;
 public class TurnPreprocessor {
 
     private final AgentSessionServices services;
+    private final PreModelPipeline preModelPipeline;
 
     public TurnPreprocessor(AgentSessionServices services) {
+        this(services, new DefaultPreModelPipeline());
+    }
+
+    public TurnPreprocessor(AgentSessionServices services, PreModelPipeline preModelPipeline) {
         if (services == null) {
             throw new IllegalArgumentException("services must not be null");
         }
+        if (preModelPipeline == null) {
+            throw new IllegalArgumentException("preModelPipeline must not be null");
+        }
         this.services = services;
+        this.preModelPipeline = preModelPipeline;
     }
 
     public LlmRequest prepare(AgentRuntimeState runtimeState) {
+        return prepareTurn(runtimeState).request();
+    }
+
+    public PreparedTurn prepareTurn(AgentRuntimeState runtimeState) {
         if (runtimeState == null) {
             throw new IllegalArgumentException("runtimeState must not be null");
         }
 
-        List<Message> messagesForModel = runtimeState.snapshot();
+        List<Message> originalMessages = runtimeState.snapshot();
+        PreModelPipelineResult pipelineResult = preModelPipeline.apply(
+                new PreModelContext(services, runtimeState),
+                originalMessages
+        );
+        List<Message> messagesForModel = pipelineResult.messages();
         ToolPoolSnapshot toolPoolSnapshot = services.getToolPoolCompiler().compile(services.getToolRegistry());
         List<ToolDefinition> visibleTools = toolPoolSnapshot.visibleTools();
         String systemPrompt = services.getSystemPromptBuilder().build(
@@ -34,7 +57,7 @@ public class TurnPreprocessor {
                 visibleTools
         );
 
-        return LlmRequest.builder()
+        LlmRequest request = LlmRequest.builder()
                 .systemPrompt(systemPrompt)
                 .model(services.getConfig().getModel())
                 .tools(visibleTools)
@@ -43,5 +66,9 @@ public class TurnPreprocessor {
                         .reasoning(services.getConfig().getReasoning())
                         .build())
                 .build();
+        RuntimeStatePatch patch = originalMessages.equals(messagesForModel)
+                ? RuntimeStatePatch.none()
+                : RuntimeStatePatch.replaceActiveMessages(messagesForModel, pipelineResult.recordedMessages());
+        return new PreparedTurn(request, patch);
     }
 }

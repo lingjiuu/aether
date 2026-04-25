@@ -1,10 +1,13 @@
 package io.github.lingjiuu.provider.protocol;
 
 import io.github.lingjiuu.message.AssistantMessage;
+import io.github.lingjiuu.message.AttachmentMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
+import io.github.lingjiuu.message.SystemMessage;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
+import io.github.lingjiuu.message.attachment.Attachment;
 import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
@@ -31,6 +34,8 @@ public class DefaultRequestMessageNormalizer implements RequestMessageNormalizer
                 case USER -> appendMerged(normalizedMessages, normalizeUserMessage((UserMessage) message));
                 case ASSISTANT -> appendAssistantMessage(normalizedMessages, (AssistantMessage) message);
                 case TOOLRESULT -> appendMerged(normalizedMessages, normalizeToolResultMessage((ToolResultMessage) message));
+                case ATTACHMENT -> appendMerged(normalizedMessages, normalizeAttachmentMessage((AttachmentMessage) message));
+                case SYSTEM -> appendMerged(normalizedMessages, normalizeSystemMessage((SystemMessage) message));
             }
         }
         return List.copyOf(normalizedMessages);
@@ -79,6 +84,26 @@ public class DefaultRequestMessageNormalizer implements RequestMessageNormalizer
                 toolResultMessage.isError(),
                 toolResultMessage.getDetails()
         )));
+    }
+
+    private NormalizedContextMessage normalizeAttachmentMessage(AttachmentMessage attachmentMessage) {
+        Attachment attachment = attachmentMessage.getAttachment();
+        String text = attachment == null ? MessageContents.text(attachmentMessage) : attachment.text();
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        return new NormalizedContextMessage(List.of(new NormalizedTextContent(text)));
+    }
+
+    private NormalizedContextMessage normalizeSystemMessage(SystemMessage systemMessage) {
+        if (systemMessage.getSubtype() != SystemMessage.Subtype.INFORMATIONAL) {
+            return null;
+        }
+        String text = MessageContents.text(systemMessage);
+        if (text.isBlank()) {
+            return null;
+        }
+        return new NormalizedContextMessage(List.of(new NormalizedTextContent(text)));
     }
 
     private void appendMerged(List<NormalizedRequestMessage> output, NormalizedRequestMessage nextMessage) {

@@ -2,6 +2,7 @@ package io.github.lingjiuu.agent.turn;
 
 import io.github.lingjiuu.agent.AgentEvent;
 import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
+import io.github.lingjiuu.agent.runtime.RuntimeStatePatch;
 import io.github.lingjiuu.message.Message;
 
 import java.util.List;
@@ -10,7 +11,8 @@ public record TurnResult(
         List<Message> appendedMessages,
         List<AgentEvent> events,
         Transition transition,
-        AgentRuntimeState.TerminationReason terminationReason
+        AgentRuntimeState.TerminationReason terminationReason,
+        RuntimeStatePatch statePatch
 ) {
 
     public TurnResult {
@@ -25,10 +27,19 @@ public record TurnResult(
         if (transition == Transition.NEXT_TURN && terminationReason != null) {
             throw new IllegalArgumentException("terminationReason must be null when transition is NEXT_TURN");
         }
+        statePatch = statePatch == null ? RuntimeStatePatch.none() : statePatch;
     }
 
     public static TurnResult nextTurn(List<Message> appendedMessages, List<AgentEvent> events) {
-        return new TurnResult(appendedMessages, events, Transition.NEXT_TURN, null);
+        return nextTurn(appendedMessages, events, RuntimeStatePatch.none());
+    }
+
+    public static TurnResult nextTurn(
+            List<Message> appendedMessages,
+            List<AgentEvent> events,
+            RuntimeStatePatch statePatch
+    ) {
+        return new TurnResult(appendedMessages, events, Transition.NEXT_TURN, null, statePatch);
     }
 
     public static TurnResult finish(
@@ -36,7 +47,16 @@ public record TurnResult(
             List<AgentEvent> events,
             AgentRuntimeState.TerminationReason terminationReason
     ) {
-        return new TurnResult(appendedMessages, events, Transition.FINISH, terminationReason);
+        return finish(appendedMessages, events, terminationReason, RuntimeStatePatch.none());
+    }
+
+    public static TurnResult finish(
+            List<Message> appendedMessages,
+            List<AgentEvent> events,
+            AgentRuntimeState.TerminationReason terminationReason,
+            RuntimeStatePatch statePatch
+    ) {
+        return new TurnResult(appendedMessages, events, Transition.FINISH, terminationReason, statePatch);
     }
 
     public enum Transition {

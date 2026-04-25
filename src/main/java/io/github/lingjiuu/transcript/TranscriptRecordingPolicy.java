@@ -19,6 +19,8 @@ public class TranscriptRecordingPolicy {
     private boolean isSupportedRole(Message.Role role) {
         return role == Message.Role.USER
                 || role == Message.Role.ASSISTANT
-                || role == Message.Role.TOOLRESULT;
+                || role == Message.Role.TOOLRESULT
+                || role == Message.Role.SYSTEM
+                || role == Message.Role.ATTACHMENT;
     }
 }

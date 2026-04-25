@@ -1,6 +1,8 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.message.AssistantMessage;
+import io.github.lingjiuu.message.AttachmentMessage;
+import io.github.lingjiuu.message.SystemMessage;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
@@ -34,6 +36,10 @@ public class AgentSessionEvent {
 
     private ToolResultMessage toolResult;
 
+    private SystemMessage systemMessage;
+
+    private AttachmentMessage attachmentMessage;
+
     private ToolExecutionResult partialToolResult;
 
     private String errorMessage;
@@ -50,6 +56,8 @@ public class AgentSessionEvent {
         TOOL_EXECUTION_UPDATE,
         TOOL_EXECUTION_END,
         TOOL_RESULT,
+        SYSTEM_MESSAGE,
+        ATTACHMENT_MESSAGE,
         FINAL_ANSWER,
         RUN_END,
         SESSION_RESET,

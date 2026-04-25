@@ -1,6 +1,6 @@
 package io.github.lingjiuu.message;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import io.github.lingjiuu.message.attachment.Attachment;
 import io.github.lingjiuu.message.content.MessageContent;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,10 +12,10 @@ import java.util.List;
 import java.util.UUID;
 
 @Getter
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
-public class ToolResultMessage implements Message{
+public class AttachmentMessage implements Message {
 
     @Builder.Default
     private String id = UUID.randomUUID().toString();
@@ -23,22 +23,10 @@ public class ToolResultMessage implements Message{
     @Builder.Default
     private long timestamp = System.currentTimeMillis();
 
+    private Attachment attachment;
+
     @Builder.Default
     private List<MessageContent> contents = new ArrayList<>();
-
-    private String toolCallId;
-
-    private String toolName;
-
-    private Object details;
-
-    @JsonProperty("isError")
-    private boolean isError;
-
-    @JsonProperty("isError")
-    public boolean isError() {
-        return isError;
-    }
 
     @Override
     public String id() {
@@ -47,7 +35,7 @@ public class ToolResultMessage implements Message{
 
     @Override
     public Role role() {
-        return Role.TOOLRESULT;
+        return Role.ATTACHMENT;
     }
 
     @Override

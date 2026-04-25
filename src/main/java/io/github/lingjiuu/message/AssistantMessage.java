@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Getter
 @Setter
@@ -19,6 +20,9 @@ import java.util.Map;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AssistantMessage implements Message{
+
+    @Builder.Default
+    private String id = UUID.randomUUID().toString();
 
     @Builder.Default
     private long timestamp = System.currentTimeMillis();
@@ -41,6 +45,11 @@ public class AssistantMessage implements Message{
 
     private ProviderReplayData providerState;
 
+
+    @Override
+    public String id() {
+        return id;
+    }
 
     @Override
     public Role role() {

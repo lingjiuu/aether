@@ -227,6 +227,8 @@ public class AgentSession {
         switch (event.getType()) {
             case ASSISTANT_MESSAGE -> recordTranscript(event.getAssistantMessage(), event.getTurn());
             case TOOL_RESULT -> recordTranscript(event.getToolResult(), event.getTurn());
+            case SYSTEM_MESSAGE -> recordTranscript(event.getSystemMessage(), event.getTurn());
+            case ATTACHMENT_MESSAGE -> recordTranscript(event.getAttachmentMessage(), event.getTurn());
             default -> {
             }
         }
@@ -264,6 +266,8 @@ public class AgentSession {
             case TOOL_EXECUTION_UPDATE -> AgentSessionEvent.Type.TOOL_EXECUTION_UPDATE;
             case TOOL_EXECUTION_END -> AgentSessionEvent.Type.TOOL_EXECUTION_END;
             case TOOL_RESULT -> AgentSessionEvent.Type.TOOL_RESULT;
+            case SYSTEM_MESSAGE -> AgentSessionEvent.Type.SYSTEM_MESSAGE;
+            case ATTACHMENT_MESSAGE -> AgentSessionEvent.Type.ATTACHMENT_MESSAGE;
             case FINAL_ANSWER -> AgentSessionEvent.Type.FINAL_ANSWER;
             case RUN_END -> AgentSessionEvent.Type.RUN_END;
         };
@@ -277,6 +281,8 @@ public class AgentSession {
                 .assistantMessage(event.getAssistantMessage())
                 .toolCall(event.getToolCall())
                 .toolResult(event.getToolResult())
+                .systemMessage(event.getSystemMessage())
+                .attachmentMessage(event.getAttachmentMessage())
                 .partialToolResult(event.getPartialToolResult())
                 .build();
     }

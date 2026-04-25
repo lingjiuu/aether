@@ -1,6 +1,8 @@
 package io.github.lingjiuu.agent;
 
 import io.github.lingjiuu.message.AssistantMessage;
+import io.github.lingjiuu.message.AttachmentMessage;
+import io.github.lingjiuu.message.SystemMessage;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.tool.ToolExecutionResult;
@@ -27,6 +29,10 @@ public class AgentEvent {
 
     private ToolResultMessage toolResult;
 
+    private SystemMessage systemMessage;
+
+    private AttachmentMessage attachmentMessage;
+
     private ToolExecutionResult partialToolResult;
 
     private String text;
@@ -42,6 +48,8 @@ public class AgentEvent {
         TOOL_EXECUTION_UPDATE,
         TOOL_EXECUTION_END,
         TOOL_RESULT,
+        SYSTEM_MESSAGE,
+        ATTACHMENT_MESSAGE,
         FINAL_ANSWER,
         RUN_END
     }

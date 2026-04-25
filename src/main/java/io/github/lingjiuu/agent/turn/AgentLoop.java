@@ -5,7 +5,9 @@ import io.github.lingjiuu.agent.invocation.AssistantStreamEventMapper;
 import io.github.lingjiuu.agent.invocation.ModelInvocationResult;
 import io.github.lingjiuu.agent.invocation.ModelInvoker;
 import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
+import io.github.lingjiuu.message.AttachmentMessage;
 import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.message.SystemMessage;
 import io.github.lingjiuu.session.AgentSessionServices;
 
 import java.util.ArrayList;
@@ -63,16 +65,44 @@ public class AgentLoop {
                 .turn(currentTurn)
                 .build());
 
+        PreparedTurn preparedTurn = turnPreprocessor.prepareTurn(runtimeState);
+        events.addAll(contextEvents(preparedTurn.statePatch().recordedMessages(), currentTurn));
+
         ModelInvocationResult sampledAssistantMessage = modelInvoker.invoke(
-                turnPreprocessor.prepare(runtimeState),
+                preparedTurn.request(),
                 currentTurn
         );
         TurnResult postprocessed = turnPostprocessor.process(sampledAssistantMessage, currentTurn);
         events.addAll(postprocessed.events());
 
         if (postprocessed.transition() == TurnResult.Transition.NEXT_TURN) {
-            return TurnResult.nextTurn(postprocessed.appendedMessages(), events);
+            return TurnResult.nextTurn(postprocessed.appendedMessages(), events, preparedTurn.statePatch());
         }
-        return TurnResult.finish(postprocessed.appendedMessages(), events, postprocessed.terminationReason());
+        return TurnResult.finish(
+                postprocessed.appendedMessages(),
+                events,
+                postprocessed.terminationReason(),
+                preparedTurn.statePatch()
+        );
+    }
+
+    private List<AgentEvent> contextEvents(List<Message> messages, int currentTurn) {
+        List<AgentEvent> events = new ArrayList<>();
+        for (Message message : messages) {
+            if (message instanceof SystemMessage systemMessage) {
+                events.add(AgentEvent.builder()
+                        .type(AgentEvent.Type.SYSTEM_MESSAGE)
+                        .turn(currentTurn)
+                        .systemMessage(systemMessage)
+                        .build());
+            } else if (message instanceof AttachmentMessage attachmentMessage) {
+                events.add(AgentEvent.builder()
+                        .type(AgentEvent.Type.ATTACHMENT_MESSAGE)
+                        .turn(currentTurn)
+                        .attachmentMessage(attachmentMessage)
+                        .build());
+            }
+        }
+        return events;
     }
 }

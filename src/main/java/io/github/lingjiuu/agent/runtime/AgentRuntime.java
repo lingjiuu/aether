@@ -47,6 +47,8 @@ public class AgentRuntime {
     }
 
     private void applyTurnResult(TurnResult turnResult, AgentEventListener listener) {
+        state.apply(turnResult.statePatch());
+
         int appendedMessageIndex = 0;
         for (AgentEvent event : turnResult.events()) {
             if (

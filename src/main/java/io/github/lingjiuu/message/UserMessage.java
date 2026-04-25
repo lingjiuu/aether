@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Getter
 @Builder
@@ -16,10 +17,18 @@ import java.util.List;
 public class UserMessage implements Message {
 
     @Builder.Default
+    private String id = UUID.randomUUID().toString();
+
+    @Builder.Default
     private long timestamp = System.currentTimeMillis();
 
     @Builder.Default
     private List<MessageContent> contents = new ArrayList<>();
+
+    @Override
+    public String id() {
+        return id;
+    }
 
     @Override
     public Role role() {
