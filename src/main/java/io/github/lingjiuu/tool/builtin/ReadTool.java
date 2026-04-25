@@ -1,8 +1,11 @@
 package io.github.lingjiuu.tool.builtin;
 
 import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.tool.ToolExecutionMode;
 import io.github.lingjiuu.tool.ToolExecutionContext;
 import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.ToolSourceInfo;
 import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.fs.FileAccessPolicy;
 
@@ -69,6 +72,21 @@ public class ReadTool implements ToolDefinition {
                 ),
                 "required", List.of("path")
         );
+    }
+
+    @Override
+    public ToolSourceInfo sourceInfo() {
+        return ToolSourceInfo.builtin();
+    }
+
+    @Override
+    public ToolExecutionMode executionMode() {
+        return ToolExecutionMode.PARALLEL_SAFE;
+    }
+
+    @Override
+    public ToolRiskLevel riskLevel() {
+        return ToolRiskLevel.READ_ONLY;
     }
 
     @Override

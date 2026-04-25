@@ -1,8 +1,12 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.llm.LlmClient;
+import io.github.lingjiuu.tool.ToolRunner;
 import io.github.lingjiuu.tool.ToolPoolCompiler;
 import io.github.lingjiuu.tool.ToolRegistry;
+import io.github.lingjiuu.tool.hook.ToolHookChain;
+import io.github.lingjiuu.tool.permission.DefaultToolPermissionService;
+import io.github.lingjiuu.tool.permission.ToolPermissionService;
 import io.github.lingjiuu.transcript.TranscriptStore;
 import lombok.Getter;
 
@@ -16,6 +20,9 @@ public class AgentSessionServices {
     private final TranscriptStore transcriptStore;
     private final ToolPoolCompiler toolPoolCompiler;
     private final SystemPromptBuilder systemPromptBuilder;
+    private final ToolPermissionService toolPermissionService;
+    private final ToolHookChain toolHookChain;
+    private final ToolRunner toolRunner;
 
     public AgentSessionServices(
             AgentSessionConfig config,
@@ -46,7 +53,9 @@ public class AgentSessionServices {
                 llmClient,
                 transcriptStore,
                 new ToolPoolCompiler(),
-                new SystemPromptBuilder()
+                new SystemPromptBuilder(),
+                new DefaultToolPermissionService(),
+                ToolHookChain.empty()
         );
     }
 
@@ -58,6 +67,30 @@ public class AgentSessionServices {
             TranscriptStore transcriptStore,
             ToolPoolCompiler toolPoolCompiler,
             SystemPromptBuilder systemPromptBuilder
+    ) {
+        this(
+                config,
+                modelRegistry,
+                toolRegistry,
+                llmClient,
+                transcriptStore,
+                toolPoolCompiler,
+                systemPromptBuilder,
+                new DefaultToolPermissionService(),
+                ToolHookChain.empty()
+        );
+    }
+
+    public AgentSessionServices(
+            AgentSessionConfig config,
+            ModelRegistry modelRegistry,
+            ToolRegistry toolRegistry,
+            LlmClient llmClient,
+            TranscriptStore transcriptStore,
+            ToolPoolCompiler toolPoolCompiler,
+            SystemPromptBuilder systemPromptBuilder,
+            ToolPermissionService toolPermissionService,
+            ToolHookChain toolHookChain
     ) {
         if (config == null) {
             throw new IllegalArgumentException("config must not be null");
@@ -77,6 +110,12 @@ public class AgentSessionServices {
         if (systemPromptBuilder == null) {
             throw new IllegalArgumentException("systemPromptBuilder must not be null");
         }
+        if (toolPermissionService == null) {
+            throw new IllegalArgumentException("toolPermissionService must not be null");
+        }
+        if (toolHookChain == null) {
+            throw new IllegalArgumentException("toolHookChain must not be null");
+        }
         this.config = config;
         this.modelRegistry = modelRegistry;
         this.toolRegistry = toolRegistry;
@@ -84,5 +123,8 @@ public class AgentSessionServices {
         this.transcriptStore = transcriptStore;
         this.toolPoolCompiler = toolPoolCompiler;
         this.systemPromptBuilder = systemPromptBuilder;
+        this.toolPermissionService = toolPermissionService;
+        this.toolHookChain = toolHookChain;
+        this.toolRunner = new ToolRunner(toolRegistry, toolPermissionService, toolHookChain);
     }
 }

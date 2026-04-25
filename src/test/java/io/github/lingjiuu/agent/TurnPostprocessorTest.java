@@ -5,7 +5,11 @@ import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
 import io.github.lingjiuu.agent.turn.TurnPostprocessor;
 import io.github.lingjiuu.agent.turn.TurnResult;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
+import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.MessageContents;
+import io.github.lingjiuu.message.ToolResultMessage;
+import io.github.lingjiuu.message.content.TextContent;
+import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.tool.ToolRegistry;
 import junit.framework.TestCase;
 
@@ -69,5 +73,34 @@ public class TurnPostprocessorTest extends TestCase {
                 AgentEvent.Type.ASSISTANT_MESSAGE,
                 AgentEvent.Type.FINAL_ANSWER
         ), turnResult.events().stream().map(AgentEvent::getType).toList());
+    }
+
+    public void testProcessClosesUnknownToolCallAsErrorResult() {
+        TurnPostprocessor postprocessor = new TurnPostprocessor(new ToolRegistry());
+        ToolCallContent missingToolCall = ToolCallContent.builder()
+                .toolCallId("call-unknown")
+                .toolName("missing_tool")
+                .argumentsJson("{}")
+                .build();
+        ModelInvocationResult invocationResult = new ModelInvocationResult(
+                AssistantMessage.builder()
+                        .provider("fake")
+                        .model("test-model")
+                        .contents(List.of(
+                                TextContent.builder().text("I will call a tool.").build(),
+                                missingToolCall
+                        ))
+                        .build(),
+                "I will call a tool.",
+                List.of(missingToolCall),
+                List.of()
+        );
+
+        TurnResult turnResult = postprocessor.process(invocationResult, 1);
+
+        assertEquals(TurnResult.Transition.NEXT_TURN, turnResult.transition());
+        assertEquals(2, turnResult.appendedMessages().size());
+        assertTrue(((ToolResultMessage) turnResult.appendedMessages().get(1)).isError());
+        assertTrue(MessageContents.text(turnResult.appendedMessages().get(1)).contains("Unsupported tool: missing_tool"));
     }
 }

@@ -12,11 +12,16 @@ public class ToolPoolCompilerTest extends TestCase {
         registry.register(new NamedTool("first"));
         registry.register(new NamedTool("second"));
 
-        List<ToolDefinition> tools = new ToolPoolCompiler().compile(registry);
+        ToolPoolSnapshot snapshot = new ToolPoolCompiler().compile(registry);
+        List<ToolDefinition> tools = snapshot.visibleTools();
 
         assertEquals(2, tools.size());
         assertEquals("first", tools.get(0).name());
         assertEquals("second", tools.get(1).name());
+        assertEquals("first", snapshot.findVisible("first").name());
+        assertNull(snapshot.findVisible("missing"));
+        assertEquals(2, snapshot.entries().size());
+        assertTrue(snapshot.entries().get(0).visible());
     }
 
     private static final class NamedTool implements ToolDefinition {

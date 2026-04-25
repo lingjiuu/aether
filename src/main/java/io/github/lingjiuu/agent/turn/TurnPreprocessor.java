@@ -6,6 +6,7 @@ import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.session.AgentSessionServices;
 import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.tool.ToolPoolSnapshot;
 
 import java.util.List;
 
@@ -26,7 +27,8 @@ public class TurnPreprocessor {
         }
 
         List<Message> messagesForModel = runtimeState.snapshot();
-        List<ToolDefinition> visibleTools = services.getToolPoolCompiler().compile(services.getToolRegistry());
+        ToolPoolSnapshot toolPoolSnapshot = services.getToolPoolCompiler().compile(services.getToolRegistry());
+        List<ToolDefinition> visibleTools = toolPoolSnapshot.visibleTools();
         String systemPrompt = services.getSystemPromptBuilder().build(
                 services.getConfig().getSystemPrompt(),
                 visibleTools

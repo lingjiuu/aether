@@ -9,19 +9,24 @@ import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.tool.ToolRegistry;
+import io.github.lingjiuu.tool.ToolRunner;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class TurnPostprocessor {
 
-    private final ToolRegistry toolRegistry;
+    private final ToolRunner toolRunner;
 
     public TurnPostprocessor(ToolRegistry toolRegistry) {
-        if (toolRegistry == null) {
-            throw new IllegalArgumentException("toolRegistry must not be null");
+        this(new ToolRunner(toolRegistry));
+    }
+
+    public TurnPostprocessor(ToolRunner toolRunner) {
+        if (toolRunner == null) {
+            throw new IllegalArgumentException("toolRunner must not be null");
         }
-        this.toolRegistry = toolRegistry;
+        this.toolRunner = toolRunner;
     }
 
     public TurnResult process(ModelInvocationResult invocationResult, int currentTurn) {
@@ -102,7 +107,7 @@ public class TurnPostprocessor {
                     .toolCall(toolCall)
                     .build());
 
-            ToolResultMessage result = toolRegistry.execute(
+            ToolResultMessage result = toolRunner.run(
                     assistantMessage,
                     toolCall,
                     partialResult -> events.add(AgentEvent.builder()

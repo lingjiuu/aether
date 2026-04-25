@@ -21,7 +21,7 @@ public class AgentLoop {
         this(
                 new TurnPreprocessor(services),
                 new ModelInvoker(services.getLlmClient(), new AssistantStreamEventMapper()),
-                new TurnPostprocessor(services.getToolRegistry())
+                new TurnPostprocessor(services.getToolRunner())
         );
     }
 

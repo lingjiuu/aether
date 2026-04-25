@@ -13,6 +13,22 @@ public interface ToolDefinition {
 
     Map<String, Object> parametersSchema();
 
+    default ToolSourceInfo sourceInfo() {
+        return ToolSourceInfo.custom();
+    }
+
+    default ToolExecutionMode executionMode() {
+        return ToolExecutionMode.SEQUENTIAL;
+    }
+
+    default ToolRiskLevel riskLevel() {
+        return ToolRiskLevel.UNKNOWN;
+    }
+
+    default ToolResultPolicy resultPolicy() {
+        return ToolResultPolicy.defaults();
+    }
+
     default String promptSnippet() {
         return null;
     }

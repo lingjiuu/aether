@@ -3,8 +3,11 @@ package io.github.lingjiuu.session;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
+import io.github.lingjiuu.message.ToolResultMessage;
 import junit.framework.TestCase;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,5 +45,52 @@ public class AgentSessionLiveSmokeTest extends TestCase {
         assertTrue("Expected RUN_START event in live session.", eventTypes.contains(AgentSessionEvent.Type.RUN_START));
         assertTrue("Expected ASSISTANT_MESSAGE event in live session.", eventTypes.contains(AgentSessionEvent.Type.ASSISTANT_MESSAGE));
         assertTrue("Expected RUN_END event in live session.", eventTypes.contains(AgentSessionEvent.Type.RUN_END));
+    }
+
+    public void testReadToolUsesRealNetwork() throws Exception {
+        Path fixture = Path.of("target", "read-live-smoke", "aether-read-live-smoke.txt");
+        Files.createDirectories(fixture.getParent());
+        String secret = "AETHER_READ_LIVE_SMOKE_24681357";
+        Files.writeString(fixture, "SECRET_CODE=" + secret + "\n");
+
+        AgentSessionFactory factory = AgentSessionFactory.createDefault();
+        AgentSession session = factory.openSession();
+        List<AgentSessionEvent.Type> eventTypes = new ArrayList<>();
+        session.subscribe(event -> eventTypes.add(event.getType()));
+
+        String provider = factory.configuration().getModel().getProvider();
+        String model = factory.configuration().getModel().getId();
+        System.out.println("=== Live read tool smoke test ===");
+        System.out.println("provider=" + provider + ", model=" + model);
+        System.out.println("fixture=" + fixture);
+
+        session.prompt("""
+                请必须调用 read 工具读取文件 target/read-live-smoke/aether-read-live-smoke.txt。
+                读取后，只回答文件中 SECRET_CODE= 后面的值。
+                不要猜测，不要解释，不要在未调用 read 工具的情况下回答。
+                """);
+
+        assertTrue("Expected TOOL_CALL event in live read smoke.", eventTypes.contains(AgentSessionEvent.Type.TOOL_CALL));
+        assertTrue("Expected TOOL_RESULT event in live read smoke.", eventTypes.contains(AgentSessionEvent.Type.TOOL_RESULT));
+        ToolResultMessage toolResult = findToolResult(session.messages());
+        assertNotNull("Live read smoke should record a tool result message.", toolResult);
+        assertEquals("read", toolResult.getToolName());
+        assertFalse("Live read tool result should not be an error.", toolResult.isError());
+        assertTrue("Live read tool result should contain the fixture secret.", MessageContents.text(toolResult).contains(secret));
+
+        Message lastMessage = session.messages().getLast();
+        assertEquals("Live read smoke should end on an assistant message.", Message.Role.ASSISTANT, lastMessage.role());
+        String answer = MessageContents.text((AssistantMessage) lastMessage);
+        System.out.println(answer);
+        assertTrue("Live assistant answer should include the fixture secret.", answer.contains(secret));
+    }
+
+    private ToolResultMessage findToolResult(List<Message> messages) {
+        for (Message message : messages) {
+            if (message instanceof ToolResultMessage toolResultMessage) {
+                return toolResultMessage;
+            }
+        }
+        return null;
     }
 }
