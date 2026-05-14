@@ -25,6 +25,29 @@ public class ToolRunnerTest extends TestCase {
         assertTrue(MessageContents.text(result).contains("Unsupported tool: missing"));
     }
 
+    public void testInactiveToolReturnsErrorResultWithoutExecuting() {
+        ToolRegistry registry = new ToolRegistry();
+        RequiredTextTool activeTool = new RequiredTextTool("active_tool");
+        RequiredTextTool inactiveTool = new RequiredTextTool("inactive_tool");
+        registry.register(activeTool);
+        registry.register(inactiveTool);
+        ToolRunner runner = new ToolRunner(
+                () -> new ActiveToolSetCompiler().compile(registry, List.of("active_tool")),
+                (invocation, context) -> PermissionDecision.allow(),
+                ToolHookChain.empty()
+        );
+
+        ToolResultMessage result = runner.run(
+                assistantMessage(),
+                toolCall("inactive_tool", "{\"text\":\"ping\"}"),
+                null
+        );
+
+        assertTrue(result.isError());
+        assertTrue(MessageContents.text(result).contains("Inactive tool: inactive_tool"));
+        assertFalse(inactiveTool.executed);
+    }
+
     public void testInvalidArgumentsReturnErrorResult() {
         ToolRegistry registry = new ToolRegistry();
         registry.register(new RequiredTextTool());
@@ -141,9 +164,20 @@ public class ToolRunnerTest extends TestCase {
     }
 
     private static final class RequiredTextTool implements ToolDefinition {
+        private final String name;
+        private boolean executed;
+
+        private RequiredTextTool() {
+            this("required_text");
+        }
+
+        private RequiredTextTool(String name) {
+            this.name = name;
+        }
+
         @Override
         public String name() {
-            return "required_text";
+            return name;
         }
 
         @Override
@@ -167,6 +201,7 @@ public class ToolRunnerTest extends TestCase {
 
         @Override
         public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
+            executed = true;
             return ToolExecutionResult.text(String.valueOf(context.getArguments().get("text")));
         }
     }

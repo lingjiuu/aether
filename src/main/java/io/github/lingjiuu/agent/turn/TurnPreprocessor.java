@@ -10,8 +10,8 @@ import io.github.lingjiuu.llm.LlmCallOptions;
 import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.session.AgentSessionServices;
+import io.github.lingjiuu.tool.ActiveToolSet;
 import io.github.lingjiuu.tool.ToolDefinition;
-import io.github.lingjiuu.tool.ToolPoolSnapshot;
 
 import java.util.List;
 
@@ -50,17 +50,17 @@ public class TurnPreprocessor {
                 originalMessages
         );
         List<Message> messagesForModel = pipelineResult.messages();
-        ToolPoolSnapshot toolPoolSnapshot = services.getToolPoolCompiler().compile(services.getToolRegistry());
-        List<ToolDefinition> visibleTools = toolPoolSnapshot.visibleTools();
+        ActiveToolSet activeToolSet = services.activeToolSet();
+        List<ToolDefinition> activeTools = activeToolSet.activeTools();
         String systemPrompt = services.getSystemPromptBuilder().build(
                 services.getConfig().getSystemPrompt(),
-                visibleTools
+                activeTools
         );
 
         LlmRequest request = LlmRequest.builder()
                 .systemPrompt(systemPrompt)
                 .model(services.getConfig().getModel())
-                .tools(visibleTools)
+                .tools(activeTools)
                 .messages(messagesForModel)
                 .callOptions(LlmCallOptions.builder()
                         .reasoning(services.getConfig().getReasoning())

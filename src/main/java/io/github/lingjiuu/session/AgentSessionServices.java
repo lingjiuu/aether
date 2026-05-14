@@ -1,6 +1,8 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.llm.LlmClient;
+import io.github.lingjiuu.tool.ActiveToolSet;
+import io.github.lingjiuu.tool.ActiveToolSetCompiler;
 import io.github.lingjiuu.tool.ToolRunner;
 import io.github.lingjiuu.tool.ToolPoolCompiler;
 import io.github.lingjiuu.tool.ToolRegistry;
@@ -10,6 +12,8 @@ import io.github.lingjiuu.tool.permission.ToolPermissionService;
 import io.github.lingjiuu.transcript.TranscriptStore;
 import lombok.Getter;
 
+import java.util.List;
+
 @Getter
 public class AgentSessionServices {
 
@@ -18,11 +22,13 @@ public class AgentSessionServices {
     private final ToolRegistry toolRegistry;
     private final LlmClient llmClient;
     private final TranscriptStore transcriptStore;
+    private final ActiveToolSetCompiler activeToolSetCompiler;
     private final ToolPoolCompiler toolPoolCompiler;
     private final SystemPromptBuilder systemPromptBuilder;
     private final ToolPermissionService toolPermissionService;
     private final ToolHookChain toolHookChain;
     private final ToolRunner toolRunner;
+    private List<String> activeToolNames;
 
     public AgentSessionServices(
             AgentSessionConfig config,
@@ -52,6 +58,7 @@ public class AgentSessionServices {
                 toolRegistry,
                 llmClient,
                 transcriptStore,
+                new ActiveToolSetCompiler(),
                 new ToolPoolCompiler(),
                 new SystemPromptBuilder(),
                 new DefaultToolPermissionService(),
@@ -74,6 +81,7 @@ public class AgentSessionServices {
                 toolRegistry,
                 llmClient,
                 transcriptStore,
+                new ActiveToolSetCompiler(),
                 toolPoolCompiler,
                 systemPromptBuilder,
                 new DefaultToolPermissionService(),
@@ -87,6 +95,55 @@ public class AgentSessionServices {
             ToolRegistry toolRegistry,
             LlmClient llmClient,
             TranscriptStore transcriptStore,
+            ActiveToolSetCompiler activeToolSetCompiler,
+            SystemPromptBuilder systemPromptBuilder
+    ) {
+        this(
+                config,
+                modelRegistry,
+                toolRegistry,
+                llmClient,
+                transcriptStore,
+                activeToolSetCompiler,
+                new ToolPoolCompiler(activeToolSetCompiler),
+                systemPromptBuilder,
+                new DefaultToolPermissionService(),
+                ToolHookChain.empty()
+        );
+    }
+
+    public AgentSessionServices(
+            AgentSessionConfig config,
+            ModelRegistry modelRegistry,
+            ToolRegistry toolRegistry,
+            LlmClient llmClient,
+            TranscriptStore transcriptStore,
+            ActiveToolSetCompiler activeToolSetCompiler,
+            SystemPromptBuilder systemPromptBuilder,
+            ToolPermissionService toolPermissionService,
+            ToolHookChain toolHookChain
+    ) {
+        this(
+                config,
+                modelRegistry,
+                toolRegistry,
+                llmClient,
+                transcriptStore,
+                activeToolSetCompiler,
+                new ToolPoolCompiler(activeToolSetCompiler),
+                systemPromptBuilder,
+                toolPermissionService,
+                toolHookChain
+        );
+    }
+
+    private AgentSessionServices(
+            AgentSessionConfig config,
+            ModelRegistry modelRegistry,
+            ToolRegistry toolRegistry,
+            LlmClient llmClient,
+            TranscriptStore transcriptStore,
+            ActiveToolSetCompiler activeToolSetCompiler,
             ToolPoolCompiler toolPoolCompiler,
             SystemPromptBuilder systemPromptBuilder,
             ToolPermissionService toolPermissionService,
@@ -103,6 +160,9 @@ public class AgentSessionServices {
         }
         if (llmClient == null) {
             throw new IllegalArgumentException("llmClient must not be null");
+        }
+        if (activeToolSetCompiler == null) {
+            throw new IllegalArgumentException("activeToolSetCompiler must not be null");
         }
         if (toolPoolCompiler == null) {
             throw new IllegalArgumentException("toolPoolCompiler must not be null");
@@ -121,10 +181,24 @@ public class AgentSessionServices {
         this.toolRegistry = toolRegistry;
         this.llmClient = llmClient;
         this.transcriptStore = transcriptStore;
+        this.activeToolSetCompiler = activeToolSetCompiler;
         this.toolPoolCompiler = toolPoolCompiler;
         this.systemPromptBuilder = systemPromptBuilder;
         this.toolPermissionService = toolPermissionService;
         this.toolHookChain = toolHookChain;
-        this.toolRunner = new ToolRunner(toolRegistry, toolPermissionService, toolHookChain);
+        this.activeToolNames = config.resolvedActiveToolNames();
+        this.toolRunner = new ToolRunner(this::activeToolSet, toolPermissionService, toolHookChain);
+    }
+
+    public synchronized ActiveToolSet activeToolSet() {
+        return activeToolSetCompiler.compile(toolRegistry, activeToolNames);
+    }
+
+    public synchronized List<String> activeToolNames() {
+        return activeToolNames == null ? null : List.copyOf(activeToolNames);
+    }
+
+    public synchronized void setActiveToolNames(List<String> activeToolNames) {
+        this.activeToolNames = activeToolNames == null ? null : List.copyOf(activeToolNames);
     }
 }

@@ -15,10 +15,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 public class ToolRunner {
 
-    private final ToolRegistry toolRegistry;
+    private final Supplier<ActiveToolSet> activeToolSetSupplier;
     private final ToolArgumentValidator argumentValidator;
     private final ToolPermissionService permissionService;
     private final ToolHookChain hookChain;
@@ -26,7 +27,7 @@ public class ToolRunner {
 
     public ToolRunner(ToolRegistry toolRegistry) {
         this(
-                toolRegistry,
+                activeSetSupplier(toolRegistry),
                 new ToolArgumentValidator(),
                 new DefaultToolPermissionService(),
                 ToolHookChain.empty(),
@@ -40,7 +41,7 @@ public class ToolRunner {
             ToolHookChain hookChain
     ) {
         this(
-                toolRegistry,
+                activeSetSupplier(toolRegistry),
                 new ToolArgumentValidator(),
                 permissionService,
                 hookChain,
@@ -49,14 +50,28 @@ public class ToolRunner {
     }
 
     public ToolRunner(
-            ToolRegistry toolRegistry,
+            Supplier<ActiveToolSet> activeToolSetSupplier,
+            ToolPermissionService permissionService,
+            ToolHookChain hookChain
+    ) {
+        this(
+                activeToolSetSupplier,
+                new ToolArgumentValidator(),
+                permissionService,
+                hookChain,
+                new ToolResultMapper()
+        );
+    }
+
+    public ToolRunner(
+            Supplier<ActiveToolSet> activeToolSetSupplier,
             ToolArgumentValidator argumentValidator,
             ToolPermissionService permissionService,
             ToolHookChain hookChain,
             ToolResultMapper resultMapper
     ) {
-        if (toolRegistry == null) {
-            throw new IllegalArgumentException("toolRegistry must not be null");
+        if (activeToolSetSupplier == null) {
+            throw new IllegalArgumentException("activeToolSetSupplier must not be null");
         }
         if (argumentValidator == null) {
             throw new IllegalArgumentException("argumentValidator must not be null");
@@ -70,7 +85,7 @@ public class ToolRunner {
         if (resultMapper == null) {
             throw new IllegalArgumentException("resultMapper must not be null");
         }
-        this.toolRegistry = toolRegistry;
+        this.activeToolSetSupplier = activeToolSetSupplier;
         this.argumentValidator = argumentValidator;
         this.permissionService = permissionService;
         this.hookChain = hookChain;
@@ -86,9 +101,14 @@ public class ToolRunner {
             throw new IllegalArgumentException("toolCall must not be null");
         }
 
-        ToolDefinition definition = toolRegistry.findDefinition(toolCall.getToolName());
+        ActiveToolSet activeToolSet = activeToolSetSupplier.get();
+        ToolDefinition definition = activeToolSet == null ? null : activeToolSet.findActive(toolCall.getToolName());
         ToolInvocation invocation = ToolInvocation.of(assistantMessage, toolCall, definition);
         if (definition == null) {
+            ToolDefinition registeredDefinition = activeToolSet == null ? null : activeToolSet.findRegistered(toolCall.getToolName());
+            if (registeredDefinition != null) {
+                return errorMessage(toolCall, "Inactive tool: " + safeToolName(toolCall));
+            }
             return errorMessage(toolCall, "Unsupported tool: " + safeToolName(toolCall));
         }
 
@@ -277,5 +297,13 @@ public class ToolRunner {
         details.put("originalTextChars", originalTextChars);
         details.put("maxTextChars", maxTextChars);
         return details;
+    }
+
+    private static Supplier<ActiveToolSet> activeSetSupplier(ToolRegistry toolRegistry) {
+        if (toolRegistry == null) {
+            throw new IllegalArgumentException("toolRegistry must not be null");
+        }
+        ActiveToolSetCompiler compiler = new ActiveToolSetCompiler();
+        return () -> compiler.compile(toolRegistry, null);
     }
 }

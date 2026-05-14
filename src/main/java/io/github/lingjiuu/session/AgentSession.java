@@ -104,6 +104,16 @@ public class AgentSession {
         updatedAt = System.currentTimeMillis();
     }
 
+    public synchronized void setActiveToolsByName(List<String> toolNames) {
+        ensureNotRunning();
+        services.setActiveToolNames(toolNames);
+        updatedAt = System.currentTimeMillis();
+    }
+
+    public synchronized List<String> activeToolNames() {
+        return services.activeToolNames();
+    }
+
     public synchronized boolean canContinue() {
         if (messages.isEmpty()) {
             return false;

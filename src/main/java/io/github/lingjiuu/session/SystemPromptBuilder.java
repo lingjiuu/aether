@@ -9,9 +9,9 @@ import java.util.Set;
 
 public class SystemPromptBuilder {
 
-    public String build(String basePrompt, List<ToolDefinition> visibleTools) {
+    public String build(String basePrompt, List<ToolDefinition> activeTools) {
         String prompt = basePrompt == null ? "" : basePrompt.trim();
-        List<ToolDefinition> safeTools = visibleTools == null ? List.of() : visibleTools;
+        List<ToolDefinition> safeTools = activeTools == null ? List.of() : activeTools;
 
         List<String> toolLines = new ArrayList<>();
         Set<String> guidelines = new LinkedHashSet<>();

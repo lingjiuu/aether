@@ -1,15 +1,25 @@
 package io.github.lingjiuu.tool;
 
-import java.util.Objects;
-
 public class ToolPoolCompiler {
 
-    public ToolPoolSnapshot compile(ToolRegistry registry) {
-        if (registry == null) {
-            throw new IllegalArgumentException("tool registry must not be null");
+    private final ActiveToolSetCompiler activeToolSetCompiler;
+
+    public ToolPoolCompiler() {
+        this(new ActiveToolSetCompiler());
+    }
+
+    public ToolPoolCompiler(ActiveToolSetCompiler activeToolSetCompiler) {
+        if (activeToolSetCompiler == null) {
+            throw new IllegalArgumentException("activeToolSetCompiler must not be null");
         }
-        return ToolPoolSnapshot.ofVisibleTools(registry.definitions().stream()
-                .filter(Objects::nonNull)
-                .toList());
+        this.activeToolSetCompiler = activeToolSetCompiler;
+    }
+
+    public ToolPoolSnapshot compile(ToolRegistry registry) {
+        return new ToolPoolSnapshot(activeToolSetCompiler.compile(registry, null));
+    }
+
+    public ToolPoolSnapshot compile(ToolRegistry registry, java.util.List<String> activeToolNames) {
+        return new ToolPoolSnapshot(activeToolSetCompiler.compile(registry, activeToolNames));
     }
 }

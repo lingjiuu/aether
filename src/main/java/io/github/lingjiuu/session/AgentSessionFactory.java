@@ -48,7 +48,8 @@ public class AgentSessionFactory {
                 .llmClient(llmClient)
                 .systemPrompt(DEFAULT_SYSTEM_PROMPT)
                 .model(model)
-                .defaultTools(buildDefaultTools())
+                .toolDefinitions(buildDefaultTools())
+                .activeToolNames(List.of("get_time", "read"))
                 .transcriptStore(new TranscriptStore(AetherPaths.getTranscriptsDir()))
                 .build();
 
@@ -81,10 +82,8 @@ public class AgentSessionFactory {
 
     private AgentSessionServices buildSessionServices() {
         ToolRegistry toolRegistry = new ToolRegistry();
-        if (configuration.getDefaultTools() != null) {
-            for (ToolDefinition definition : configuration.getDefaultTools()) {
-                toolRegistry.register(definition);
-            }
+        for (ToolDefinition definition : configuration.resolvedToolDefinitions()) {
+            toolRegistry.register(definition);
         }
 
         return new AgentSessionServices(

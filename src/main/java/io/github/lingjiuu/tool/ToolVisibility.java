@@ -34,4 +34,11 @@ public final class ToolVisibility {
     public String reason() {
         return reason;
     }
+
+    static ToolVisibility fromActivation(ToolActivation activation) {
+        if (activation.active()) {
+            return visible(activation.definition());
+        }
+        return hidden(activation.definition(), activation.reason());
+    }
 }

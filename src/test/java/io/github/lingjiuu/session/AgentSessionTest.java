@@ -13,7 +13,11 @@ import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.RequestAuth;
+import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.tool.ToolExecutionContext;
+import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRegistry;
+import io.github.lingjiuu.tool.ToolUpdateCallback;
 import junit.framework.TestCase;
 
 import java.io.IOException;
@@ -78,6 +82,46 @@ public class AgentSessionTest extends TestCase {
         assertEquals(config, session.snapshot().getConfig());
     }
 
+    public void testSetActiveToolsControlsNextRequestToolsAndPrompt() throws Exception {
+        ToolRegistry toolRegistry = new ToolRegistry();
+        toolRegistry.register(new PromptTool("first", "First tool"));
+        toolRegistry.register(new PromptTool("second", "Second tool"));
+        StubModelRegistry modelRegistry = new StubModelRegistry();
+        CapturingProvider provider = new CapturingProvider();
+        AuthStorage authStorage = AuthStorage.create(Files.createTempDirectory("aether-auth-test").resolve("auth.json"));
+
+        LlmClient llmClient = new LlmClient(
+                modelRegistry,
+                new ProviderRegistry().register(provider)
+        );
+        AgentSessionConfig config = AgentSessionConfig.builder()
+                .authStorage(authStorage)
+                .modelRegistry(modelRegistry)
+                .llmClient(llmClient)
+                .systemPrompt("Base")
+                .model(LlmModel.builder()
+                        .id("test-model")
+                        .name("Test Model")
+                        .api("fake")
+                        .provider("fake")
+                        .baseUrl("https://example.test/v1")
+                        .build())
+                .activeToolNames(List.of("first"))
+                .build();
+        AgentSessionServices services = new AgentSessionServices(config, modelRegistry, toolRegistry, llmClient);
+        AgentSession session = new AgentSession(services, new AgentLoop(services));
+
+        assertEquals(List.of("first"), session.activeToolNames());
+        session.setActiveToolsByName(List.of("second"));
+        session.prompt("Hello");
+
+        assertEquals(List.of("second"), session.activeToolNames());
+        assertEquals(1, provider.lastRequest.getTools().size());
+        assertEquals("second", provider.lastRequest.getTools().getFirst().name());
+        assertTrue(provider.lastRequest.getSystemPrompt().contains("- second: Second tool"));
+        assertFalse(provider.lastRequest.getSystemPrompt().contains("- first: First tool"));
+    }
+
     private static final class SingleResponseProvider implements Provider {
         @Override
         public String name() {
@@ -106,6 +150,61 @@ public class AgentSessionTest extends TestCase {
                     return null;
                 }
             };
+        }
+    }
+
+    private static final class CapturingProvider implements Provider {
+        private LlmRequest lastRequest;
+
+        @Override
+        public String name() {
+            return "fake";
+        }
+
+        @Override
+        public AssistantStream stream(LlmRequest request) {
+            lastRequest = request;
+            return new SingleResponseProvider().stream(request);
+        }
+    }
+
+    private static final class PromptTool implements ToolDefinition {
+        private final String name;
+        private final String promptSnippet;
+
+        private PromptTool(String name, String promptSnippet) {
+            this.name = name;
+            this.promptSnippet = promptSnippet;
+        }
+
+        @Override
+        public String name() {
+            return name;
+        }
+
+        @Override
+        public String label() {
+            return name;
+        }
+
+        @Override
+        public String description() {
+            return name;
+        }
+
+        @Override
+        public Map<String, Object> parametersSchema() {
+            return Map.of("type", "object");
+        }
+
+        @Override
+        public String promptSnippet() {
+            return promptSnippet;
+        }
+
+        @Override
+        public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
+            return ToolExecutionResult.text(name);
         }
     }
 
