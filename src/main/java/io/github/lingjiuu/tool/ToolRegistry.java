@@ -8,14 +8,8 @@ import java.util.Map;
 public class ToolRegistry {
 
     private final Map<String, ToolDefinition> definitionsByName = new LinkedHashMap<>();
-    private final ToolExecutor toolExecutor;
 
     public ToolRegistry() {
-        this(new ToolExecutor());
-    }
-
-    public ToolRegistry(ToolExecutor toolExecutor) {
-        this.toolExecutor = toolExecutor;
     }
 
     public void register(ToolDefinition definition) {
@@ -41,14 +35,6 @@ public class ToolRegistry {
             return null;
         }
         return definitionsByName.get(name);
-    }
-
-    public io.github.lingjiuu.message.ToolResultMessage execute(
-            io.github.lingjiuu.message.AssistantMessage assistantMessage,
-            io.github.lingjiuu.message.content.ToolCallContent toolCall,
-            ToolUpdateCallback onUpdate
-    ) {
-        return new ToolRunner(this).run(assistantMessage, toolCall, onUpdate);
     }
 
     public ToolDefinition requireDefinition(String name) {

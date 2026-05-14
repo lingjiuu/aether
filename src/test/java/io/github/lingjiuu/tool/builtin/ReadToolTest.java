@@ -4,7 +4,8 @@ import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
-import io.github.lingjiuu.tool.ToolExecutor;
+import io.github.lingjiuu.tool.ToolRegistry;
+import io.github.lingjiuu.tool.ToolRunner;
 import io.github.lingjiuu.tool.fs.FileAccessPolicy;
 import junit.framework.TestCase;
 
@@ -65,6 +66,8 @@ public class ReadToolTest extends TestCase {
         AssistantMessage assistantMessage = AssistantMessage.builder()
                 .contents(List.of(toolCall))
                 .build();
-        return new ToolExecutor().execute(tool, assistantMessage, toolCall, null);
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(tool);
+        return new ToolRunner(registry).run(assistantMessage, toolCall, null);
     }
 }

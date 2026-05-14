@@ -47,7 +47,7 @@ public class AgentSessionTranscriptIntegrationTest extends TestCase {
                         .provider("fake")
                         .baseUrl("https://example.test/v1")
                         .build())
-                .defaultTools(List.of(new EchoTool()))
+                .toolDefinitions(List.of(new EchoTool()))
                 .transcriptStore(transcriptStore)
                 .build());
 

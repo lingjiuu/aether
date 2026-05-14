@@ -82,8 +82,10 @@ public class AgentSessionFactory {
 
     private AgentSessionServices buildSessionServices() {
         ToolRegistry toolRegistry = new ToolRegistry();
-        for (ToolDefinition definition : configuration.resolvedToolDefinitions()) {
-            toolRegistry.register(definition);
+        if (configuration.getToolDefinitions() != null) {
+            for (ToolDefinition definition : configuration.getToolDefinitions()) {
+                toolRegistry.register(definition);
+            }
         }
 
         return new AgentSessionServices(
