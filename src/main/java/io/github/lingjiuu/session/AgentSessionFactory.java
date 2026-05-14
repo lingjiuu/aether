@@ -48,7 +48,7 @@ public class AgentSessionFactory {
                 .systemPrompt(DEFAULT_SYSTEM_PROMPT)
                 .model(model)
                 .toolDefinitions(buildDefaultTools())
-                .activeToolNames(BuiltinToolFactory.readOnlyToolNames())
+                .activeToolNames(BuiltinToolFactory.defaultToolNames())
                 .transcriptStore(new TranscriptStore(AetherPaths.getTranscriptsDir()))
                 .build();
 

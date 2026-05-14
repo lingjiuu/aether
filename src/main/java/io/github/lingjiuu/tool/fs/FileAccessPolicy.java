@@ -32,6 +32,35 @@ public class FileAccessPolicy {
         return checked;
     }
 
+    public Path resolveWritablePath(String path) {
+        if (path == null || path.isBlank()) {
+            throw new IllegalArgumentException("path must not be blank");
+        }
+
+        Path requested = Path.of(path);
+        Path resolved = requested.isAbsolute()
+                ? requested.toAbsolutePath().normalize()
+                : root.resolve(requested).toAbsolutePath().normalize();
+        if (!resolved.startsWith(root)) {
+            throw new IllegalArgumentException("Path is outside the allowed root: " + path);
+        }
+        if (Files.exists(resolved)) {
+            Path checked = normalizeExistingPath(resolved);
+            if (!checked.startsWith(root)) {
+                throw new IllegalArgumentException("Path is outside the allowed root: " + path);
+            }
+            return checked;
+        }
+
+        Path parent = resolved.getParent();
+        Path nearestExistingParent = nearestExistingParent(parent);
+        Path checkedParent = normalizeExistingPath(nearestExistingParent);
+        if (!checkedParent.startsWith(root)) {
+            throw new IllegalArgumentException("Path is outside the allowed root: " + path);
+        }
+        return resolved;
+    }
+
     public Path root() {
         return root;
     }
@@ -60,5 +89,13 @@ public class FileAccessPolicy {
             }
         }
         return path;
+    }
+
+    private Path nearestExistingParent(Path path) {
+        Path current = path;
+        while (current != null && !Files.exists(current)) {
+            current = current.getParent();
+        }
+        return current == null ? root : current;
     }
 }
