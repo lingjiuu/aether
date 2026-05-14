@@ -16,6 +16,15 @@ import java.util.List;
 
 public class GrepToolTest extends TestCase {
 
+    public void testDescriptionNamesLimitsAndReadFollowUp() {
+        String description = new GrepTool(FileAccessPolicy.rootedAt(Path.of("."))).description();
+
+        assertTrue(description.contains("100 matches"));
+        assertTrue(description.contains("50.0KB"));
+        assertTrue(description.contains("500 chars"));
+        assertTrue(description.contains("read"));
+    }
+
     public void testFindsLiteralRegexAndIgnoreCaseMatches() throws Exception {
         Path root = Files.createTempDirectory("aether-grep-root");
         Files.writeString(root.resolve("notes.txt"), "Alpha\nbeta\n");

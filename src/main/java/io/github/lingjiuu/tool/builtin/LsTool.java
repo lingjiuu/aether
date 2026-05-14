@@ -40,7 +40,10 @@ public class LsTool implements ToolDefinition {
 
     @Override
     public String description() {
-        return "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles.";
+        return "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. "
+                + "Includes dotfiles. Output is truncated to " + ToolOutputLimits.LS_DEFAULT_LIMIT
+                + " entries or " + ToolOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES)
+                + " (whichever is hit first).";
     }
 
     @Override

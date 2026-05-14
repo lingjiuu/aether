@@ -53,7 +53,10 @@ public class FindTool implements ToolDefinition {
 
     @Override
     public String description() {
-        return "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore.";
+        return "Search for files by glob pattern. Returns matching file paths relative to the search directory. "
+                + "Respects .gitignore. Output is truncated to " + ToolOutputLimits.FIND_DEFAULT_LIMIT
+                + " results or " + ToolOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES)
+                + " (whichever is hit first).";
     }
 
     @Override

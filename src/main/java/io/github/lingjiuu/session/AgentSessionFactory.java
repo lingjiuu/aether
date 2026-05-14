@@ -10,6 +10,7 @@ import io.github.lingjiuu.tool.ToolRegistry;
 import io.github.lingjiuu.tool.builtin.FindTool;
 import io.github.lingjiuu.tool.builtin.GrepTool;
 import io.github.lingjiuu.tool.builtin.LsTool;
+import io.github.lingjiuu.tool.builtin.ReadTool;
 import io.github.lingjiuu.tool.fs.FileAccessPolicy;
 import io.github.lingjiuu.transcript.RestoredTranscript;
 import io.github.lingjiuu.transcript.TranscriptRestorer;
@@ -50,7 +51,7 @@ public class AgentSessionFactory {
                 .systemPrompt(DEFAULT_SYSTEM_PROMPT)
                 .model(model)
                 .toolDefinitions(buildDefaultTools())
-                .activeToolNames(List.of("ls", "find", "grep"))
+                .activeToolNames(List.of("ls", "find", "grep", "read"))
                 .transcriptStore(new TranscriptStore(AetherPaths.getTranscriptsDir()))
                 .build();
 
@@ -118,7 +119,8 @@ public class AgentSessionFactory {
         return List.of(
                 new LsTool(accessPolicy),
                 new FindTool(accessPolicy),
-                new GrepTool(accessPolicy)
+                new GrepTool(accessPolicy),
+                new ReadTool(accessPolicy)
         );
     }
 

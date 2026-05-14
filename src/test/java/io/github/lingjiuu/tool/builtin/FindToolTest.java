@@ -16,6 +16,14 @@ import java.util.List;
 
 public class FindToolTest extends TestCase {
 
+    public void testDescriptionNamesLimits() {
+        String description = new FindTool(FileAccessPolicy.rootedAt(Path.of("."))).description();
+
+        assertTrue(description.contains("1000 results"));
+        assertTrue(description.contains("50.0KB"));
+        assertTrue(description.contains(".gitignore"));
+    }
+
     public void testFindsBasenameAndPathGlobs() throws Exception {
         Path root = Files.createTempDirectory("aether-find-root");
         Files.createDirectories(root.resolve("src/main"));

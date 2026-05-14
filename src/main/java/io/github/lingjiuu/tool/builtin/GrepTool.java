@@ -57,7 +57,11 @@ public class GrepTool implements ToolDefinition {
 
     @Override
     public String description() {
-        return "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore.";
+        return "Search file contents for a pattern. Returns matching lines with file paths and line numbers. "
+                + "Respects .gitignore. Output is truncated to " + ToolOutputLimits.GREP_DEFAULT_LIMIT
+                + " matches or " + ToolOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES)
+                + " (whichever is hit first). Long lines are truncated to "
+                + ToolOutputLimits.GREP_MAX_LINE_LENGTH + " chars. Use read with offset/limit to inspect full lines.";
     }
 
     @Override
@@ -277,7 +281,8 @@ public class GrepTool implements ToolDefinition {
             notices.add(ToolOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES) + " limit reached");
         }
         if (linesTruncated) {
-            notices.add("Some lines truncated to " + ToolOutputLimits.GREP_MAX_LINE_LENGTH + " chars");
+            notices.add("Some lines truncated to " + ToolOutputLimits.GREP_MAX_LINE_LENGTH
+                    + " chars. Use read with offset/limit to inspect full lines");
         }
         if (!notices.isEmpty()) {
             output += "\n\n[" + String.join(". ", notices) + "]";

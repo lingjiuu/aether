@@ -16,6 +16,14 @@ import java.util.List;
 
 public class LsToolTest extends TestCase {
 
+    public void testDescriptionNamesLimits() {
+        String description = new LsTool(FileAccessPolicy.rootedAt(Path.of("."))).description();
+
+        assertTrue(description.contains("500 entries"));
+        assertTrue(description.contains("50.0KB"));
+        assertTrue(description.contains("dotfiles"));
+    }
+
     public void testListsDotfilesSortedAndMarksDirectories() throws Exception {
         Path root = Files.createTempDirectory("aether-ls-root");
         Files.writeString(root.resolve("beta.txt"), "beta");
