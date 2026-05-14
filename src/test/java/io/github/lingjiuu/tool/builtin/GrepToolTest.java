@@ -65,6 +65,7 @@ public class GrepToolTest extends TestCase {
 
     public void testRespectsGitignore() throws Exception {
         Path root = Files.createTempDirectory("aether-grep-root");
+        Files.createFile(root.resolve(".git"));
         Files.writeString(root.resolve(".gitignore"), "ignored.txt\n");
         Files.writeString(root.resolve("ignored.txt"), "needle\n");
         Files.writeString(root.resolve("kept.txt"), "needle\n");
@@ -74,6 +75,24 @@ public class GrepToolTest extends TestCase {
         String text = MessageContents.text(result);
         assertTrue(text.contains("kept.txt"));
         assertFalse(text.contains("ignored.txt"));
+    }
+
+    public void testReportsMissingRipgrep() throws Exception {
+        Path root = Files.createTempDirectory("aether-grep-root");
+        GrepTool tool = new GrepTool(
+                FileAccessPolicy.rootedAt(root),
+                new ToolBinaryResolver(
+                        root.resolve("tools"),
+                        command -> false,
+                        (binary, toolsDir) -> java.util.Optional.empty(),
+                        () -> true
+                )
+        );
+
+        ToolResultMessage result = execute(tool, "{\"pattern\":\"needle\"}");
+
+        assertTrue(result.isError());
+        assertTrue(MessageContents.text(result).contains("ripgrep (rg) is not available and could not be downloaded"));
     }
 
     private ToolResultMessage execute(ToolDefinition tool, String argumentsJson) {

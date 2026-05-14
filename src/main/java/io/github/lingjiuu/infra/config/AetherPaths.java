@@ -23,4 +23,8 @@ public final class AetherPaths {
     public static Path getTranscriptsDir() {
         return getAgentDir().resolve("transcripts");
     }
+
+    public static Path getToolsDir() {
+        return getAgentDir().resolve("bin");
+    }
 }

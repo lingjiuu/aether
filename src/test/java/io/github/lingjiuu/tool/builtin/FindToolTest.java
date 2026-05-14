@@ -61,6 +61,24 @@ public class FindToolTest extends TestCase {
         assertTrue(MessageContents.text(limited).contains("1 results limit reached"));
     }
 
+    public void testReportsMissingFd() throws Exception {
+        Path root = Files.createTempDirectory("aether-find-root");
+        FindTool tool = new FindTool(
+                FileAccessPolicy.rootedAt(root),
+                new ToolBinaryResolver(
+                        root.resolve("tools"),
+                        command -> false,
+                        (binary, toolsDir) -> java.util.Optional.empty(),
+                        () -> true
+                )
+        );
+
+        ToolResultMessage result = execute(tool, "{\"pattern\":\"*.java\"}");
+
+        assertTrue(result.isError());
+        assertTrue(MessageContents.text(result).contains("fd is not available and could not be downloaded"));
+    }
+
     private ToolResultMessage execute(ToolDefinition tool, String argumentsJson) {
         ToolRegistry registry = new ToolRegistry();
         registry.register(tool);

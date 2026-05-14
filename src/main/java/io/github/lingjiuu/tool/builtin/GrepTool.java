@@ -1,5 +1,7 @@
 package io.github.lingjiuu.tool.builtin;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
 import io.github.lingjiuu.tool.ToolExecutionMode;
@@ -8,32 +10,39 @@ import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.ToolSourceInfo;
 import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.fs.FileAccessPolicy;
-import io.github.lingjiuu.tool.fs.WorkspaceIgnoreMatcher;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 public class GrepTool implements ToolDefinition {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
+
     private final FileAccessPolicy accessPolicy;
+    private final ToolBinaryResolver binaryResolver;
 
     public GrepTool(FileAccessPolicy accessPolicy) {
+        this(accessPolicy, ToolBinaryResolver.defaults());
+    }
+
+    GrepTool(FileAccessPolicy accessPolicy, ToolBinaryResolver binaryResolver) {
         if (accessPolicy == null) {
             throw new IllegalArgumentException("accessPolicy must not be null");
         }
+        if (binaryResolver == null) {
+            throw new IllegalArgumentException("binaryResolver must not be null");
+        }
         this.accessPolicy = accessPolicy;
+        this.binaryResolver = binaryResolver;
     }
 
     @Override
@@ -104,13 +113,18 @@ public class GrepTool implements ToolDefinition {
             int contextLines = BuiltinToolArguments.optionalNonNegativeInt(context.getArguments(), "context", 0);
             int limit = BuiltinToolArguments.optionalPositiveInt(context.getArguments(), "limit", ToolOutputLimits.GREP_DEFAULT_LIMIT);
             Path resolvedPath = accessPolicy.resolveReadablePath(requestedPath);
-            return grep(pattern, requestedPath, resolvedPath, glob, ignoreCase, literal, contextLines, limit);
+            Optional<String> rgPath = binaryResolver.resolve(ToolBinary.RG);
+            if (rgPath.isEmpty()) {
+                return ToolExecutionResult.errorText("grep failed: ripgrep (rg) is not available and could not be downloaded");
+            }
+            return grep(rgPath.get(), pattern, requestedPath, resolvedPath, glob, ignoreCase, literal, contextLines, limit);
         } catch (Exception e) {
             return ToolExecutionResult.errorText("grep failed: " + e.getMessage());
         }
     }
 
     private ToolExecutionResult grep(
+            String rgPath,
             String pattern,
             String requestedPath,
             Path resolvedPath,
@@ -119,71 +133,78 @@ public class GrepTool implements ToolDefinition {
             boolean literal,
             int contextLines,
             int limit
-    ) throws IOException {
+    ) throws IOException, InterruptedException {
         if (!Files.exists(resolvedPath)) {
             throw new IOException("Path not found: " + requestedPath);
         }
 
-        List<Path> candidates = candidateFiles(resolvedPath, glob);
-        SearchMatcher searchMatcher = SearchMatcher.create(pattern, literal, ignoreCase);
+        List<String> args = new ArrayList<>();
+        args.add(rgPath);
+        args.add("--json");
+        args.add("--line-number");
+        args.add("--color=never");
+        args.add("--hidden");
+        if (ignoreCase) {
+            args.add("--ignore-case");
+        }
+        if (literal) {
+            args.add("--fixed-strings");
+        }
+        if (glob != null && !glob.isBlank()) {
+            args.add("--glob");
+            args.add(glob);
+        }
+        args.add("--");
+        args.add(pattern);
+        args.add(resolvedPath.toString());
+
+        Process process = new ProcessBuilder(args)
+                .redirectErrorStream(false)
+                .start();
         List<Match> matches = new ArrayList<>();
-        for (Path file : candidates) {
-            List<String> lines;
-            try {
-                lines = Files.readAllLines(file, StandardCharsets.UTF_8);
-            } catch (IOException | RuntimeException ignored) {
-                continue;
-            }
-            for (int i = 0; i < lines.size(); i++) {
-                if (searchMatcher.matches(lines.get(i))) {
-                    matches.add(new Match(file, i + 1, lines));
+        boolean matchLimitReached = false;
+        try (BufferedReader stdout = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = stdout.readLine()) != null) {
+                if (line.isBlank() || matches.size() >= limit) {
+                    continue;
+                }
+                JsonNode event;
+                try {
+                    event = OBJECT_MAPPER.readTree(line);
+                } catch (Exception ignored) {
+                    continue;
+                }
+                if (!"match".equals(event.path("type").asText())) {
+                    continue;
+                }
+                JsonNode data = event.path("data");
+                String filePath = data.path("path").path("text").asText(null);
+                int lineNumber = data.path("line_number").asInt(-1);
+                String lineText = data.path("lines").path("text").asText("");
+                if (filePath != null && lineNumber > 0) {
+                    matches.add(new Match(resolveMatchPath(resolvedPath, filePath), lineNumber, lineText));
                     if (matches.size() >= limit) {
-                        return render(pattern, requestedPath, resolvedPath, glob, matches, true, contextLines);
+                        matchLimitReached = true;
+                        process.destroy();
+                        break;
                     }
                 }
             }
         }
-        return render(pattern, requestedPath, resolvedPath, glob, matches, false, contextLines);
-    }
 
-    private List<Path> candidateFiles(Path resolvedPath, String glob) throws IOException {
-        PathGlobMatcher globMatcher = glob == null || glob.isBlank() ? null : PathGlobMatcher.of(glob);
-        if (Files.isRegularFile(resolvedPath)) {
-            String name = resolvedPath.getFileName().toString();
-            if (globMatcher == null || globMatcher.matches(name)) {
-                return List.of(resolvedPath);
-            }
-            return List.of();
+        String stderr = matchLimitReached ? "" : readAll(process.getErrorStream());
+        boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            throw new IOException("ripgrep timed out");
         }
-        if (!Files.isDirectory(resolvedPath)) {
-            throw new IOException("Not a file or directory: " + resolvedPath);
+        int exitCode = process.exitValue();
+        if (!matchLimitReached && exitCode != 0 && exitCode != 1) {
+            String message = stderr.isBlank() ? "ripgrep exited with code " + exitCode : stderr;
+            throw new IOException(message);
         }
-
-        WorkspaceIgnoreMatcher ignoreMatcher = WorkspaceIgnoreMatcher.load(resolvedPath);
-        List<Path> candidates = new ArrayList<>();
-        Files.walkFileTree(resolvedPath, new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                if (!dir.equals(resolvedPath) && ignoreMatcher.isIgnored(dir, true)) {
-                    return FileVisitResult.SKIP_SUBTREE;
-                }
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                if (!attrs.isRegularFile() || ignoreMatcher.isIgnored(file, false)) {
-                    return FileVisitResult.CONTINUE;
-                }
-                String relative = toPosix(resolvedPath.relativize(file));
-                if (globMatcher == null || globMatcher.matches(relative)) {
-                    candidates.add(file);
-                }
-                return FileVisitResult.CONTINUE;
-            }
-        });
-        candidates.sort(Comparator.comparing(path -> toPosix(resolvedPath.relativize(path)).toLowerCase(Locale.ROOT)));
-        return candidates;
+        return render(pattern, requestedPath, resolvedPath, glob, matches, matchLimitReached, contextLines);
     }
 
     private ToolExecutionResult render(
@@ -213,11 +234,30 @@ public class GrepTool implements ToolDefinition {
         List<String> outputLines = new ArrayList<>();
         boolean linesTruncated = false;
         for (Match match : matches) {
-            int start = contextLines > 0 ? Math.max(1, match.lineNumber() - contextLines) : match.lineNumber();
-            int end = contextLines > 0 ? Math.min(match.lines().size(), match.lineNumber() + contextLines) : match.lineNumber();
+            if (contextLines == 0) {
+                ToolOutputTruncator.LineTruncation line = ToolOutputTruncator.truncateLine(
+                        sanitizeMatchLine(match.lineText()),
+                        ToolOutputLimits.GREP_MAX_LINE_LENGTH
+                );
+                if (line.wasTruncated()) {
+                    linesTruncated = true;
+                }
+                outputLines.add(formatPath(searchPath, match.file()) + ":" + match.lineNumber() + ": " + line.text());
+                continue;
+            }
+
+            List<String> fileLines = readFileLines(match.file());
+            if (fileLines.isEmpty()) {
+                outputLines.add(formatPath(searchPath, match.file()) + ":" + match.lineNumber() + ": (unable to read file)");
+                continue;
+            }
+            int start = Math.max(1, match.lineNumber() - contextLines);
+            int end = Math.min(fileLines.size(), match.lineNumber() + contextLines);
             for (int lineNumber = start; lineNumber <= end; lineNumber++) {
-                String lineText = match.lines().get(lineNumber - 1).replace("\r", "");
-                ToolOutputTruncator.LineTruncation line = ToolOutputTruncator.truncateLine(lineText, ToolOutputLimits.GREP_MAX_LINE_LENGTH);
+                ToolOutputTruncator.LineTruncation line = ToolOutputTruncator.truncateLine(
+                        fileLines.get(lineNumber - 1).replace("\r", ""),
+                        ToolOutputLimits.GREP_MAX_LINE_LENGTH
+                );
                 if (line.wasTruncated()) {
                     linesTruncated = true;
                 }
@@ -261,36 +301,65 @@ public class GrepTool implements ToolDefinition {
 
     private String formatPath(Path searchPath, Path file) {
         if (Files.isDirectory(searchPath)) {
-            return toPosix(searchPath.relativize(file));
+            Path normalizedFile = file.toAbsolutePath().normalize();
+            Path normalizedSearch = searchPath.toAbsolutePath().normalize();
+            if (normalizedFile.startsWith(normalizedSearch)) {
+                return toPosix(normalizedSearch.relativize(normalizedFile));
+            }
         }
         return file.getFileName().toString();
+    }
+
+    private Path resolveMatchPath(Path searchPath, String filePath) {
+        Path path = Path.of(filePath);
+        if (path.isAbsolute()) {
+            return path.normalize();
+        }
+
+        String cleaned = filePath;
+        while (cleaned.startsWith("./") || cleaned.startsWith(".\\")) {
+            cleaned = cleaned.substring(2);
+        }
+        Path base = Files.isDirectory(searchPath) ? searchPath : searchPath.getParent();
+        if (base == null) {
+            base = searchPath;
+        }
+        return base.resolve(cleaned).normalize();
+    }
+
+    private String sanitizeMatchLine(String lineText) {
+        return (lineText == null ? "" : lineText)
+                .replace("\r\n", "\n")
+                .replace("\r", "")
+                .replaceAll("\n$", "");
+    }
+
+    private List<String> readFileLines(Path file) {
+        try {
+            return Files.readAllLines(file, StandardCharsets.UTF_8);
+        } catch (IOException | RuntimeException e) {
+            return List.of();
+        }
+    }
+
+    private String readAll(java.io.InputStream inputStream) throws IOException {
+        StringBuilder output = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!output.isEmpty()) {
+                    output.append('\n');
+                }
+                output.append(line);
+            }
+        }
+        return output.toString();
     }
 
     private static String toPosix(Path path) {
         return path.toString().replace('\\', '/');
     }
 
-    private record Match(Path file, int lineNumber, List<String> lines) {
-    }
-
-    private interface SearchMatcher {
-        boolean matches(String line);
-
-        static SearchMatcher create(String pattern, boolean literal, boolean ignoreCase) {
-            if (literal) {
-                String needle = ignoreCase ? pattern.toLowerCase(Locale.ROOT) : pattern;
-                return line -> {
-                    String haystack = ignoreCase ? line.toLowerCase(Locale.ROOT) : line;
-                    return haystack.contains(needle);
-                };
-            }
-            try {
-                int flags = ignoreCase ? Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE : 0;
-                Pattern compiled = Pattern.compile(pattern, flags);
-                return line -> compiled.matcher(line).find();
-            } catch (PatternSyntaxException e) {
-                throw new IllegalArgumentException("pattern must be a valid regex or use literal=true: " + e.getMessage());
-            }
-        }
+    private record Match(Path file, int lineNumber, String lineText) {
     }
 }

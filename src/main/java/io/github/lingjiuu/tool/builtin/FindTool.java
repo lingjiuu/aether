@@ -8,28 +8,37 @@ import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.ToolSourceInfo;
 import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.fs.FileAccessPolicy;
-import io.github.lingjiuu.tool.fs.WorkspaceIgnoreMatcher;
 
 import java.io.IOException;
-import java.nio.file.FileVisitResult;
+import java.io.BufferedReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 public class FindTool implements ToolDefinition {
 
     private final FileAccessPolicy accessPolicy;
+    private final ToolBinaryResolver binaryResolver;
 
     public FindTool(FileAccessPolicy accessPolicy) {
+        this(accessPolicy, ToolBinaryResolver.defaults());
+    }
+
+    FindTool(FileAccessPolicy accessPolicy, ToolBinaryResolver binaryResolver) {
         if (accessPolicy == null) {
             throw new IllegalArgumentException("accessPolicy must not be null");
         }
+        if (binaryResolver == null) {
+            throw new IllegalArgumentException("binaryResolver must not be null");
+        }
         this.accessPolicy = accessPolicy;
+        this.binaryResolver = binaryResolver;
     }
 
     @Override
@@ -101,13 +110,17 @@ public class FindTool implements ToolDefinition {
             String requestedPath = BuiltinToolArguments.optionalString(context.getArguments(), "path", ".");
             int limit = BuiltinToolArguments.optionalPositiveInt(context.getArguments(), "limit", ToolOutputLimits.FIND_DEFAULT_LIMIT);
             Path resolvedPath = accessPolicy.resolveReadablePath(requestedPath);
-            return findFiles(pattern, requestedPath, resolvedPath, limit);
+            Optional<String> fdPath = binaryResolver.resolve(ToolBinary.FD);
+            if (fdPath.isEmpty()) {
+                return ToolExecutionResult.errorText("find failed: fd is not available and could not be downloaded");
+            }
+            return findFiles(fdPath.get(), pattern, requestedPath, resolvedPath, limit);
         } catch (Exception e) {
             return ToolExecutionResult.errorText("find failed: " + e.getMessage());
         }
     }
 
-    private ToolExecutionResult findFiles(String pattern, String requestedPath, Path resolvedPath, int limit) throws IOException {
+    private ToolExecutionResult findFiles(String fdPath, String pattern, String requestedPath, Path resolvedPath, int limit) throws IOException, InterruptedException {
         if (!Files.exists(resolvedPath)) {
             throw new IOException("Path not found: " + requestedPath);
         }
@@ -115,34 +128,51 @@ public class FindTool implements ToolDefinition {
             throw new IOException("Not a directory: " + requestedPath);
         }
 
-        PathGlobMatcher globMatcher = PathGlobMatcher.of(pattern);
-        WorkspaceIgnoreMatcher ignoreMatcher = WorkspaceIgnoreMatcher.load(resolvedPath);
-        List<String> matches = new ArrayList<>();
-        Files.walkFileTree(resolvedPath, new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                if (!dir.equals(resolvedPath) && ignoreMatcher.isIgnored(dir, true)) {
-                    return FileVisitResult.SKIP_SUBTREE;
-                }
-                return FileVisitResult.CONTINUE;
-            }
+        List<String> args = new ArrayList<>();
+        args.add(fdPath);
+        args.add("--glob");
+        args.add("--color=never");
+        args.add("--hidden");
+        args.add("--no-require-git");
+        args.add("--max-results");
+        args.add(String.valueOf(limit));
 
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                if (!attrs.isRegularFile() || ignoreMatcher.isIgnored(file, false)) {
-                    return FileVisitResult.CONTINUE;
-                }
-                String relative = toPosix(resolvedPath.relativize(file));
-                if (globMatcher.matches(relative)) {
-                    matches.add(relative);
-                }
-                return FileVisitResult.CONTINUE;
+        String effectivePattern = pattern;
+        if (pattern.contains("/")) {
+            args.add("--full-path");
+            if (!pattern.startsWith("/") && !pattern.startsWith("**/") && !pattern.equals("**")) {
+                effectivePattern = "**/" + pattern;
             }
-        });
+        }
+        args.add("--");
+        args.add(effectivePattern);
+        args.add(resolvedPath.toString());
 
-        matches.sort(Comparator.comparing(String::toLowerCase));
-        boolean resultLimitReached = matches.size() > limit;
-        List<String> returned = matches.size() > limit ? matches.subList(0, limit) : matches;
+        Process process = new ProcessBuilder(args)
+                .redirectErrorStream(false)
+                .start();
+        List<String> lines = readLines(process.getInputStream());
+        String stderr = readAll(process.getErrorStream());
+        boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            throw new IOException("fd timed out");
+        }
+        int exitCode = process.exitValue();
+        if (exitCode != 0 && lines.isEmpty()) {
+            String message = stderr.isBlank() ? "fd exited with code " + exitCode : stderr;
+            throw new IOException(message);
+        }
+
+        List<String> returned = new ArrayList<>();
+        for (String line : lines) {
+            String cleaned = line.replace("\r", "").trim();
+            if (cleaned.isEmpty()) {
+                continue;
+            }
+            returned.add(relativizeOutput(resolvedPath, cleaned));
+        }
+        boolean resultLimitReached = returned.size() >= limit;
         String rawOutput = returned.isEmpty() ? "No files found matching pattern" : String.join("\n", returned);
         ToolOutputTruncator.TruncationResult truncation = ToolOutputTruncator.truncateHead(rawOutput, ToolOutputLimits.DEFAULT_MAX_BYTES);
         String output = truncation.content();
@@ -169,6 +199,55 @@ public class FindTool implements ToolDefinition {
                 ))
                 .error(false)
                 .build();
+    }
+
+    private List<String> readLines(java.io.InputStream inputStream) throws IOException {
+        List<String> lines = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                lines.add(line);
+            }
+        }
+        return lines;
+    }
+
+    private String readAll(java.io.InputStream inputStream) throws IOException {
+        StringBuilder output = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!output.isEmpty()) {
+                    output.append('\n');
+                }
+                output.append(line);
+            }
+        }
+        return output.toString();
+    }
+
+    private String relativizeOutput(Path searchPath, String outputLine) {
+        boolean trailingSlash = outputLine.endsWith("/") || outputLine.endsWith("\\");
+        Path outputPath = Path.of(outputLine);
+        String relative;
+        if (outputPath.isAbsolute()) {
+            Path normalized = outputPath.toAbsolutePath().normalize();
+            if (normalized.startsWith(searchPath)) {
+                relative = toPosix(searchPath.relativize(normalized));
+            } else {
+                relative = toPosix(searchPath.relativize(normalized));
+            }
+        } else {
+            relative = outputLine;
+            while (relative.startsWith("./") || relative.startsWith(".\\")) {
+                relative = relative.substring(2);
+            }
+        }
+        relative = relative.replace('\\', '/');
+        if (trailingSlash && !relative.endsWith("/")) {
+            relative += "/";
+        }
+        return relative;
     }
 
     private static String toPosix(Path path) {
