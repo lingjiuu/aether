@@ -13,8 +13,8 @@ import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.session.AgentSessionConfig;
 import io.github.lingjiuu.session.AgentSessionServices;
 import io.github.lingjiuu.tool.ToolRegistry;
-import io.github.lingjiuu.tool.builtin.GetTimeTool;
-import io.github.lingjiuu.tool.builtin.ReadTool;
+import io.github.lingjiuu.tool.builtin.GrepTool;
+import io.github.lingjiuu.tool.builtin.LsTool;
 import io.github.lingjiuu.tool.fs.FileAccessPolicy;
 import junit.framework.TestCase;
 
@@ -41,14 +41,15 @@ public class TurnPreprocessorTest extends TestCase {
                         .provider("fake")
                         .baseUrl("https://example.test/v1")
                         .build())
-                .activeToolNames(List.of("get_time"))
+                .activeToolNames(List.of("grep"))
                 .reasoning(ReasoningOptions.builder()
                         .reasoningEffort(ReasoningOptions.ReasoningEffort.HIGH)
                         .build())
                 .build();
         ToolRegistry toolRegistry = new ToolRegistry();
-        toolRegistry.register(new GetTimeTool());
-        toolRegistry.register(new ReadTool(FileAccessPolicy.rootedAt(Files.createTempDirectory("aether-active-tools"))));
+        FileAccessPolicy accessPolicy = FileAccessPolicy.rootedAt(Files.createTempDirectory("aether-active-tools"));
+        toolRegistry.register(new GrepTool(accessPolicy));
+        toolRegistry.register(new LsTool(accessPolicy));
         AgentSessionServices services = new AgentSessionServices(
                 config,
                 modelRegistry,
@@ -66,13 +67,13 @@ public class TurnPreprocessorTest extends TestCase {
         LlmRequest request = preprocessor.prepare(runtimeState);
 
         assertTrue(request.getSystemPrompt().startsWith("You are a helpful assistant"));
-        assertTrue(request.getSystemPrompt().contains("- get_time: Get the current time"));
-        assertTrue(request.getSystemPrompt().contains("Use get_time when the user asks for the current time or date."));
-        assertFalse(request.getSystemPrompt().contains("- read:"));
-        assertFalse(request.getSystemPrompt().contains("Use read to inspect project files"));
+        assertTrue(request.getSystemPrompt().contains("- grep: Search file contents for patterns (respects .gitignore)"));
+        assertTrue(request.getSystemPrompt().contains("Use grep to search file contents before opening broad areas of the project."));
+        assertFalse(request.getSystemPrompt().contains("- ls:"));
+        assertFalse(request.getSystemPrompt().contains("Use ls to inspect directory contents"));
         assertEquals(config.getModel(), request.getModel());
         assertEquals(1, request.getTools().size());
-        assertEquals("get_time", request.getTools().getFirst().name());
+        assertEquals("grep", request.getTools().getFirst().name());
         assertEquals(1, request.getMessages().size());
         assertEquals("Hello", MessageContents.text(request.getMessages().getFirst()));
         assertNotNull(request.getCallOptions());
@@ -103,7 +104,7 @@ public class TurnPreprocessorTest extends TestCase {
                 .activeToolNames(List.of())
                 .build();
         ToolRegistry toolRegistry = new ToolRegistry();
-        toolRegistry.register(new GetTimeTool());
+        toolRegistry.register(new GrepTool(FileAccessPolicy.rootedAt(Files.createTempDirectory("aether-active-tools"))));
         AgentSessionServices services = new AgentSessionServices(
                 config,
                 modelRegistry,

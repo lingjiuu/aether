@@ -29,15 +29,15 @@ public class DefaultRequestMessageNormalizerTest extends TestCase {
                                 ThinkingContent.builder().thinking("reasoning").build(),
                                 ToolCallContent.builder()
                                         .toolCallId("call-1")
-                                        .toolName("get_time")
-                                        .argumentsJson("{\"timezone\":\"UTC\"}")
+                                        .toolName("sample_tool")
+                                        .argumentsJson("{\"value\":\"UTC\"}")
                                         .build()
                         ))
                         .build(),
                 ToolResultMessage.builder()
                         .toolCallId("call-1")
-                        .toolName("get_time")
-                        .contents(List.of(TextContent.builder().text("{\"time\":\"12:00\"}").build()))
+                        .toolName("sample_tool")
+                        .contents(List.of(TextContent.builder().text("{\"value\":\"12:00\"}").build()))
                         .build()
         ), List.of());
 
@@ -55,14 +55,14 @@ public class DefaultRequestMessageNormalizerTest extends TestCase {
         assertEquals("reasoning", ((NormalizedThinkingContent) assistantMessage.contents().get(1)).thinking());
         NormalizedToolCallContent toolCall = (NormalizedToolCallContent) assistantMessage.contents().get(2);
         assertEquals("call-1", toolCall.toolCallId());
-        assertEquals("get_time", toolCall.toolName());
-        assertEquals("{\"timezone\":\"UTC\"}", toolCall.argumentsJson());
+        assertEquals("sample_tool", toolCall.toolName());
+        assertEquals("{\"value\":\"UTC\"}", toolCall.argumentsJson());
 
         NormalizedContextMessage contextMessage = (NormalizedContextMessage) messages.get(2);
         NormalizedToolResultContent toolResult = (NormalizedToolResultContent) contextMessage.contents().getFirst();
         assertEquals("call-1", toolResult.toolCallId());
-        assertEquals("get_time", toolResult.toolName());
-        assertEquals("{\"time\":\"12:00\"}", toolResult.outputText());
+        assertEquals("sample_tool", toolResult.toolName());
+        assertEquals("{\"value\":\"12:00\"}", toolResult.outputText());
     }
 
     public void testMergesConsecutiveUserAndContextMessages() {

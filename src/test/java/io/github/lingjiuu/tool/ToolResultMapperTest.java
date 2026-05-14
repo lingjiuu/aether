@@ -12,8 +12,8 @@ public class ToolResultMapperTest extends TestCase {
     public void testToMessagePreservesToolCallAndResultFields() {
         ToolCallContent toolCall = ToolCallContent.builder()
                 .toolCallId("call-1")
-                .toolName("read")
-                .argumentsJson("{\"path\":\"a.txt\"}")
+                .toolName("sample_tool")
+                .argumentsJson("{\"value\":\"a\"}")
                 .build();
         ToolExecutionResult result = ToolExecutionResult.builder()
                 .contents(ToolExecutionResult.text("file text").getContents())
@@ -24,7 +24,7 @@ public class ToolResultMapperTest extends TestCase {
         ToolResultMessage message = new ToolResultMapper().toMessage(toolCall, result);
 
         assertEquals("call-1", message.getToolCallId());
-        assertEquals("read", message.getToolName());
+        assertEquals("sample_tool", message.getToolName());
         assertTrue(message.isError());
         assertEquals(Map.of("path", "a.txt"), message.getDetails());
         assertEquals("file text", MessageContents.text(message));

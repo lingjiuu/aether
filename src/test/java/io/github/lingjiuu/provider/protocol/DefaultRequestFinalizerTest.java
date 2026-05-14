@@ -12,7 +12,7 @@ public class DefaultRequestFinalizerTest extends TestCase {
 
         List<NormalizedRequestMessage> messages = finalizer.finalizeMessages(List.of(
                 new NormalizedAssistantMessage(List.of(
-                        new NormalizedToolCallContent("call-1", "get_time", "{}")
+                        new NormalizedToolCallContent("call-1", "sample_tool", "{}")
                 ), null)
         ));
 
@@ -32,7 +32,7 @@ public class DefaultRequestFinalizerTest extends TestCase {
 
         List<NormalizedRequestMessage> messages = finalizer.finalizeMessages(List.of(
                 new NormalizedAssistantMessage(List.of(
-                        new NormalizedToolCallContent("call-1", "get_time", "{}")
+                        new NormalizedToolCallContent("call-1", "sample_tool", "{}")
                 ), null),
                 new NormalizedContextMessage(List.of(
                         new NormalizedTextContent("host context")
@@ -55,7 +55,7 @@ public class DefaultRequestFinalizerTest extends TestCase {
 
         List<NormalizedRequestMessage> messages = finalizer.finalizeMessages(List.of(
                 new NormalizedContextMessage(List.of(
-                        new NormalizedToolResultContent("orphan", "get_time", "ignored", false, null),
+                        new NormalizedToolResultContent("orphan", "sample_tool", "ignored", false, null),
                         new NormalizedTextContent("kept context")
                 ))
         ));
@@ -74,7 +74,7 @@ public class DefaultRequestFinalizerTest extends TestCase {
                         new NormalizedToolCallContent("call-fallback", "fallback_tool", "{}")
                 ), new StubReplayData()),
                 new NormalizedContextMessage(List.of(
-                        new NormalizedToolResultContent("call-replay", "get_time", "{\"time\":\"12:00\"}", false, null)
+                        new NormalizedToolResultContent("call-replay", "sample_tool", "{\"value\":\"12:00\"}", false, null)
                 ))
         ));
 
@@ -84,7 +84,7 @@ public class DefaultRequestFinalizerTest extends TestCase {
         NormalizedToolResultContent toolResult =
                 (NormalizedToolResultContent) messages.get(1).contents().getFirst();
         assertEquals("call-replay", toolResult.toolCallId());
-        assertEquals("{\"time\":\"12:00\"}", toolResult.outputText());
+        assertEquals("{\"value\":\"12:00\"}", toolResult.outputText());
     }
 
     private record StubReplayData() implements ProviderReplayData {

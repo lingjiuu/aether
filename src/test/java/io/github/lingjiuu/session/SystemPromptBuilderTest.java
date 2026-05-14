@@ -15,17 +15,17 @@ public class SystemPromptBuilderTest extends TestCase {
         SystemPromptBuilder builder = new SystemPromptBuilder();
 
         String prompt = builder.build("You are helpful.", List.of(
-                new PromptTool("read", "Read file contents", List.of(
-                        "Use read before answering about code.",
-                        " Use read before answering about code. "
+                new PromptTool("grep", "Search file contents", List.of(
+                        "Use grep before answering about code.",
+                        " Use grep before answering about code. "
                 )),
                 new PromptTool("quiet", null, List.of("Keep tool output concise."))
         ));
 
         assertTrue(prompt.startsWith("You are helpful."));
-        assertTrue(prompt.contains("Available tools:\n- read: Read file contents"));
+        assertTrue(prompt.contains("Available tools:\n- grep: Search file contents"));
         assertFalse(prompt.contains("- quiet:"));
-        assertEquals(1, count(prompt, "- Use read before answering about code."));
+        assertEquals(1, count(prompt, "- Use grep before answering about code."));
         assertTrue(prompt.contains("- Keep tool output concise."));
     }
 

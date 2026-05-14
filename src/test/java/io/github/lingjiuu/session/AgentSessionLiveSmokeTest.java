@@ -47,10 +47,10 @@ public class AgentSessionLiveSmokeTest extends TestCase {
         assertTrue("Expected RUN_END event in live session.", eventTypes.contains(AgentSessionEvent.Type.RUN_END));
     }
 
-    public void testReadToolUsesRealNetwork() throws Exception {
-        Path fixture = Path.of("target", "read-live-smoke", "aether-read-live-smoke.txt");
+    public void testGrepToolUsesRealNetwork() throws Exception {
+        Path fixture = Path.of("target", "grep-live-smoke", "aether-grep-live-smoke.txt");
         Files.createDirectories(fixture.getParent());
-        String secret = "AETHER_READ_LIVE_SMOKE_24681357";
+        String secret = "AETHER_GREP_LIVE_SMOKE_24681357";
         Files.writeString(fixture, "SECRET_CODE=" + secret + "\n");
 
         AgentSessionFactory factory = AgentSessionFactory.createDefault();
@@ -60,26 +60,26 @@ public class AgentSessionLiveSmokeTest extends TestCase {
 
         String provider = factory.configuration().getModel().getProvider();
         String model = factory.configuration().getModel().getId();
-        System.out.println("=== Live read tool smoke test ===");
+        System.out.println("=== Live grep tool smoke test ===");
         System.out.println("provider=" + provider + ", model=" + model);
         System.out.println("fixture=" + fixture);
 
         session.prompt("""
-                请必须调用 read 工具读取文件 target/read-live-smoke/aether-read-live-smoke.txt。
-                读取后，只回答文件中 SECRET_CODE= 后面的值。
-                不要猜测，不要解释，不要在未调用 read 工具的情况下回答。
+                请必须调用 grep 工具在文件 target/grep-live-smoke/aether-grep-live-smoke.txt 中搜索 SECRET_CODE。
+                搜索后，只回答文件中 SECRET_CODE= 后面的值。
+                不要猜测，不要解释，不要在未调用 grep 工具的情况下回答。
                 """);
 
-        assertTrue("Expected TOOL_CALL event in live read smoke.", eventTypes.contains(AgentSessionEvent.Type.TOOL_CALL));
-        assertTrue("Expected TOOL_RESULT event in live read smoke.", eventTypes.contains(AgentSessionEvent.Type.TOOL_RESULT));
+        assertTrue("Expected TOOL_CALL event in live grep smoke.", eventTypes.contains(AgentSessionEvent.Type.TOOL_CALL));
+        assertTrue("Expected TOOL_RESULT event in live grep smoke.", eventTypes.contains(AgentSessionEvent.Type.TOOL_RESULT));
         ToolResultMessage toolResult = findToolResult(session.messages());
-        assertNotNull("Live read smoke should record a tool result message.", toolResult);
-        assertEquals("read", toolResult.getToolName());
-        assertFalse("Live read tool result should not be an error.", toolResult.isError());
-        assertTrue("Live read tool result should contain the fixture secret.", MessageContents.text(toolResult).contains(secret));
+        assertNotNull("Live grep smoke should record a tool result message.", toolResult);
+        assertEquals("grep", toolResult.getToolName());
+        assertFalse("Live grep tool result should not be an error.", toolResult.isError());
+        assertTrue("Live grep tool result should contain the fixture secret.", MessageContents.text(toolResult).contains(secret));
 
         Message lastMessage = session.messages().getLast();
-        assertEquals("Live read smoke should end on an assistant message.", Message.Role.ASSISTANT, lastMessage.role());
+        assertEquals("Live grep smoke should end on an assistant message.", Message.Role.ASSISTANT, lastMessage.role());
         String answer = MessageContents.text((AssistantMessage) lastMessage);
         System.out.println(answer);
         assertTrue("Live assistant answer should include the fixture secret.", answer.contains(secret));

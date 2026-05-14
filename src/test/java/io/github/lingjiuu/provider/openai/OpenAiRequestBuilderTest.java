@@ -16,7 +16,10 @@ import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
-import io.github.lingjiuu.tool.builtin.GetTimeTool;
+import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.tool.ToolExecutionContext;
+import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.ToolUpdateCallback;
 import junit.framework.TestCase;
 
 import java.util.List;
@@ -48,8 +51,8 @@ public class OpenAiRequestBuilderTest extends TestCase {
                                 .type(OpenAiReplayData.Type.FUNCTION_CALL)
                                 .json(objectMapper.writeValueAsString(ResponseFunctionToolCall.builder()
                                         .callId("call-replay")
-                                        .name("get_time")
-                                        .arguments("{\"timezone\":\"UTC\"}")
+                                        .name("sample_tool")
+                                        .arguments("{\"value\":\"UTC\"}")
                                         .build()))
                                 .build()
                 ))
@@ -85,8 +88,8 @@ public class OpenAiRequestBuilderTest extends TestCase {
                         assistantMessage,
                         ToolResultMessage.builder()
                                 .toolCallId("call-replay")
-                                .toolName("get_time")
-                                .contents(List.of(TextContent.builder().text("{\"time\":\"12:00\"}").build()))
+                                .toolName("sample_tool")
+                                .contents(List.of(TextContent.builder().text("{\"value\":\"12:00\"}").build()))
                                 .build()
                 ))
                 .callOptions(LlmCallOptions.builder().build())
@@ -117,12 +120,12 @@ public class OpenAiRequestBuilderTest extends TestCase {
         ResponseInputItem replayedFunctionCall = inputItems.get(3);
         assertTrue(replayedFunctionCall.isFunctionCall());
         assertEquals("call-replay", replayedFunctionCall.asFunctionCall().callId());
-        assertEquals("get_time", replayedFunctionCall.asFunctionCall().name());
+        assertEquals("sample_tool", replayedFunctionCall.asFunctionCall().name());
 
         ResponseInputItem functionCallOutput = inputItems.get(4);
         assertTrue(functionCallOutput.isFunctionCallOutput());
         assertEquals("call-replay", functionCallOutput.asFunctionCallOutput().callId());
-        assertEquals("{\"time\":\"12:00\"}", functionCallOutput.asFunctionCallOutput().output().asString());
+        assertEquals("{\"value\":\"12:00\"}", functionCallOutput.asFunctionCallOutput().output().asString());
 
         for (ResponseInputItem item : inputItems) {
             assertFalse(item.toString().contains("fallback answer"));
@@ -141,8 +144,8 @@ public class OpenAiRequestBuilderTest extends TestCase {
                         TextContent.builder().text("fallback answer").build(),
                         ToolCallContent.builder()
                                 .toolCallId("call-fallback")
-                                .toolName("get_time")
-                                .argumentsJson("{\"timezone\":\"UTC\"}")
+                                .toolName("sample_tool")
+                                .argumentsJson("{\"value\":\"UTC\"}")
                                 .build()
                 ))
                 .build();
@@ -158,8 +161,8 @@ public class OpenAiRequestBuilderTest extends TestCase {
                         assistantMessage,
                         ToolResultMessage.builder()
                                 .toolCallId("call-fallback")
-                                .toolName("get_time")
-                                .contents(List.of(TextContent.builder().text("{\"time\":\"12:00\"}").build()))
+                                .toolName("sample_tool")
+                                .contents(List.of(TextContent.builder().text("{\"value\":\"12:00\"}").build()))
                                 .build()
                 ))
                 .callOptions(LlmCallOptions.builder().build())
@@ -177,13 +180,13 @@ public class OpenAiRequestBuilderTest extends TestCase {
         ResponseInputItem functionCall = inputItems.get(1);
         assertTrue(functionCall.isFunctionCall());
         assertEquals("call-fallback", functionCall.asFunctionCall().callId());
-        assertEquals("get_time", functionCall.asFunctionCall().name());
-        assertEquals("{\"timezone\":\"UTC\"}", functionCall.asFunctionCall().arguments());
+        assertEquals("sample_tool", functionCall.asFunctionCall().name());
+        assertEquals("{\"value\":\"UTC\"}", functionCall.asFunctionCall().arguments());
 
         ResponseInputItem functionCallOutput = inputItems.get(2);
         assertTrue(functionCallOutput.isFunctionCallOutput());
         assertEquals("call-fallback", functionCallOutput.asFunctionCallOutput().callId());
-        assertEquals("{\"time\":\"12:00\"}", functionCallOutput.asFunctionCallOutput().output().asString());
+        assertEquals("{\"value\":\"12:00\"}", functionCallOutput.asFunctionCallOutput().output().asString());
     }
 
     public void testBuildRequestSerializesProviderNeutralTools() {
@@ -196,23 +199,55 @@ public class OpenAiRequestBuilderTest extends TestCase {
                         .api("openai")
                         .baseUrl("https://api.openai.com/v1")
                         .build())
-                .tools(List.of(new GetTimeTool()))
+                .tools(List.of(new SampleTool()))
                 .callOptions(LlmCallOptions.builder().build())
                 .build());
 
         assertTrue(params.tools().isPresent());
         assertEquals(1, params.tools().get().size());
         assertTrue(params.tools().get().getFirst().isFunction());
-        assertEquals("get_time", params.tools().get().getFirst().asFunction().name());
-        assertEquals("Get the current time in Asia/Shanghai.", params.tools().get().getFirst().asFunction().description().orElse(null));
+        assertEquals("sample_tool", params.tools().get().getFirst().asFunction().name());
+        assertEquals("Sample tool for provider serialization.", params.tools().get().getFirst().asFunction().description().orElse(null));
         assertEquals(Boolean.TRUE, params.tools().get().getFirst().asFunction().strict().orElse(null));
         assertEquals(
                 Map.of(
                         "type", JsonValue.from("object"),
-                        "properties", JsonValue.from(Map.of()),
-                        "required", JsonValue.from(List.of())
+                        "properties", JsonValue.from(Map.of("value", Map.of("type", "string"))),
+                        "required", JsonValue.from(List.of("value"))
                 ),
                 params.tools().get().getFirst().asFunction().parameters().orElseThrow()._additionalProperties()
         );
+    }
+
+    private static final class SampleTool implements ToolDefinition {
+
+        @Override
+        public String name() {
+            return "sample_tool";
+        }
+
+        @Override
+        public String label() {
+            return "sample_tool";
+        }
+
+        @Override
+        public String description() {
+            return "Sample tool for provider serialization.";
+        }
+
+        @Override
+        public Map<String, Object> parametersSchema() {
+            return Map.of(
+                    "type", "object",
+                    "properties", Map.of("value", Map.of("type", "string")),
+                    "required", List.of("value")
+            );
+        }
+
+        @Override
+        public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
+            return ToolExecutionResult.text("ok");
+        }
     }
 }

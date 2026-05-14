@@ -7,8 +7,9 @@ import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
-import io.github.lingjiuu.tool.builtin.GetTimeTool;
-import io.github.lingjiuu.tool.builtin.ReadTool;
+import io.github.lingjiuu.tool.builtin.FindTool;
+import io.github.lingjiuu.tool.builtin.GrepTool;
+import io.github.lingjiuu.tool.builtin.LsTool;
 import io.github.lingjiuu.tool.fs.FileAccessPolicy;
 import io.github.lingjiuu.transcript.RestoredTranscript;
 import io.github.lingjiuu.transcript.TranscriptRestorer;
@@ -49,7 +50,7 @@ public class AgentSessionFactory {
                 .systemPrompt(DEFAULT_SYSTEM_PROMPT)
                 .model(model)
                 .toolDefinitions(buildDefaultTools())
-                .activeToolNames(List.of("get_time", "read"))
+                .activeToolNames(List.of("ls", "find", "grep"))
                 .transcriptStore(new TranscriptStore(AetherPaths.getTranscriptsDir()))
                 .build();
 
@@ -113,9 +114,11 @@ public class AgentSessionFactory {
     }
 
     private static List<ToolDefinition> buildDefaultTools() {
+        FileAccessPolicy accessPolicy = FileAccessPolicy.rootedAt(Path.of(System.getProperty("user.dir")));
         return List.of(
-                new GetTimeTool(),
-                new ReadTool(FileAccessPolicy.rootedAt(Path.of(System.getProperty("user.dir"))))
+                new LsTool(accessPolicy),
+                new FindTool(accessPolicy),
+                new GrepTool(accessPolicy)
         );
     }
 

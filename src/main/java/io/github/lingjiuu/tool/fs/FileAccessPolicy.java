@@ -18,7 +18,7 @@ public class FileAccessPolicy {
 
     public Path resolveReadablePath(String path) {
         if (path == null || path.isBlank()) {
-            throw new IllegalArgumentException("read path must not be blank");
+            throw new IllegalArgumentException("path must not be blank");
         }
 
         Path requested = Path.of(path);
@@ -27,7 +27,7 @@ public class FileAccessPolicy {
                 : root.resolve(requested).toAbsolutePath().normalize();
         Path checked = normalizeExistingPath(resolved);
         if (!checked.startsWith(root)) {
-            throw new IllegalArgumentException("Read path is outside the allowed root: " + path);
+            throw new IllegalArgumentException("Path is outside the allowed root: " + path);
         }
         return checked;
     }
