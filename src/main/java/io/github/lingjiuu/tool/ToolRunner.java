@@ -97,9 +97,19 @@ public class ToolRunner {
             ToolCallContent toolCall,
             ToolUpdateCallback onUpdate
     ) {
+        return run(assistantMessage, toolCall, onUpdate, ToolRunOptions.defaults());
+    }
+
+    public ToolResultMessage run(
+            AssistantMessage assistantMessage,
+            ToolCallContent toolCall,
+            ToolUpdateCallback onUpdate,
+            ToolRunOptions options
+    ) {
         if (toolCall == null) {
             throw new IllegalArgumentException("toolCall must not be null");
         }
+        ToolRunOptions safeOptions = options == null ? ToolRunOptions.defaults() : options;
 
         ActiveToolSet activeToolSet = activeToolSetSupplier.get();
         ToolDefinition definition = activeToolSet == null ? null : activeToolSet.findActive(toolCall.getToolName());
@@ -119,41 +129,55 @@ public class ToolRunner {
             return errorMessage(toolCall, "Invalid tool arguments for " + safeToolName(toolCall) + ": " + e.getMessage());
         }
 
-        ToolExecutionContext context = buildContext(assistantMessage, toolCall, arguments);
-
-        PermissionDecision permissionDecision = safePermissionDecision(
-                permissionService.decide(invocation, context)
-        );
-        if (!permissionDecision.allowed()) {
-            return errorMessage(toolCall, renderPermissionRejection(permissionDecision));
-        }
-        if (permissionDecision.updatedArguments() != null) {
-            arguments = permissionDecision.updatedArguments();
-            context = buildContext(assistantMessage, toolCall, arguments);
-        }
-
-        PermissionDecision hookDecision = safePermissionDecision(hookChain.beforeToolCall(invocation, context));
-        if (!hookDecision.allowed()) {
-            return errorMessage(toolCall, renderPermissionRejection(hookDecision));
-        }
+        ToolExecutionContext context = buildContext(assistantMessage, toolCall, arguments, safeOptions);
 
         try {
+            checkRuntimeBoundary(context);
+            PermissionDecision permissionDecision = safePermissionDecision(
+                    permissionService.decide(invocation, context)
+            );
+            checkRuntimeBoundary(context);
+            if (!permissionDecision.allowed()) {
+                return errorMessage(toolCall, renderPermissionRejection(permissionDecision));
+            }
+            if (permissionDecision.updatedArguments() != null) {
+                arguments = permissionDecision.updatedArguments();
+                context = buildContext(assistantMessage, toolCall, arguments, safeOptions);
+            }
+
+            checkRuntimeBoundary(context);
+            PermissionDecision hookDecision = safePermissionDecision(hookChain.beforeToolCall(invocation, context));
+            checkRuntimeBoundary(context);
+            if (!hookDecision.allowed()) {
+                return errorMessage(toolCall, renderPermissionRejection(hookDecision));
+            }
+
+            checkRuntimeBoundary(context);
             definition.beforeExecute(context);
+            checkRuntimeBoundary(context);
             if (context.isBlocked()) {
                 return errorMessage(toolCall, context.getBlockedReason() == null || context.getBlockedReason().isBlank()
                         ? "Tool execution was blocked."
                         : context.getBlockedReason());
             }
 
+            checkRuntimeBoundary(context);
             ToolExecutionResult result = definition.execute(context, onUpdate);
+            checkRuntimeBoundary(context);
             result = definition.afterExecute(context.toBuilder()
                     .result(result)
                     .build());
+            checkRuntimeBoundary(context);
             result = hookChain.afterToolCall(invocation, context.toBuilder()
                     .result(result)
                     .build(), result);
+            checkRuntimeBoundary(context);
             result = applyResultPolicy(definition.resultPolicy(), result);
             return resultMapper.toMessage(toolCall, result);
+        } catch (ToolCancelledException e) {
+            return errorMessage(toolCall, e.getMessage());
+        } catch (ToolTimedOutException e) {
+            return errorMessage(toolCall, e.getMessage());
         } catch (RuntimeException e) {
             ToolExecutionResult hookResult = hookChain.onToolFailure(invocation, context, e);
             if (hookResult != null) {
@@ -163,11 +187,19 @@ public class ToolRunner {
         }
     }
 
+    public ToolExecutionMode executionModeFor(String toolName) {
+        ActiveToolSet activeToolSet = activeToolSetSupplier.get();
+        ToolDefinition definition = activeToolSet == null ? null : activeToolSet.findActive(toolName);
+        return definition == null ? null : definition.executionMode();
+    }
+
     private ToolExecutionContext buildContext(
             AssistantMessage assistantMessage,
             ToolCallContent toolCall,
-            Map<String, Object> arguments
+            Map<String, Object> arguments,
+            ToolRunOptions options
     ) {
+        ToolRunOptions safeOptions = options == null ? ToolRunOptions.defaults() : options;
         return ToolExecutionContext.builder()
                 .assistantMessage(assistantMessage)
                 .toolCall(toolCall)
@@ -175,7 +207,16 @@ public class ToolRunner {
                 .toolName(toolCall.getToolName())
                 .argumentsJson(toolCall.getArgumentsJson())
                 .arguments(arguments == null ? Map.of() : arguments)
+                .cancellationToken(safeOptions.cancellationToken())
+                .deadline(safeOptions.deadline())
                 .build();
+    }
+
+    private void checkRuntimeBoundary(ToolExecutionContext context) {
+        context.throwIfCancellationRequested();
+        if (context.remainingTimeout().isPresent() && context.remainingTimeout().get().isZero()) {
+            throw new ToolTimedOutException();
+        }
     }
 
     private ToolResultMessage errorMessage(ToolCallContent toolCall, String text) {
@@ -305,5 +346,11 @@ public class ToolRunner {
         }
         ActiveToolSetCompiler compiler = new ActiveToolSetCompiler();
         return () -> compiler.compile(toolRegistry, null);
+    }
+
+    private static final class ToolTimedOutException extends RuntimeException {
+        private ToolTimedOutException() {
+            super("Tool execution timed out.");
+        }
     }
 }

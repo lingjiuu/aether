@@ -1,5 +1,6 @@
 package io.github.lingjiuu.tool.builtin;
 
+import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
 import io.github.lingjiuu.tool.ToolExecutionMode;
@@ -8,6 +9,8 @@ import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.ToolSourceInfo;
 import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.fs.FileAccessPolicy;
+import io.github.lingjiuu.tool.render.ToolRenderRequest;
+import io.github.lingjiuu.tool.render.ToolRenderedOutput;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -57,10 +60,12 @@ public class LsTool implements ToolDefinition {
                         ),
                         "limit", Map.of(
                                 "type", "integer",
+                                "minimum", 1,
                                 "description", "Maximum number of entries to return (default: 500)."
                         )
                 ),
-                "required", List.of()
+                "required", List.of(),
+                "additionalProperties", false
         );
     }
 
@@ -90,12 +95,30 @@ public class LsTool implements ToolDefinition {
     }
 
     @Override
+    public ToolRenderedOutput renderCall(ToolRenderRequest request) {
+        String path = stringArg(request, "path", ".");
+        Object limit = request.arguments().get("limit");
+        return ToolRenderedOutput.text(limit == null ? "ls " + path : "ls " + path + " limit=" + limit);
+    }
+
+    @Override
+    public ToolRenderedOutput renderResult(ToolRenderRequest request) {
+        if (request.toolResult() == null) {
+            return null;
+        }
+        return ToolRenderedOutput.text(MessageContents.text(request.toolResult()));
+    }
+
+    @Override
     public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
         try {
+            context.throwIfCancellationRequested();
             String requestedPath = BuiltinToolArguments.optionalString(context.getArguments(), "path", ".");
             int limit = BuiltinToolArguments.optionalPositiveInt(context.getArguments(), "limit", ToolOutputLimits.LS_DEFAULT_LIMIT);
             Path resolvedPath = accessPolicy.resolveReadablePath(requestedPath);
-            return listDirectory(requestedPath, resolvedPath, limit);
+            ToolExecutionResult result = listDirectory(requestedPath, resolvedPath, limit);
+            context.throwIfCancellationRequested();
+            return result;
         } catch (Exception e) {
             return ToolExecutionResult.errorText("ls failed: " + e.getMessage());
         }
@@ -156,5 +179,10 @@ public class LsTool implements ToolDefinition {
                 ))
                 .error(false)
                 .build();
+    }
+
+    private String stringArg(ToolRenderRequest request, String name, String defaultValue) {
+        Object value = request.arguments().get(name);
+        return value instanceof String stringValue && !stringValue.isBlank() ? stringValue : defaultValue;
     }
 }

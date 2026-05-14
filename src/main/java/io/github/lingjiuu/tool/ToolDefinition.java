@@ -1,5 +1,9 @@
 package io.github.lingjiuu.tool;
 
+import io.github.lingjiuu.tool.render.ToolRenderRequest;
+import io.github.lingjiuu.tool.render.ToolRenderShell;
+import io.github.lingjiuu.tool.render.ToolRenderedOutput;
+
 import java.util.List;
 import java.util.Map;
 
@@ -35,6 +39,18 @@ public interface ToolDefinition {
 
     default List<String> promptGuidelines() {
         return List.of();
+    }
+
+    default ToolRenderShell renderShell() {
+        return ToolRenderShell.DEFAULT;
+    }
+
+    default ToolRenderedOutput renderCall(ToolRenderRequest request) {
+        return null;
+    }
+
+    default ToolRenderedOutput renderResult(ToolRenderRequest request) {
+        return null;
     }
 
     default void beforeExecute(ToolExecutionContext context) {

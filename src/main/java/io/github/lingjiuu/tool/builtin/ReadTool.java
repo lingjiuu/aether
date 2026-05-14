@@ -1,5 +1,6 @@
 package io.github.lingjiuu.tool.builtin;
 
+import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
 import io.github.lingjiuu.tool.ToolExecutionMode;
@@ -8,6 +9,8 @@ import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.ToolSourceInfo;
 import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.fs.FileAccessPolicy;
+import io.github.lingjiuu.tool.render.ToolRenderRequest;
+import io.github.lingjiuu.tool.render.ToolRenderedOutput;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -53,10 +56,11 @@ public class ReadTool implements ToolDefinition {
                 "type", "object",
                 "properties", Map.of(
                         "path", Map.of("type", "string", "description", "Workspace file path to read."),
-                        "offset", Map.of("type", "integer", "description", "Line number to start reading from, 1-indexed."),
-                        "limit", Map.of("type", "integer", "description", "Maximum number of lines to read.")
+                        "offset", Map.of("type", "integer", "minimum", 1, "description", "Line number to start reading from, 1-indexed."),
+                        "limit", Map.of("type", "integer", "minimum", 1, "description", "Maximum number of lines to read.")
                 ),
-                "required", List.of("path")
+                "required", List.of("path"),
+                "additionalProperties", false
         );
     }
 
@@ -86,9 +90,33 @@ public class ReadTool implements ToolDefinition {
     }
 
     @Override
+    public ToolRenderedOutput renderCall(ToolRenderRequest request) {
+        String path = stringArg(request, "path", "<path>");
+        Object offset = request.arguments().get("offset");
+        Object limit = request.arguments().get("limit");
+        StringBuilder text = new StringBuilder("read ").append(path);
+        if (offset != null) {
+            text.append(" offset=").append(offset);
+        }
+        if (limit != null) {
+            text.append(" limit=").append(limit);
+        }
+        return ToolRenderedOutput.text(text.toString());
+    }
+
+    @Override
+    public ToolRenderedOutput renderResult(ToolRenderRequest request) {
+        if (request.toolResult() == null) {
+            return null;
+        }
+        return ToolRenderedOutput.text(MessageContents.text(request.toolResult()));
+    }
+
+    @Override
     public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
         String requestedPath;
         try {
+            context.throwIfCancellationRequested();
             requestedPath = BuiltinToolArguments.requiredString(context.getArguments(), "path");
             int offset = BuiltinToolArguments.optionalPositiveInt(context.getArguments(), "offset", 1);
             Integer limit = optionalLimit(context.getArguments());
@@ -101,7 +129,9 @@ public class ReadTool implements ToolDefinition {
                 }
                 throw e;
             }
-            return readFile(requestedPath, resolvedPath, offset, limit);
+            ToolExecutionResult result = readFile(requestedPath, resolvedPath, offset, limit);
+            context.throwIfCancellationRequested();
+            return result;
         } catch (Exception e) {
             return ToolExecutionResult.errorText("read failed: " + e.getMessage());
         }
@@ -193,5 +223,10 @@ public class ReadTool implements ToolDefinition {
                 .replace("\r\n", "\n")
                 .replace("\r", "\n");
         return List.of(normalized.split("\n", -1));
+    }
+
+    private String stringArg(ToolRenderRequest request, String name, String defaultValue) {
+        Object value = request.arguments().get(name);
+        return value instanceof String stringValue && !stringValue.isBlank() ? stringValue : defaultValue;
     }
 }

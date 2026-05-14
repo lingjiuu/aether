@@ -1,6 +1,7 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.agent.AgentEvent;
+import io.github.lingjiuu.agent.runtime.AgentRunOptions;
 import io.github.lingjiuu.agent.runtime.AgentRuntime;
 import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
 import io.github.lingjiuu.agent.turn.AgentLoop;
@@ -8,9 +9,11 @@ import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
+import io.github.lingjiuu.tool.ToolCancellationSource;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.transcript.TranscriptRecorder;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -27,6 +30,7 @@ public class AgentSession {
     private final List<AgentSessionEventListener> listeners = new CopyOnWriteArrayList<>();
     private volatile long updatedAt;
     private volatile AgentSessionStatus status;
+    private volatile ActiveRun activeRun;
 
     public AgentSession(
             AgentSessionServices services,
@@ -69,18 +73,26 @@ public class AgentSession {
         }
     }
 
-    public synchronized void prompt(String content) {
-        ensureNotRunning();
-        appendUserMessage(content);
-        runLoop();
+    public void prompt(String content) {
+        ActiveRun run;
+        synchronized (this) {
+            ensureNotRunning();
+            appendUserMessage(content);
+            run = startRun();
+        }
+        runLoop(run);
     }
 
-    public synchronized void continueSession() {
-        ensureNotRunning();
-        if (!canContinue()) {
-            throw new IllegalStateException("Current session cannot continue without a new user or tool result message.");
+    public void continueSession() {
+        ActiveRun run;
+        synchronized (this) {
+            ensureNotRunning();
+            if (!canContinue()) {
+                throw new IllegalStateException("Current session cannot continue without a new user or tool result message.");
+            }
+            run = startRun();
         }
-        runLoop();
+        runLoop(run);
     }
 
     public synchronized void reset() {
@@ -124,6 +136,46 @@ public class AgentSession {
 
     public synchronized List<Message> messages() {
         return snapshotMessages();
+    }
+
+    public void abort() {
+        ActiveRun run = activeRun;
+        if (run != null) {
+            run.cancellationSource().cancel();
+        }
+    }
+
+    public synchronized void waitForIdle() {
+        while (status == AgentSessionStatus.RUNNING) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while waiting for session to become idle.", e);
+            }
+        }
+    }
+
+    public synchronized boolean waitForIdle(Duration timeout) {
+        if (timeout == null) {
+            waitForIdle();
+            return true;
+        }
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (status == AgentSessionStatus.RUNNING) {
+            long remainingNanos = deadline - System.nanoTime();
+            if (remainingNanos <= 0) {
+                return false;
+            }
+            try {
+                long millis = Math.max(1L, remainingNanos / 1_000_000L);
+                wait(millis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while waiting for session to become idle.", e);
+            }
+        }
+        return true;
     }
 
     public Runnable subscribe(AgentSessionEventListener listener) {
@@ -196,12 +248,21 @@ public class AgentSession {
                 .build());
     }
 
-    private void runLoop() {
+    private ActiveRun startRun() {
         status = AgentSessionStatus.RUNNING;
         updatedAt = System.currentTimeMillis();
         AgentRuntime runtime = new AgentRuntime(new AgentRuntimeState(snapshotMessages()), agentLoop);
+        ActiveRun run = new ActiveRun(runtime, new ToolCancellationSource());
+        activeRun = run;
+        return run;
+    }
+
+    private void runLoop(ActiveRun run) {
         try {
-            runtime.run(this::forwardAgentEvent);
+            run.runtime().run(
+                    this::forwardAgentEvent,
+                    AgentRunOptions.withCancellationToken(run.cancellationSource().token())
+            );
         } catch (RuntimeException e) {
             emit(AgentSessionEvent.builder()
                     .type(AgentSessionEvent.Type.ERROR)
@@ -210,9 +271,15 @@ public class AgentSession {
                     .build());
             throw e;
         } finally {
-            synchronizeHistory(runtime.state());
-            status = AgentSessionStatus.IDLE;
-            updatedAt = System.currentTimeMillis();
+            synchronized (this) {
+                synchronizeHistory(run.runtime().state());
+                if (activeRun == run) {
+                    activeRun = null;
+                }
+                status = AgentSessionStatus.IDLE;
+                updatedAt = System.currentTimeMillis();
+                notifyAll();
+            }
         }
     }
 
@@ -319,5 +386,8 @@ public class AgentSession {
 
     private Message lastMessage() {
         return messages.isEmpty() ? null : messages.getLast();
+    }
+
+    private record ActiveRun(AgentRuntime runtime, ToolCancellationSource cancellationSource) {
     }
 }

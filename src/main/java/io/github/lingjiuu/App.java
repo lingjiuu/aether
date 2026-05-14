@@ -8,7 +8,7 @@ public class App {
     public static void main( String[] args ) {
         AgentSessionFactory agentSessionFactory = AgentSessionFactory.createDefault();
         AgentSession agentSession = agentSessionFactory.openSession();
-        agentSession.subscribe(new ConsoleAgentSessionRenderer());
+        agentSession.subscribe(new ConsoleAgentSessionRenderer(agentSession.toolRegistry()::findDefinition));
         agentSession.prompt("现在几点啊？");
     }
 }

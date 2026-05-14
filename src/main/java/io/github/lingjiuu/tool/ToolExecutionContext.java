@@ -7,7 +7,10 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 
 @Getter
 @Builder(toBuilder = true)
@@ -33,8 +36,36 @@ public class ToolExecutionContext {
 
     private ToolExecutionResult result;
 
+    @Builder.Default
+    private ToolCancellationToken cancellationToken = ToolCancellationToken.none();
+
+    private Instant deadline;
+
     public void block(String reason) {
         this.blocked = true;
         this.blockedReason = reason;
+    }
+
+    public ToolCancellationToken cancellationToken() {
+        return cancellationToken == null ? ToolCancellationToken.none() : cancellationToken;
+    }
+
+    public void throwIfCancellationRequested() {
+        cancellationToken().throwIfCancellationRequested();
+    }
+
+    public Optional<Duration> remainingTimeout() {
+        if (deadline == null) {
+            return Optional.empty();
+        }
+        Duration remaining = Duration.between(Instant.now(), deadline);
+        if (remaining.isNegative() || remaining.isZero()) {
+            return Optional.of(Duration.ZERO);
+        }
+        return Optional.of(remaining);
+    }
+
+    public Duration remainingTimeoutOr(Duration fallback) {
+        return remainingTimeout().orElse(fallback);
     }
 }

@@ -4,6 +4,7 @@ import io.github.lingjiuu.agent.AgentEvent;
 import io.github.lingjiuu.agent.invocation.AssistantStreamEventMapper;
 import io.github.lingjiuu.agent.invocation.ModelInvocationResult;
 import io.github.lingjiuu.agent.invocation.ModelInvoker;
+import io.github.lingjiuu.agent.runtime.AgentRunOptions;
 import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
 import io.github.lingjiuu.message.AttachmentMessage;
 import io.github.lingjiuu.message.Message;
@@ -47,16 +48,20 @@ public class AgentLoop {
     }
 
     public TurnResult runTurn(AgentRuntimeState runtimeState) {
+        return runTurn(runtimeState, AgentRunOptions.defaults());
+    }
+
+    public TurnResult runTurn(AgentRuntimeState runtimeState, AgentRunOptions options) {
         if (runtimeState == null) {
             throw new IllegalArgumentException("runtimeState must not be null");
         }
         if (runtimeState.isEmpty()) {
             throw new IllegalStateException("Cannot run agent loop without any messages in runtime state.");
         }
-        return step(runtimeState);
+        return step(runtimeState, options == null ? AgentRunOptions.defaults() : options);
     }
 
-    private TurnResult step(AgentRuntimeState runtimeState) {
+    private TurnResult step(AgentRuntimeState runtimeState, AgentRunOptions options) {
         int currentTurn = runtimeState.currentTurn();
         List<AgentEvent> events = new ArrayList<>();
 
@@ -70,9 +75,10 @@ public class AgentLoop {
 
         ModelInvocationResult sampledAssistantMessage = modelInvoker.invoke(
                 preparedTurn.request(),
-                currentTurn
+                currentTurn,
+                options
         );
-        TurnResult postprocessed = turnPostprocessor.process(sampledAssistantMessage, currentTurn);
+        TurnResult postprocessed = turnPostprocessor.process(sampledAssistantMessage, currentTurn, options);
         events.addAll(postprocessed.events());
 
         if (postprocessed.transition() == TurnResult.Transition.NEXT_TURN) {

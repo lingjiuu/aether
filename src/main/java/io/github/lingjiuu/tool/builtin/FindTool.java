@@ -1,5 +1,6 @@
 package io.github.lingjiuu.tool.builtin;
 
+import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
 import io.github.lingjiuu.tool.ToolExecutionMode;
@@ -8,12 +9,15 @@ import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.ToolSourceInfo;
 import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.fs.FileAccessPolicy;
+import io.github.lingjiuu.tool.render.ToolRenderRequest;
+import io.github.lingjiuu.tool.render.ToolRenderedOutput;
 
 import java.io.IOException;
 import java.io.BufferedReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.io.InputStreamReader;
+import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -74,10 +78,12 @@ public class FindTool implements ToolDefinition {
                         ),
                         "limit", Map.of(
                                 "type", "integer",
+                                "minimum", 1,
                                 "description", "Maximum number of results (default: 1000)."
                         )
                 ),
-                "required", List.of("pattern")
+                "required", List.of("pattern"),
+                "additionalProperties", false
         );
     }
 
@@ -107,8 +113,26 @@ public class FindTool implements ToolDefinition {
     }
 
     @Override
+    public ToolRenderedOutput renderCall(ToolRenderRequest request) {
+        String pattern = stringArg(request, "pattern", "<pattern>");
+        String path = stringArg(request, "path", ".");
+        Object limit = request.arguments().get("limit");
+        String text = "find " + pattern + " in " + path;
+        return ToolRenderedOutput.text(limit == null ? text : text + " limit=" + limit);
+    }
+
+    @Override
+    public ToolRenderedOutput renderResult(ToolRenderRequest request) {
+        if (request.toolResult() == null) {
+            return null;
+        }
+        return ToolRenderedOutput.text(MessageContents.text(request.toolResult()));
+    }
+
+    @Override
     public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
         try {
+            context.throwIfCancellationRequested();
             String pattern = BuiltinToolArguments.requiredString(context.getArguments(), "pattern");
             String requestedPath = BuiltinToolArguments.optionalString(context.getArguments(), "path", ".");
             int limit = BuiltinToolArguments.optionalPositiveInt(context.getArguments(), "limit", ToolOutputLimits.FIND_DEFAULT_LIMIT);
@@ -117,13 +141,14 @@ public class FindTool implements ToolDefinition {
             if (fdPath.isEmpty()) {
                 return ToolExecutionResult.errorText("find failed: fd is not available and could not be downloaded");
             }
-            return findFiles(fdPath.get(), pattern, requestedPath, resolvedPath, limit);
+            return findFiles(context, fdPath.get(), pattern, requestedPath, resolvedPath, limit);
         } catch (Exception e) {
             return ToolExecutionResult.errorText("find failed: " + e.getMessage());
         }
     }
 
-    private ToolExecutionResult findFiles(String fdPath, String pattern, String requestedPath, Path resolvedPath, int limit) throws IOException, InterruptedException {
+    private ToolExecutionResult findFiles(ToolExecutionContext context, String fdPath, String pattern, String requestedPath, Path resolvedPath, int limit) throws IOException, InterruptedException {
+        context.throwIfCancellationRequested();
         if (!Files.exists(resolvedPath)) {
             throw new IOException("Path not found: " + requestedPath);
         }
@@ -154,54 +179,75 @@ public class FindTool implements ToolDefinition {
         Process process = new ProcessBuilder(args)
                 .redirectErrorStream(false)
                 .start();
-        List<String> lines = readLines(process.getInputStream());
-        String stderr = readAll(process.getErrorStream());
-        boolean finished = process.waitFor(30, TimeUnit.SECONDS);
-        if (!finished) {
-            process.destroyForcibly();
-            throw new IOException("fd timed out");
-        }
-        int exitCode = process.exitValue();
-        if (exitCode != 0 && lines.isEmpty()) {
-            String message = stderr.isBlank() ? "fd exited with code " + exitCode : stderr;
-            throw new IOException(message);
-        }
-
-        List<String> returned = new ArrayList<>();
-        for (String line : lines) {
-            String cleaned = line.replace("\r", "").trim();
-            if (cleaned.isEmpty()) {
-                continue;
+        AutoCloseable cancelRegistration = context.cancellationToken().onCancel(process::destroyForcibly);
+        try {
+            List<String> lines = readLines(process.getInputStream());
+            String stderr = readAll(process.getErrorStream());
+            Duration timeout = context.remainingTimeoutOr(Duration.ofSeconds(30));
+            if (timeout.isZero()) {
+                process.destroyForcibly();
+                throw new IOException("fd timed out");
             }
-            returned.add(relativizeOutput(resolvedPath, cleaned));
-        }
-        boolean resultLimitReached = returned.size() >= limit;
-        String rawOutput = returned.isEmpty() ? "No files found matching pattern" : String.join("\n", returned);
-        ToolOutputTruncator.TruncationResult truncation = ToolOutputTruncator.truncateHead(rawOutput, ToolOutputLimits.DEFAULT_MAX_BYTES);
-        String output = truncation.content();
-        List<String> notices = new ArrayList<>();
-        if (resultLimitReached) {
-            notices.add(limit + " results limit reached. Use limit=" + (limit * 2) + " for more, or refine pattern");
-        }
-        if (truncation.truncated()) {
-            notices.add(ToolOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES) + " limit reached");
-        }
-        if (!notices.isEmpty()) {
-            output += "\n\n[" + String.join(". ", notices) + "]";
-        }
+            boolean finished = process.waitFor(Math.max(1L, timeout.toMillis()), TimeUnit.MILLISECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                context.throwIfCancellationRequested();
+                throw new IOException("fd timed out");
+            }
+            context.throwIfCancellationRequested();
+            int exitCode = process.exitValue();
+            if (exitCode != 0 && lines.isEmpty()) {
+                String message = stderr.isBlank() ? "fd exited with code " + exitCode : stderr;
+                throw new IOException(message);
+            }
 
-        return ToolExecutionResult.builder()
-                .contents(ToolExecutionResult.text(output).getContents())
-                .details(Map.of(
-                        "pattern", pattern,
-                        "path", requestedPath,
-                        "resolvedPath", resolvedPath.toString(),
-                        "returnedResults", returned.size(),
-                        "resultLimitReached", resultLimitReached,
-                        "truncated", truncation.truncated()
-                ))
-                .error(false)
-                .build();
+            List<String> returned = new ArrayList<>();
+            for (String line : lines) {
+                String cleaned = line.replace("\r", "").trim();
+                if (cleaned.isEmpty()) {
+                    continue;
+                }
+                returned.add(relativizeOutput(resolvedPath, cleaned));
+            }
+            boolean resultLimitReached = returned.size() >= limit;
+            String rawOutput = returned.isEmpty() ? "No files found matching pattern" : String.join("\n", returned);
+            ToolOutputTruncator.TruncationResult truncation = ToolOutputTruncator.truncateHead(rawOutput, ToolOutputLimits.DEFAULT_MAX_BYTES);
+            String output = truncation.content();
+            List<String> notices = new ArrayList<>();
+            if (resultLimitReached) {
+                notices.add(limit + " results limit reached. Use limit=" + (limit * 2) + " for more, or refine pattern");
+            }
+            if (truncation.truncated()) {
+                notices.add(ToolOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES) + " limit reached");
+            }
+            if (!notices.isEmpty()) {
+                output += "\n\n[" + String.join(". ", notices) + "]";
+            }
+
+            return ToolExecutionResult.builder()
+                    .contents(ToolExecutionResult.text(output).getContents())
+                    .details(Map.of(
+                            "pattern", pattern,
+                            "path", requestedPath,
+                            "resolvedPath", resolvedPath.toString(),
+                            "returnedResults", returned.size(),
+                            "resultLimitReached", resultLimitReached,
+                            "truncated", truncation.truncated()
+                    ))
+                    .error(false)
+                    .build();
+        } finally {
+            closeQuietly(cancelRegistration);
+        }
+    }
+
+    private void closeQuietly(AutoCloseable closeable) {
+        try {
+            if (closeable != null) {
+                closeable.close();
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     private List<String> readLines(java.io.InputStream inputStream) throws IOException {
@@ -255,5 +301,10 @@ public class FindTool implements ToolDefinition {
 
     private static String toPosix(Path path) {
         return path.toString().replace('\\', '/');
+    }
+
+    private String stringArg(ToolRenderRequest request, String name, String defaultValue) {
+        Object value = request.arguments().get(name);
+        return value instanceof String stringValue && !stringValue.isBlank() ? stringValue : defaultValue;
     }
 }

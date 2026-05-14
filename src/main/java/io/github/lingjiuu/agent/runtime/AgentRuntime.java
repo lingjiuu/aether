@@ -4,7 +4,11 @@ import io.github.lingjiuu.agent.AgentEvent;
 import io.github.lingjiuu.agent.AgentEventListener;
 import io.github.lingjiuu.agent.turn.AgentLoop;
 import io.github.lingjiuu.agent.turn.TurnResult;
+import io.github.lingjiuu.message.AssistantMessage;
+import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.Message;
+
+import java.util.List;
 
 public class AgentRuntime {
 
@@ -23,16 +27,25 @@ public class AgentRuntime {
     }
 
     public void run(AgentEventListener listener) {
+        run(listener, AgentRunOptions.defaults());
+    }
+
+    public void run(AgentEventListener listener, AgentRunOptions options) {
         if (state.isEmpty()) {
             throw new IllegalStateException("Cannot run agent runtime without any messages in state.");
         }
+        AgentRunOptions safeOptions = options == null ? AgentRunOptions.defaults() : options;
 
         emit(listener, AgentEvent.builder()
                 .type(AgentEvent.Type.RUN_START)
                 .build());
 
         while (!state.isTerminal()) {
-            TurnResult turnResult = agentLoop.runTurn(state);
+            if (safeOptions.cancellationToken().isCancellationRequested()) {
+                finishAborted(listener);
+                break;
+            }
+            TurnResult turnResult = agentLoop.runTurn(state, safeOptions);
             applyTurnResult(turnResult, listener);
         }
 
@@ -44,6 +57,21 @@ public class AgentRuntime {
 
     public AgentRuntimeState state() {
         return state;
+    }
+
+    private void finishAborted(AgentEventListener listener) {
+        AssistantMessage abortedMessage = AssistantMessage.builder()
+                .stopReason(AssistantMessage.StopReason.ABORTED)
+                .contents(List.of(TextContent.builder().text("").build()))
+                .build();
+        state.append(abortedMessage);
+        state.finish(AgentRuntimeState.TerminationReason.ABORTED);
+        emit(listener, AgentEvent.builder()
+                .type(AgentEvent.Type.ASSISTANT_MESSAGE)
+                .turn(state.currentTurn())
+                .assistantMessage(abortedMessage)
+                .text("")
+                .build());
     }
 
     private void applyTurnResult(TurnResult turnResult, AgentEventListener listener) {

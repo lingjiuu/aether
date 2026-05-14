@@ -3,8 +3,26 @@ package io.github.lingjiuu.cli;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.session.AgentSessionEvent;
 import io.github.lingjiuu.session.AgentSessionEventListener;
+import io.github.lingjiuu.tool.render.ToolDisplayRenderer;
+import io.github.lingjiuu.tool.render.ToolRenderedOutput;
+
+import java.util.function.Function;
 
 public class ConsoleAgentSessionRenderer implements AgentSessionEventListener {
+
+    private final ToolDisplayRenderer toolRenderer;
+
+    public ConsoleAgentSessionRenderer() {
+        this(new ToolDisplayRenderer(null));
+    }
+
+    public ConsoleAgentSessionRenderer(ToolDisplayRenderer toolRenderer) {
+        this.toolRenderer = toolRenderer == null ? new ToolDisplayRenderer(null) : toolRenderer;
+    }
+
+    public ConsoleAgentSessionRenderer(Function<String, io.github.lingjiuu.tool.ToolDefinition> toolLookup) {
+        this(new ToolDisplayRenderer(toolLookup));
+    }
 
     @Override
     public void onEvent(AgentSessionEvent event) {
@@ -46,8 +64,7 @@ public class ConsoleAgentSessionRenderer implements AgentSessionEventListener {
             case TOOL_CALL -> {
                 if (event.getToolCall() != null) {
                     System.out.println("[TOOL] call_id=" + event.getToolCall().getToolCallId());
-                    System.out.println("[TOOL] name=" + event.getToolCall().getToolName());
-                    System.out.println("[TOOL] arguments=" + event.getToolCall().getArgumentsJson());
+                    printRendered("[TOOL] ", toolRenderer.renderCall(event.getToolCall()));
                 }
             }
             case TOOL_EXECUTION_START -> {
@@ -61,7 +78,7 @@ public class ConsoleAgentSessionRenderer implements AgentSessionEventListener {
             }
             case TOOL_RESULT -> {
                 if (event.getToolResult() != null) {
-                    System.out.println("[TOOL] result=" + MessageContents.text(event.getToolResult()));
+                    printRendered("[TOOL] result=", toolRenderer.renderResult(event.getToolResult()));
                 }
                 System.out.println("[STATE] history+ tool_result");
             }
@@ -83,5 +100,12 @@ public class ConsoleAgentSessionRenderer implements AgentSessionEventListener {
                 }
             }
         }
+    }
+
+    private void printRendered(String prefix, ToolRenderedOutput output) {
+        if (output == null || output.hidden()) {
+            return;
+        }
+        System.out.println(prefix + output.text());
     }
 }

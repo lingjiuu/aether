@@ -2,6 +2,7 @@ package io.github.lingjiuu.tool.builtin;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
 import io.github.lingjiuu.tool.ToolExecutionMode;
@@ -10,10 +11,13 @@ import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.ToolSourceInfo;
 import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.fs.FileAccessPolicy;
+import io.github.lingjiuu.tool.render.ToolRenderRequest;
+import io.github.lingjiuu.tool.render.ToolRenderedOutput;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -74,10 +78,11 @@ public class GrepTool implements ToolDefinition {
                         "glob", Map.of("type", "string", "description", "Filter files by glob pattern, e.g. '*.java' or '**/*.spec.java'."),
                         "ignoreCase", Map.of("type", "boolean", "description", "Case-insensitive search (default: false)."),
                         "literal", Map.of("type", "boolean", "description", "Treat pattern as literal string instead of regex (default: false)."),
-                        "context", Map.of("type", "integer", "description", "Number of lines to show before and after each match (default: 0)."),
-                        "limit", Map.of("type", "integer", "description", "Maximum number of matches to return (default: 100).")
+                        "context", Map.of("type", "integer", "minimum", 0, "description", "Number of lines to show before and after each match (default: 0)."),
+                        "limit", Map.of("type", "integer", "minimum", 1, "description", "Maximum number of matches to return (default: 100).")
                 ),
-                "required", List.of("pattern")
+                "required", List.of("pattern"),
+                "additionalProperties", false
         );
     }
 
@@ -107,8 +112,26 @@ public class GrepTool implements ToolDefinition {
     }
 
     @Override
+    public ToolRenderedOutput renderCall(ToolRenderRequest request) {
+        String pattern = stringArg(request, "pattern", "<pattern>");
+        String path = stringArg(request, "path", ".");
+        String glob = stringArg(request, "glob", null);
+        String text = "grep " + pattern + " in " + path;
+        return ToolRenderedOutput.text(glob == null ? text : text + " glob=" + glob);
+    }
+
+    @Override
+    public ToolRenderedOutput renderResult(ToolRenderRequest request) {
+        if (request.toolResult() == null) {
+            return null;
+        }
+        return ToolRenderedOutput.text(MessageContents.text(request.toolResult()));
+    }
+
+    @Override
     public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
         try {
+            context.throwIfCancellationRequested();
             String pattern = BuiltinToolArguments.requiredString(context.getArguments(), "pattern");
             String requestedPath = BuiltinToolArguments.optionalString(context.getArguments(), "path", ".");
             String glob = BuiltinToolArguments.optionalString(context.getArguments(), "glob", null);
@@ -121,13 +144,14 @@ public class GrepTool implements ToolDefinition {
             if (rgPath.isEmpty()) {
                 return ToolExecutionResult.errorText("grep failed: ripgrep (rg) is not available and could not be downloaded");
             }
-            return grep(rgPath.get(), pattern, requestedPath, resolvedPath, glob, ignoreCase, literal, contextLines, limit);
+            return grep(context, rgPath.get(), pattern, requestedPath, resolvedPath, glob, ignoreCase, literal, contextLines, limit);
         } catch (Exception e) {
             return ToolExecutionResult.errorText("grep failed: " + e.getMessage());
         }
     }
 
     private ToolExecutionResult grep(
+            ToolExecutionContext context,
             String rgPath,
             String pattern,
             String requestedPath,
@@ -138,6 +162,7 @@ public class GrepTool implements ToolDefinition {
             int contextLines,
             int limit
     ) throws IOException, InterruptedException {
+        context.throwIfCancellationRequested();
         if (!Files.exists(resolvedPath)) {
             throw new IOException("Path not found: " + requestedPath);
         }
@@ -165,50 +190,71 @@ public class GrepTool implements ToolDefinition {
         Process process = new ProcessBuilder(args)
                 .redirectErrorStream(false)
                 .start();
+        AutoCloseable cancelRegistration = context.cancellationToken().onCancel(process::destroyForcibly);
         List<Match> matches = new ArrayList<>();
         boolean matchLimitReached = false;
-        try (BufferedReader stdout = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = stdout.readLine()) != null) {
-                if (line.isBlank() || matches.size() >= limit) {
-                    continue;
-                }
-                JsonNode event;
-                try {
-                    event = OBJECT_MAPPER.readTree(line);
-                } catch (Exception ignored) {
-                    continue;
-                }
-                if (!"match".equals(event.path("type").asText())) {
-                    continue;
-                }
-                JsonNode data = event.path("data");
-                String filePath = data.path("path").path("text").asText(null);
-                int lineNumber = data.path("line_number").asInt(-1);
-                String lineText = data.path("lines").path("text").asText("");
-                if (filePath != null && lineNumber > 0) {
-                    matches.add(new Match(resolveMatchPath(resolvedPath, filePath), lineNumber, lineText));
-                    if (matches.size() >= limit) {
-                        matchLimitReached = true;
-                        process.destroy();
-                        break;
+        try {
+            try (BufferedReader stdout = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = stdout.readLine()) != null) {
+                    if (line.isBlank() || matches.size() >= limit) {
+                        continue;
+                    }
+                    JsonNode event;
+                    try {
+                        event = OBJECT_MAPPER.readTree(line);
+                    } catch (Exception ignored) {
+                        continue;
+                    }
+                    if (!"match".equals(event.path("type").asText())) {
+                        continue;
+                    }
+                    JsonNode data = event.path("data");
+                    String filePath = data.path("path").path("text").asText(null);
+                    int lineNumber = data.path("line_number").asInt(-1);
+                    String lineText = data.path("lines").path("text").asText("");
+                    if (filePath != null && lineNumber > 0) {
+                        matches.add(new Match(resolveMatchPath(resolvedPath, filePath), lineNumber, lineText));
+                        if (matches.size() >= limit) {
+                            matchLimitReached = true;
+                            process.destroy();
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        String stderr = matchLimitReached ? "" : readAll(process.getErrorStream());
-        boolean finished = process.waitFor(30, TimeUnit.SECONDS);
-        if (!finished) {
-            process.destroyForcibly();
-            throw new IOException("ripgrep timed out");
+            String stderr = matchLimitReached ? "" : readAll(process.getErrorStream());
+            Duration timeout = context.remainingTimeoutOr(Duration.ofSeconds(30));
+            if (timeout.isZero()) {
+                process.destroyForcibly();
+                throw new IOException("ripgrep timed out");
+            }
+            boolean finished = process.waitFor(Math.max(1L, timeout.toMillis()), TimeUnit.MILLISECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                context.throwIfCancellationRequested();
+                throw new IOException("ripgrep timed out");
+            }
+            context.throwIfCancellationRequested();
+            int exitCode = process.exitValue();
+            if (!matchLimitReached && exitCode != 0 && exitCode != 1) {
+                String message = stderr.isBlank() ? "ripgrep exited with code " + exitCode : stderr;
+                throw new IOException(message);
+            }
+            return render(pattern, requestedPath, resolvedPath, glob, matches, matchLimitReached, contextLines);
+        } finally {
+            closeQuietly(cancelRegistration);
         }
-        int exitCode = process.exitValue();
-        if (!matchLimitReached && exitCode != 0 && exitCode != 1) {
-            String message = stderr.isBlank() ? "ripgrep exited with code " + exitCode : stderr;
-            throw new IOException(message);
+    }
+
+    private void closeQuietly(AutoCloseable closeable) {
+        try {
+            if (closeable != null) {
+                closeable.close();
+            }
+        } catch (Exception ignored) {
         }
-        return render(pattern, requestedPath, resolvedPath, glob, matches, matchLimitReached, contextLines);
     }
 
     private ToolExecutionResult render(
@@ -363,6 +409,11 @@ public class GrepTool implements ToolDefinition {
 
     private static String toPosix(Path path) {
         return path.toString().replace('\\', '/');
+    }
+
+    private String stringArg(ToolRenderRequest request, String name, String defaultValue) {
+        Object value = request.arguments().get(name);
+        return value instanceof String stringValue && !stringValue.isBlank() ? stringValue : defaultValue;
     }
 
     private record Match(Path file, int lineNumber, String lineText) {

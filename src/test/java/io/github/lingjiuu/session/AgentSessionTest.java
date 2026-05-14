@@ -22,9 +22,16 @@ import junit.framework.TestCase;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AgentSessionTest extends TestCase {
 
@@ -122,6 +129,59 @@ public class AgentSessionTest extends TestCase {
         assertFalse(provider.lastRequest.getSystemPrompt().contains("- first: First tool"));
     }
 
+    public void testAbortCancelsRunningPromptAndReturnsSessionToIdle() throws Exception {
+        ToolRegistry toolRegistry = new ToolRegistry();
+        StubModelRegistry modelRegistry = new StubModelRegistry();
+        BlockingProvider provider = new BlockingProvider();
+        AuthStorage authStorage = AuthStorage.create(Files.createTempDirectory("aether-auth-test").resolve("auth.json"));
+
+        LlmClient llmClient = new LlmClient(
+                modelRegistry,
+                new ProviderRegistry().register(provider)
+        );
+        AgentSessionConfig config = AgentSessionConfig.builder()
+                .authStorage(authStorage)
+                .modelRegistry(modelRegistry)
+                .llmClient(llmClient)
+                .systemPrompt("You are a helpful assistant")
+                .model(LlmModel.builder()
+                        .id("test-model")
+                        .name("Test Model")
+                        .api("fake")
+                        .provider("fake")
+                        .baseUrl("https://example.test/v1")
+                        .build())
+                .build();
+        AgentSessionServices services = new AgentSessionServices(config, modelRegistry, toolRegistry, llmClient);
+        AgentSession session = new AgentSession(services, new AgentLoop(services));
+        List<AgentSessionEvent.Type> eventTypes = new ArrayList<>();
+        session.subscribe(event -> eventTypes.add(event.getType()));
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<?> prompt = executor.submit(() -> session.prompt("Hello"));
+        try {
+            assertTrue(provider.entered.await(1, TimeUnit.SECONDS));
+            assertEquals(AgentSessionStatus.RUNNING, session.status());
+
+            long started = System.nanoTime();
+            session.abort();
+            long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+
+            assertTrue("abort should not wait for natural provider completion", elapsedMillis < 500);
+            prompt.get(2, TimeUnit.SECONDS);
+            assertTrue(session.waitForIdle(Duration.ofSeconds(1)));
+            assertEquals(AgentSessionStatus.IDLE, session.status());
+            assertTrue(provider.closed.get());
+            assertTrue(eventTypes.contains(AgentSessionEvent.Type.RUN_END));
+            assertEquals(AssistantMessage.StopReason.ABORTED, session.messages().getLast() instanceof AssistantMessage assistant
+                    ? assistant.getStopReason()
+                    : null);
+        } finally {
+            provider.release();
+            executor.shutdownNow();
+        }
+    }
+
     private static final class SingleResponseProvider implements Provider {
         @Override
         public String name() {
@@ -165,6 +225,55 @@ public class AgentSessionTest extends TestCase {
         public AssistantStream stream(LlmRequest request) {
             lastRequest = request;
             return new SingleResponseProvider().stream(request);
+        }
+    }
+
+    private static final class BlockingProvider implements Provider {
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch released = new CountDownLatch(1);
+        private final AtomicBoolean closed = new AtomicBoolean(false);
+
+        @Override
+        public String name() {
+            return "fake";
+        }
+
+        @Override
+        public AssistantStream stream(LlmRequest request) {
+            return new AssistantStream() {
+                @Override
+                public AssistantMessage consume(java.util.function.Consumer<AssistantStreamEvent> consumer) {
+                    entered.countDown();
+                    try {
+                        released.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return AssistantMessage.builder()
+                            .provider("fake")
+                            .model("test-model")
+                            .stopReason(closed.get()
+                                    ? AssistantMessage.StopReason.ABORTED
+                                    : AssistantMessage.StopReason.STOP)
+                            .contents(List.of(TextContent.builder().text("").build()))
+                            .build();
+                }
+
+                @Override
+                public AssistantMessage result() {
+                    return null;
+                }
+
+                @Override
+                public void close() {
+                    closed.set(true);
+                    released.countDown();
+                }
+            };
+        }
+
+        private void release() {
+            released.countDown();
         }
     }
 
