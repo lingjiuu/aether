@@ -24,7 +24,7 @@ public class OpenAiToolSchemaBuilder {
         return FunctionTool.builder()
                 .name(definition.name())
                 .description(definition.description())
-                .strict(true)
+                .strict(false)
                 .parameters(parametersBuilder.build())
                 .build();
     }

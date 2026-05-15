@@ -283,7 +283,7 @@ public class OpenAiRequestBuilderTest extends TestCase {
         assertTrue(params.tools().get().getFirst().isFunction());
         assertEquals("sample_tool", params.tools().get().getFirst().asFunction().name());
         assertEquals("Sample tool for provider serialization.", params.tools().get().getFirst().asFunction().description().orElse(null));
-        assertEquals(Boolean.TRUE, params.tools().get().getFirst().asFunction().strict().orElse(null));
+        assertEquals(Boolean.FALSE, params.tools().get().getFirst().asFunction().strict().orElse(null));
         assertEquals(
                 Map.of(
                         "type", JsonValue.from("object"),

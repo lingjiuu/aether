@@ -13,6 +13,7 @@ import lombok.NoArgsConstructor;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,6 +31,7 @@ public class ModelRegistry {
     private final Path modelsPath;
     private final List<LlmModel> models = new ArrayList<>();
     private final Map<String, ProviderRequestConfig> providerRequestConfigs = new LinkedHashMap<>();
+    private String loadError;
 
     public ModelRegistry(AuthStorage authStorage) {
         this(authStorage, AetherPaths.getModelsPath());
@@ -45,8 +47,23 @@ public class ModelRegistry {
     public final void refresh() {
         models.clear();
         providerRequestConfigs.clear();
+        loadError = null;
         loadBuiltInModels();
         loadCustomModels();
+    }
+
+    public String getError() {
+        return loadError;
+    }
+
+    public List<LlmModel> getAll() {
+        return List.copyOf(models);
+    }
+
+    public List<LlmModel> getAvailable() {
+        return models.stream()
+                .filter(this::hasConfiguredAuth)
+                .toList();
     }
 
     public LlmModel find(String provider, String modelId) {
@@ -64,15 +81,12 @@ public class ModelRegistry {
         return model;
     }
 
-    public LlmModel findFirstAvailable() {
-        return models.stream()
-                .filter(this::hasConfiguredAuth)
-                .findFirst()
-                .orElse(models.isEmpty() ? null : models.getFirst());
-    }
-
     public boolean hasConfiguredAuth(LlmModel model) {
-        return authStorage.hasAuth(model.getProvider()) || providerRequestConfigs.get(model.getProvider()) != null;
+        if (authStorage.getApiKey(model.getProvider(), false) != null) {
+            return true;
+        }
+        ProviderRequestConfig providerConfig = providerRequestConfigs.get(model.getProvider());
+        return hasProviderConfigApiKey(providerConfig);
     }
 
     public RequestAuth getRequestAuth(LlmModel model) {
@@ -128,10 +142,26 @@ public class ModelRegistry {
 
     private String getProviderConfiguredApiKey(String provider) {
         ProviderRequestConfig config = providerRequestConfigs.get(provider);
-        if (config == null || config.getApiKey() == null || config.getApiKey().isBlank()) {
+        if (!hasProviderConfigApiKey(config)) {
             return null;
         }
         return ConfigValueResolver.resolveConfigValueUncached(config.getApiKey());
+    }
+
+    private boolean hasProviderConfigApiKey(ProviderRequestConfig config) {
+        if (config == null || config.getApiKey() == null || config.getApiKey().isBlank()) {
+            return false;
+        }
+        String apiKey = config.getApiKey();
+        String envValue = System.getenv(apiKey);
+        if (envValue != null && !envValue.isBlank()) {
+            return true;
+        }
+        if (apiKey.matches("[A-Z][A-Z0-9_]*")) {
+            return false;
+        }
+        String resolved = ConfigValueResolver.resolveConfigValueUncached(apiKey);
+        return resolved != null && !resolved.isBlank();
     }
 
     private void loadBuiltInModels() {
@@ -143,7 +173,8 @@ public class ModelRegistry {
                 .api(API_OPENAI)
                 .id("gpt-4.1")
                 .name("GPT-4.1")
-                .baseUrl(defaultBaseUrl("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL))
+                .baseUrl(DEFAULT_OPENAI_BASE_URL)
+                .input(List.of("text", "image"))
                 .build());
 
         storeProviderRequestConfig("bailian", ProviderRequestConfig.builder()
@@ -154,7 +185,8 @@ public class ModelRegistry {
                 .api(API_OPENAI)
                 .id("qwen3.5-plus-2026-02-15")
                 .name("Qwen 3.5 Plus")
-                .baseUrl(defaultBaseUrl("BAILIAN_BASE_URL", DEFAULT_BAILIAN_BASE_URL))
+                .baseUrl(DEFAULT_BAILIAN_BASE_URL)
+                .input(List.of("text", "image"))
                 .build());
 
         storeProviderRequestConfig("siliconflow", ProviderRequestConfig.builder()
@@ -165,7 +197,7 @@ public class ModelRegistry {
                 .api(API_OPENAI)
                 .id("qwen3.5-plus-2026-02-15")
                 .name("Qwen 3.5 Plus")
-                .baseUrl(defaultBaseUrl("SILICONFLOW_BASE_URL", DEFAULT_SILICONFLOW_BASE_URL))
+                .baseUrl(DEFAULT_SILICONFLOW_BASE_URL)
                 .build());
     }
 
@@ -181,34 +213,52 @@ public class ModelRegistry {
             for (Map.Entry<String, ProviderConfigInput> entry : config.getProviders().entrySet()) {
                 applyProviderConfig(entry.getKey(), entry.getValue());
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            loadError = "Failed to load models from " + modelsPath + ": " + e.getMessage();
         }
     }
 
     private void applyProviderConfig(String providerName, ProviderConfigInput config) {
+        if (providerName == null || providerName.isBlank()) {
+            throw new IllegalArgumentException("provider name must not be blank");
+        }
+        if (config == null) {
+            throw new IllegalArgumentException("provider \"" + providerName + "\" config must not be null");
+        }
+        validateProviderConfig(providerName, config);
+
+        LlmModel providerDefault = firstModelForProvider(providerName);
         storeProviderRequestConfig(providerName, ProviderRequestConfig.builder()
                 .apiKey(config.getApiKey())
                 .headers(config.getHeaders())
                 .authHeader(config.getAuthHeader())
                 .build());
 
+        applyBuiltInOverrides(providerName, config);
+
         if (config.getModels() != null && !config.getModels().isEmpty()) {
-            models.removeIf(model -> model.getProvider().equals(providerName));
             for (ModelDefinition modelDefinition : config.getModels()) {
-                String api = modelDefinition.getApi() != null ? modelDefinition.getApi() : config.getApi();
-                String baseUrl = modelDefinition.getBaseUrl() != null ? modelDefinition.getBaseUrl() : config.getBaseUrl();
-                models.add(LlmModel.builder()
+                LlmModel current = find(providerName, modelDefinition.getId());
+                LlmModel defaults = current != null ? current : providerDefault;
+                String api = firstNonBlank(modelDefinition.getApi(), config.getApi(), defaults == null ? null : defaults.getApi());
+                String baseUrl = firstNonBlank(modelDefinition.getBaseUrl(), config.getBaseUrl(), defaults == null ? null : defaults.getBaseUrl());
+                LlmModel customModel = LlmModel.builder()
                         .provider(providerName)
                         .api(api)
                         .id(modelDefinition.getId())
-                        .name(modelDefinition.getName())
+                        .name(firstNonBlank(modelDefinition.getName(), defaults == null ? null : defaults.getName(), modelDefinition.getId()))
                         .baseUrl(baseUrl)
-                        .headers(modelDefinition.getHeaders() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(modelDefinition.getHeaders()))
-                        .build());
+                        .headers(copyHeaders(modelDefinition.getHeaders()))
+                        .input(modelDefinition.getInput() == null || modelDefinition.getInput().isEmpty()
+                                ? List.of("text")
+                                : List.copyOf(modelDefinition.getInput()))
+                        .build();
+                upsertModel(customModel);
             }
-            return;
         }
+    }
 
+    private void applyBuiltInOverrides(String providerName, ProviderConfigInput config) {
         if (config.getBaseUrl() != null || (config.getHeaders() != null && !config.getHeaders().isEmpty())) {
             for (int i = 0; i < models.size(); i++) {
                 LlmModel current = models.get(i);
@@ -226,9 +276,67 @@ public class ModelRegistry {
                         .name(current.getName())
                         .baseUrl(config.getBaseUrl() != null ? config.getBaseUrl() : current.getBaseUrl())
                         .headers(mergedHeaders)
+                        .input(current.getInput())
                         .build());
             }
         }
+    }
+
+    private void validateProviderConfig(String providerName, ProviderConfigInput config) {
+        boolean hasModels = config.getModels() != null && !config.getModels().isEmpty();
+        boolean isBuiltInProvider = firstModelForProvider(providerName) != null;
+
+        if (!hasModels && isBlank(config.getBaseUrl()) && isBlank(config.getApiKey())
+                && (config.getHeaders() == null || config.getHeaders().isEmpty())
+                && config.getAuthHeader() == null) {
+            throw new IllegalArgumentException("provider \"" + providerName + "\" config is empty");
+        }
+
+        if (hasModels) {
+            for (ModelDefinition modelDefinition : config.getModels()) {
+                if (modelDefinition == null || isBlank(modelDefinition.getId())) {
+                    throw new IllegalArgumentException("provider \"" + providerName + "\" model id must not be blank");
+                }
+            }
+        }
+
+        if (hasModels && !isBuiltInProvider) {
+            if (isBlank(config.getBaseUrl())) {
+                throw new IllegalArgumentException("provider \"" + providerName + "\" must define baseUrl");
+            }
+            if (isBlank(config.getApiKey())) {
+                throw new IllegalArgumentException("provider \"" + providerName + "\" must define apiKey");
+            }
+            if (isBlank(config.getApi())) {
+                for (ModelDefinition modelDefinition : config.getModels()) {
+                    if (isBlank(modelDefinition.getApi())) {
+                        throw new IllegalArgumentException("provider \"" + providerName + "\" must define api or per-model api");
+                    }
+                }
+            }
+        }
+    }
+
+    private LlmModel firstModelForProvider(String providerName) {
+        return models.stream()
+                .filter(model -> model.getProvider().equals(providerName))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void upsertModel(LlmModel customModel) {
+        for (int i = 0; i < models.size(); i++) {
+            LlmModel current = models.get(i);
+            if (current.getProvider().equals(customModel.getProvider()) && current.getId().equals(customModel.getId())) {
+                models.set(i, customModel);
+                return;
+            }
+        }
+        models.add(customModel);
+    }
+
+    private Map<String, String> copyHeaders(Map<String, String> headers) {
+        return headers == null ? new LinkedHashMap<>() : new LinkedHashMap<>(headers);
     }
 
     private void storeProviderRequestConfig(String providerName, ProviderRequestConfig config) {
@@ -240,9 +348,17 @@ public class ModelRegistry {
         providerRequestConfigs.put(providerName, config);
     }
 
-    private String defaultBaseUrl(String envName, String defaultValue) {
-        String env = System.getenv(envName);
-        return env == null || env.isBlank() ? defaultValue : env;
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (!isBlank(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     @Getter
@@ -283,5 +399,6 @@ public class ModelRegistry {
         private String api;
         private String baseUrl;
         private Map<String, String> headers = new LinkedHashMap<>();
+        private List<String> input = Collections.emptyList();
     }
 }

@@ -24,6 +24,8 @@ public class AgentSessionConfig {
 
     private ModelRegistry modelRegistry;
 
+    private SettingsManager settingsManager;
+
     private LlmClient llmClient;
 
     private String systemPrompt;

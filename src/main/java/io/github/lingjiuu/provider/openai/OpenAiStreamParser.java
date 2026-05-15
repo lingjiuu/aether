@@ -3,6 +3,7 @@ package io.github.lingjiuu.provider.openai;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.openai.core.http.StreamResponse;
 import com.openai.models.responses.Response;
 import com.openai.models.responses.ResponseOutputMessage;
@@ -272,7 +273,7 @@ public class OpenAiStreamParser {
                     partial.getContents().set(contentIndex, ThinkingContent.builder()
                             .thinking(thinking)
                             .build());
-                    replayItems.add(replayItem(OpenAiReplayData.Type.REASONING, reasoningItem));
+                    addReplayItem(replayItems, replayItem(OpenAiReplayData.Type.REASONING, reasoningItem));
                     return AssistantStreamEvent.builder()
                             .type(AssistantStreamEvent.Type.THINKING_END)
                             .contentIndex(contentIndex)
@@ -290,7 +291,7 @@ public class OpenAiStreamParser {
                     partial.getContents().set(contentIndex, TextContent.builder()
                             .text(text)
                             .build());
-                    replayItems.add(replayItem(OpenAiReplayData.Type.OUTPUT_MESSAGE, messageItem));
+                    addReplayItem(replayItems, replayItem(OpenAiReplayData.Type.OUTPUT_MESSAGE, messageItem));
                     return AssistantStreamEvent.builder()
                             .type(AssistantStreamEvent.Type.TEXT_END)
                             .contentIndex(contentIndex)
@@ -314,7 +315,7 @@ public class OpenAiStreamParser {
                             .build();
                     partial.getContents().set(contentIndex, toolCall);
                     partialToolArguments.remove(itemId);
-                    replayItems.add(replayItem(OpenAiReplayData.Type.FUNCTION_CALL, functionCall));
+                    addReplayItem(replayItems, replayItem(OpenAiReplayData.Type.FUNCTION_CALL, functionCall));
                     return AssistantStreamEvent.builder()
                             .type(AssistantStreamEvent.Type.TOOLCALL_END)
                             .contentIndex(contentIndex)
@@ -531,13 +532,29 @@ public class OpenAiStreamParser {
 
         private OpenAiReplayData.ReplayItem replayItem(OpenAiReplayData.Type type, Object value) {
             try {
+                String json = objectMapper.writeValueAsString(value);
+                if (type == OpenAiReplayData.Type.FUNCTION_CALL) {
+                    json = sanitizeFunctionCallReplayJson(json);
+                }
                 return OpenAiReplayData.ReplayItem.builder()
                         .type(type)
-                        .json(objectMapper.writeValueAsString(value))
+                        .json(json)
                         .build();
             } catch (Exception e) {
                 return null;
             }
+        }
+
+        private void addReplayItem(List<OpenAiReplayData.ReplayItem> replayItems, OpenAiReplayData.ReplayItem replayItem) {
+            if (replayItem != null) {
+                replayItems.add(replayItem);
+            }
+        }
+
+        private String sanitizeFunctionCallReplayJson(String json) throws Exception {
+            ObjectNode node = (ObjectNode) objectMapper.readTree(json);
+            node.remove("isValid");
+            return objectMapper.writeValueAsString(node);
         }
 
         private JsonNode parseStreamingJson(String json) {

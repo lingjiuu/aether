@@ -20,6 +20,10 @@ public final class AetherPaths {
         return getAgentDir().resolve("models.json");
     }
 
+    public static Path getSettingsPath() {
+        return getAgentDir().resolve("settings.json");
+    }
+
     public static Path getTranscriptsDir() {
         return getAgentDir().resolve("transcripts");
     }

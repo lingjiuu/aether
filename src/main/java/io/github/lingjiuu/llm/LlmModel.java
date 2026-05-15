@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -26,4 +27,7 @@ public class LlmModel {
 
     @Builder.Default
     private Map<String, String> headers = new LinkedHashMap<>();
+
+    @Builder.Default
+    private List<String> input = List.of("text");
 }

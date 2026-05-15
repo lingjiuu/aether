@@ -18,6 +18,9 @@ import java.util.List;
 public class AgentSessionLiveSmokeTest extends TestCase {
 
     public void testSessionPromptUsesRealNetwork() {
+        if (!isLiveSmokeEnabled()) {
+            return;
+        }
         AgentSessionFactory factory = AgentSessionFactory.createDefault();
         AgentSession session = factory.openSession();
         List<AgentSessionEvent.Type> eventTypes = new ArrayList<>();
@@ -52,6 +55,9 @@ public class AgentSessionLiveSmokeTest extends TestCase {
     }
 
     public void testGrepToolUsesRealNetwork() throws Exception {
+        if (!isLiveSmokeEnabled()) {
+            return;
+        }
         Path fixture = Path.of("target", "grep-live-smoke", "aether-grep-live-smoke.txt");
         Files.createDirectories(fixture.getParent());
         String secret = "AETHER_GREP_LIVE_SMOKE_24681357";
@@ -90,6 +96,9 @@ public class AgentSessionLiveSmokeTest extends TestCase {
     }
 
     public void testReadImageToolUsesRealNetwork() throws Exception {
+        if (!isLiveSmokeEnabled()) {
+            return;
+        }
         Path fixture = Path.of("target", "read-image-live-smoke", "red-square.png");
         Files.createDirectories(fixture.getParent());
         BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_RGB);
@@ -149,5 +158,14 @@ public class AgentSessionLiveSmokeTest extends TestCase {
             }
         }
         return null;
+    }
+
+    private boolean isLiveSmokeEnabled() {
+        String value = System.getenv("AETHER_LIVE_SMOKE");
+        if ("true".equalsIgnoreCase(value)) {
+            return true;
+        }
+        System.out.println("Skipping live smoke test because AETHER_LIVE_SMOKE is not true.");
+        return false;
     }
 }

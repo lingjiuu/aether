@@ -5,6 +5,7 @@ import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.infra.config.AetherPaths;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.llm.ReasoningOptions;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
 import io.github.lingjiuu.tool.builtin.BuiltinToolFactory;
@@ -18,8 +19,6 @@ import java.util.List;
 
 public class AgentSessionFactory {
 
-    private static final String DEFAULT_PROVIDER = "bailian";
-    private static final String DEFAULT_MODEL_ID = "qwen3.5-plus-2026-02-15";
     private static final String DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant";
 
     private final AgentSessionConfig configuration;
@@ -36,17 +35,36 @@ public class AgentSessionFactory {
     }
 
     public static AgentSessionFactory createDefault(String provider, String modelId) {
-        AuthStorage authStorage = AuthStorage.create();
-        ModelRegistry modelRegistry = new ModelRegistry(authStorage);
+        return createDefault(
+                provider,
+                modelId,
+                AetherPaths.getAuthPath(),
+                AetherPaths.getModelsPath(),
+                AetherPaths.getSettingsPath()
+        );
+    }
+
+    static AgentSessionFactory createDefault(
+            String provider,
+            String modelId,
+            Path authPath,
+            Path modelsPath,
+            Path settingsPath
+    ) {
+        AuthStorage authStorage = AuthStorage.create(authPath);
+        ModelRegistry modelRegistry = new ModelRegistry(authStorage, modelsPath);
+        SettingsManager settingsManager = SettingsManager.create(settingsPath);
         LlmClient llmClient = new LlmClient(modelRegistry);
-        LlmModel model = resolveInitialModel(modelRegistry, provider, modelId);
+        LlmModel model = new ModelResolver().findInitialModel(modelRegistry, settingsManager, provider, modelId);
 
         AgentSessionConfig configuration = AgentSessionConfig.builder()
                 .authStorage(authStorage)
                 .modelRegistry(modelRegistry)
+                .settingsManager(settingsManager)
                 .llmClient(llmClient)
                 .systemPrompt(DEFAULT_SYSTEM_PROMPT)
                 .model(model)
+                .reasoning(defaultReasoning(settingsManager))
                 .toolDefinitions(buildDefaultTools())
                 .activeToolNames(BuiltinToolFactory.defaultToolNames())
                 .transcriptStore(new TranscriptStore(AetherPaths.getTranscriptsDir()))
@@ -99,29 +117,15 @@ public class AgentSessionFactory {
         return configuration;
     }
 
-    private static LlmModel resolveInitialModel(ModelRegistry modelRegistry, String provider, String modelId) {
-        String resolvedProvider = firstNonBlank(provider, System.getenv("AETHER_PROVIDER"), DEFAULT_PROVIDER);
-        String resolvedModelId = firstNonBlank(modelId, System.getenv("AETHER_MODEL"), DEFAULT_MODEL_ID);
-
-        LlmModel explicit = modelRegistry.find(resolvedProvider, resolvedModelId);
-        if (explicit != null) {
-            return explicit;
-        }
-
-        throw new IllegalStateException("No model configured for " + resolvedProvider + "/" + resolvedModelId + ".");
-    }
-
     private static List<ToolDefinition> buildDefaultTools() {
         FileAccessPolicy accessPolicy = FileAccessPolicy.rootedAt(Path.of(System.getProperty("user.dir")));
         return BuiltinToolFactory.createAllTools(accessPolicy);
     }
 
-    private static String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return null;
+    private static ReasoningOptions defaultReasoning(SettingsManager settingsManager) {
+        ReasoningOptions.ReasoningEffort effort = settingsManager.getDefaultThinkingLevel();
+        return effort == null ? null : ReasoningOptions.builder()
+                .reasoningEffort(effort)
+                .build();
     }
 }
