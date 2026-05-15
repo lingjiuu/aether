@@ -9,7 +9,7 @@ import io.github.lingjiuu.infra.auth.AuthStorage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
-import io.github.lingjiuu.tool.ToolCancellationSource;
+import io.github.lingjiuu.tool.runtime.ToolCancellationSource;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.transcript.TranscriptRecorder;
 

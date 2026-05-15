@@ -4,8 +4,8 @@ import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.session.AgentSessionEvent;
-import io.github.lingjiuu.tool.builtin.ReadTool;
-import io.github.lingjiuu.tool.fs.FileAccessPolicy;
+import io.github.lingjiuu.tool.tools.ReadTool;
+import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import junit.framework.TestCase;
 
 import java.io.ByteArrayOutputStream;
@@ -16,7 +16,7 @@ import java.util.List;
 public class ConsoleAgentSessionRendererTest extends TestCase {
 
     public void testToolEventsUseToolDisplayRenderer() {
-        ReadTool readTool = new ReadTool(FileAccessPolicy.rootedAt(Path.of(".")));
+        ReadTool readTool = new ReadTool(WorkspaceAccessPolicy.rootedAt(Path.of(".")));
         ConsoleAgentSessionRenderer renderer = new ConsoleAgentSessionRenderer(name -> readTool);
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();

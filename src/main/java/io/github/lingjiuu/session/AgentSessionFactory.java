@@ -8,8 +8,8 @@ import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.ReasoningOptions;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
-import io.github.lingjiuu.tool.builtin.BuiltinToolFactory;
-import io.github.lingjiuu.tool.fs.FileAccessPolicy;
+import io.github.lingjiuu.tool.tools.DefaultTools;
+import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import io.github.lingjiuu.transcript.RestoredTranscript;
 import io.github.lingjiuu.transcript.TranscriptRestorer;
 import io.github.lingjiuu.transcript.TranscriptStore;
@@ -66,7 +66,7 @@ public class AgentSessionFactory {
                 .model(model)
                 .reasoning(defaultReasoning(settingsManager))
                 .toolDefinitions(buildDefaultTools())
-                .activeToolNames(BuiltinToolFactory.defaultToolNames())
+                .activeToolNames(DefaultTools.defaultNames())
                 .transcriptStore(new TranscriptStore(AetherPaths.getTranscriptsDir()))
                 .build();
 
@@ -118,8 +118,8 @@ public class AgentSessionFactory {
     }
 
     private static List<ToolDefinition> buildDefaultTools() {
-        FileAccessPolicy accessPolicy = FileAccessPolicy.rootedAt(Path.of(System.getProperty("user.dir")));
-        return BuiltinToolFactory.createAllTools(accessPolicy);
+        WorkspaceAccessPolicy accessPolicy = WorkspaceAccessPolicy.rootedAt(Path.of(System.getProperty("user.dir")));
+        return DefaultTools.createAll(accessPolicy);
     }
 
     private static ReasoningOptions defaultReasoning(SettingsManager settingsManager) {

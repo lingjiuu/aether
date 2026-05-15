@@ -10,7 +10,7 @@ import io.github.lingjiuu.llm.LlmCallOptions;
 import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.session.AgentSessionServices;
-import io.github.lingjiuu.tool.ActiveToolSet;
+import io.github.lingjiuu.tool.runtime.ActiveToolSet;
 import io.github.lingjiuu.tool.ToolDefinition;
 
 import java.util.List;

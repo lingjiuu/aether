@@ -17,8 +17,8 @@ import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.RequestAuth;
 import io.github.lingjiuu.tool.ToolRegistry;
-import io.github.lingjiuu.tool.builtin.GrepTool;
-import io.github.lingjiuu.tool.fs.FileAccessPolicy;
+import io.github.lingjiuu.tool.tools.GrepTool;
+import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import io.github.lingjiuu.transcript.TranscriptRecord;
 import io.github.lingjiuu.transcript.TranscriptStore;
 import junit.framework.TestCase;
@@ -37,7 +37,7 @@ public class AgentSessionGrepToolIntegrationTest extends TestCase {
         Files.writeString(root.resolve("notes.txt"), "alpha\nbeta\n");
         TranscriptStore transcriptStore = new TranscriptStore(Files.createTempDirectory("aether-grep-transcripts"));
         ToolRegistry toolRegistry = new ToolRegistry();
-        toolRegistry.register(new GrepTool(FileAccessPolicy.rootedAt(root)));
+        toolRegistry.register(new GrepTool(WorkspaceAccessPolicy.rootedAt(root)));
 
         StubModelRegistry modelRegistry = new StubModelRegistry();
         GrepThenFinalProvider provider = new GrepThenFinalProvider();

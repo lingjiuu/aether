@@ -2,7 +2,7 @@ package io.github.lingjiuu.tool.hook;
 
 import io.github.lingjiuu.tool.ToolExecutionContext;
 import io.github.lingjiuu.tool.ToolExecutionResult;
-import io.github.lingjiuu.tool.ToolInvocation;
+import io.github.lingjiuu.tool.runtime.ToolInvocation;
 import io.github.lingjiuu.tool.permission.PermissionDecision;
 
 import java.util.List;

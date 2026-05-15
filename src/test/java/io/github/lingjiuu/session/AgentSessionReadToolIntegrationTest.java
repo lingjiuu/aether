@@ -18,8 +18,8 @@ import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.RequestAuth;
 import io.github.lingjiuu.tool.ToolRegistry;
-import io.github.lingjiuu.tool.builtin.ReadTool;
-import io.github.lingjiuu.tool.fs.FileAccessPolicy;
+import io.github.lingjiuu.tool.tools.ReadTool;
+import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import io.github.lingjiuu.transcript.TranscriptRecord;
 import io.github.lingjiuu.transcript.TranscriptStore;
 import junit.framework.TestCase;
@@ -38,7 +38,7 @@ public class AgentSessionReadToolIntegrationTest extends TestCase {
         Files.writeString(root.resolve("notes.txt"), "alpha\nbeta\n");
         TranscriptStore transcriptStore = new TranscriptStore(Files.createTempDirectory("aether-read-transcripts"));
         ToolRegistry toolRegistry = new ToolRegistry();
-        toolRegistry.register(new ReadTool(FileAccessPolicy.rootedAt(root)));
+        toolRegistry.register(new ReadTool(WorkspaceAccessPolicy.rootedAt(root)));
 
         StubModelRegistry modelRegistry = new StubModelRegistry();
         ReadThenFinalProvider provider = new ReadThenFinalProvider();
@@ -90,7 +90,7 @@ public class AgentSessionReadToolIntegrationTest extends TestCase {
         Files.write(root.resolve("pixel.png"), tinyPngBytes());
         TranscriptStore transcriptStore = new TranscriptStore(Files.createTempDirectory("aether-read-transcripts"));
         ToolRegistry toolRegistry = new ToolRegistry();
-        toolRegistry.register(new ReadTool(FileAccessPolicy.rootedAt(root)));
+        toolRegistry.register(new ReadTool(WorkspaceAccessPolicy.rootedAt(root)));
 
         StubModelRegistry modelRegistry = new StubModelRegistry();
         ReadThenFinalProvider provider = new ReadThenFinalProvider("pixel.png");

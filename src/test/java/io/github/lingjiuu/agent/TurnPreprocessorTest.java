@@ -13,9 +13,9 @@ import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.session.AgentSessionConfig;
 import io.github.lingjiuu.session.AgentSessionServices;
 import io.github.lingjiuu.tool.ToolRegistry;
-import io.github.lingjiuu.tool.builtin.GrepTool;
-import io.github.lingjiuu.tool.builtin.LsTool;
-import io.github.lingjiuu.tool.fs.FileAccessPolicy;
+import io.github.lingjiuu.tool.tools.GrepTool;
+import io.github.lingjiuu.tool.tools.LsTool;
+import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import junit.framework.TestCase;
 
 import java.nio.file.Files;
@@ -47,7 +47,7 @@ public class TurnPreprocessorTest extends TestCase {
                         .build())
                 .build();
         ToolRegistry toolRegistry = new ToolRegistry();
-        FileAccessPolicy accessPolicy = FileAccessPolicy.rootedAt(Files.createTempDirectory("aether-active-tools"));
+        WorkspaceAccessPolicy accessPolicy = WorkspaceAccessPolicy.rootedAt(Files.createTempDirectory("aether-active-tools"));
         toolRegistry.register(new GrepTool(accessPolicy));
         toolRegistry.register(new LsTool(accessPolicy));
         AgentSessionServices services = new AgentSessionServices(
@@ -104,7 +104,7 @@ public class TurnPreprocessorTest extends TestCase {
                 .activeToolNames(List.of())
                 .build();
         ToolRegistry toolRegistry = new ToolRegistry();
-        toolRegistry.register(new GrepTool(FileAccessPolicy.rootedAt(Files.createTempDirectory("aether-active-tools"))));
+        toolRegistry.register(new GrepTool(WorkspaceAccessPolicy.rootedAt(Files.createTempDirectory("aether-active-tools"))));
         AgentSessionServices services = new AgentSessionServices(
                 config,
                 modelRegistry,

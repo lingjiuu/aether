@@ -10,7 +10,7 @@ import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.provider.ProviderRegistry;
-import io.github.lingjiuu.tool.ToolCancellationSource;
+import io.github.lingjiuu.tool.runtime.ToolCancellationSource;
 import junit.framework.TestCase;
 
 import java.util.ArrayList;
