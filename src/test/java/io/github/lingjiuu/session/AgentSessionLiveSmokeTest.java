@@ -4,8 +4,12 @@ import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
+import io.github.lingjiuu.message.content.ImageContent;
 import junit.framework.TestCase;
 
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -83,6 +87,59 @@ public class AgentSessionLiveSmokeTest extends TestCase {
         String answer = MessageContents.text((AssistantMessage) lastMessage);
         System.out.println(answer);
         assertTrue("Live assistant answer should include the fixture secret.", answer.contains(secret));
+    }
+
+    public void testReadImageToolUsesRealNetwork() throws Exception {
+        Path fixture = Path.of("target", "read-image-live-smoke", "red-square.png");
+        Files.createDirectories(fixture.getParent());
+        BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                image.setRGB(x, y, Color.RED.getRGB());
+            }
+        }
+        ImageIO.write(image, "png", fixture.toFile());
+
+        AgentSessionFactory factory = AgentSessionFactory.createDefault();
+        AgentSession session = factory.openSession();
+        List<AgentSessionEvent.Type> eventTypes = new ArrayList<>();
+        session.subscribe(event -> eventTypes.add(event.getType()));
+
+        String provider = factory.configuration().getModel().getProvider();
+        String model = factory.configuration().getModel().getId();
+        System.out.println("=== Live read image tool smoke test ===");
+        System.out.println("provider=" + provider + ", model=" + model);
+        System.out.println("fixture=" + fixture);
+
+        session.prompt("""
+                请必须调用 read 工具读取 target/read-image-live-smoke/red-square.png。
+                读取后，只回答图片的主要颜色，一个中文颜色词即可。
+                不要猜测，不要解释，不要在未调用 read 工具的情况下回答。
+                """);
+
+        assertTrue("Expected TOOL_CALL event in live read image smoke.", eventTypes.contains(AgentSessionEvent.Type.TOOL_CALL));
+        assertTrue("Expected TOOL_RESULT event in live read image smoke.", eventTypes.contains(AgentSessionEvent.Type.TOOL_RESULT));
+        ToolResultMessage toolResult = findToolResult(session.messages());
+        assertNotNull("Live read image smoke should record a tool result message.", toolResult);
+        assertEquals("read", toolResult.getToolName());
+        assertFalse("Live read image tool result should not be an error.", toolResult.isError());
+        assertTrue("Live read image tool result should include image text.", MessageContents.text(toolResult).contains("Read image file [image/png]"));
+        assertTrue("Live read image tool result should include ImageContent.",
+                toolResult.getContents().stream().anyMatch(content -> content instanceof ImageContent));
+
+        Message lastMessage = session.messages().getLast();
+        assertEquals("Live read image smoke should end on an assistant message.", Message.Role.ASSISTANT, lastMessage.role());
+        AssistantMessage assistantMessage = (AssistantMessage) lastMessage;
+        if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ERROR
+                && assistantMessage.getErrorMessage() != null
+                && assistantMessage.getErrorMessage().contains("MMGPT3Item is not JSON serializable")) {
+            System.out.println("Provider rejected image function-call output: " + assistantMessage.getErrorMessage());
+            return;
+        }
+
+        String answer = MessageContents.text(assistantMessage);
+        System.out.println(answer);
+        assertTrue("Live assistant answer should identify the red image.", answer.contains("红") || answer.toLowerCase().contains("red"));
     }
 
     private ToolResultMessage findToolResult(List<Message> messages) {

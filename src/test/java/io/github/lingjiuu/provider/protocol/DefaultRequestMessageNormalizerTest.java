@@ -7,6 +7,7 @@ import io.github.lingjiuu.message.SystemMessage;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.attachment.TextAttachment;
+import io.github.lingjiuu.message.content.ImageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
@@ -63,6 +64,48 @@ public class DefaultRequestMessageNormalizerTest extends TestCase {
         assertEquals("call-1", toolResult.toolCallId());
         assertEquals("sample_tool", toolResult.toolName());
         assertEquals("{\"value\":\"12:00\"}", toolResult.outputText());
+    }
+
+    public void testPreservesUserAndToolResultImages() {
+        DefaultRequestMessageNormalizer normalizer = new DefaultRequestMessageNormalizer();
+
+        List<NormalizedRequestMessage> messages = normalizer.normalize(List.of(
+                UserMessage.builder()
+                        .contents(List.of(
+                                TextContent.builder().text("look").build(),
+                                ImageContent.builder()
+                                        .data("abc123")
+                                        .mimeType("image/png")
+                                        .build()
+                        ))
+                        .build(),
+                ToolResultMessage.builder()
+                        .toolCallId("call-1")
+                        .toolName("read")
+                        .contents(List.of(
+                                TextContent.builder().text("Read image file [image/png]").build(),
+                                ImageContent.builder()
+                                        .data("def456")
+                                        .mimeType("image/png")
+                                        .build()
+                        ))
+                        .build()
+        ), List.of());
+
+        assertEquals(2, messages.size());
+        NormalizedUserMessage userMessage = (NormalizedUserMessage) messages.get(0);
+        assertEquals(2, userMessage.contents().size());
+        assertEquals("look", ((NormalizedTextContent) userMessage.contents().get(0)).text());
+        NormalizedImageContent userImage = (NormalizedImageContent) userMessage.contents().get(1);
+        assertEquals("abc123", userImage.data());
+        assertEquals("image/png", userImage.mimeType());
+
+        NormalizedContextMessage contextMessage = (NormalizedContextMessage) messages.get(1);
+        NormalizedToolResultContent toolResult = (NormalizedToolResultContent) contextMessage.contents().getFirst();
+        assertEquals("Read image file [image/png]", toolResult.outputText());
+        assertEquals(1, toolResult.images().size());
+        assertEquals("def456", toolResult.images().getFirst().data());
+        assertEquals("image/png", toolResult.images().getFirst().mimeType());
     }
 
     public void testMergesConsecutiveUserAndContextMessages() {

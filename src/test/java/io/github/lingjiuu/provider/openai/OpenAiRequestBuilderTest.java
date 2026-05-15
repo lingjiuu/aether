@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.core.JsonValue;
 import com.openai.models.responses.EasyInputMessage;
 import com.openai.models.responses.ResponseCreateParams;
+import com.openai.models.responses.ResponseFunctionCallOutputItem;
 import com.openai.models.responses.ResponseFunctionToolCall;
 import com.openai.models.responses.ResponseInputItem;
 import com.openai.models.responses.ResponseOutputMessage;
@@ -14,6 +15,7 @@ import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
+import io.github.lingjiuu.message.content.ImageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.tool.ToolDefinition;
@@ -187,6 +189,79 @@ public class OpenAiRequestBuilderTest extends TestCase {
         assertTrue(functionCallOutput.isFunctionCallOutput());
         assertEquals("call-fallback", functionCallOutput.asFunctionCallOutput().callId());
         assertEquals("{\"value\":\"12:00\"}", functionCallOutput.asFunctionCallOutput().output().asString());
+    }
+
+    public void testSerializesUserAndToolResultImages() throws Exception {
+        OpenAiRequestBuilder requestBuilder = new OpenAiRequestBuilder();
+
+        ResponseCreateParams params = requestBuilder.buildRequest(LlmRequest.builder()
+                .model(LlmModel.builder()
+                        .id("gpt-4.1")
+                        .provider("openai")
+                        .api("openai")
+                        .baseUrl("https://api.openai.com/v1")
+                        .build())
+                .messages(List.of(
+                        UserMessage.builder()
+                                .contents(List.of(
+                                        TextContent.builder().text("look").build(),
+                                        ImageContent.builder()
+                                                .data("abc123")
+                                                .mimeType("image/png")
+                                                .build()
+                                ))
+                                .build(),
+                        AssistantMessage.builder()
+                                .provider("openai")
+                                .model("gpt-4.1")
+                                .stopReason(AssistantMessage.StopReason.TOOLUSE)
+                                .contents(List.of(ToolCallContent.builder()
+                                        .toolCallId("call-1")
+                                        .toolName("read")
+                                        .argumentsJson("{\"path\":\"pixel.png\"}")
+                                        .build()))
+                                .build(),
+                        ToolResultMessage.builder()
+                                .toolCallId("call-1")
+                                .toolName("read")
+                                .contents(List.of(
+                                        TextContent.builder().text("Read image file [image/png]").build(),
+                                        ImageContent.builder()
+                                                .data("def456")
+                                                .mimeType("image/png")
+                                                .build()
+                                ))
+                                .build()
+                ))
+                .callOptions(LlmCallOptions.builder().build())
+                .build());
+
+        List<ResponseInputItem> inputItems = params.input().orElseThrow().asResponse();
+        assertEquals(3, inputItems.size());
+
+        ResponseInputItem userMessage = inputItems.get(0);
+        assertTrue(userMessage.isEasyInputMessage());
+        assertTrue(userMessage.asEasyInputMessage().content().isResponseInputMessageContentList());
+        assertEquals(2, userMessage.asEasyInputMessage().content().asResponseInputMessageContentList().size());
+        assertTrue(userMessage.asEasyInputMessage().content().asResponseInputMessageContentList().get(1).isInputImage());
+        assertEquals("data:image/png;base64,abc123",
+                userMessage.asEasyInputMessage().content().asResponseInputMessageContentList().get(1).asInputImage().imageUrl().orElseThrow());
+
+        ResponseInputItem functionCall = inputItems.get(1);
+        assertTrue(functionCall.isFunctionCall());
+        assertEquals("call-1", functionCall.asFunctionCall().callId());
+
+        ResponseInputItem functionCallOutput = inputItems.get(2);
+        assertTrue(functionCallOutput.isFunctionCallOutput());
+        List<ResponseFunctionCallOutputItem> outputItems = functionCallOutput.asFunctionCallOutput()
+                .output()
+                .asResponseFunctionCallOutputItemList();
+        assertEquals(2, outputItems.size());
+        assertTrue(outputItems.get(0).isInputText());
+        assertTrue(outputItems.get(1).isInputImage());
+        assertEquals("Read image file [image/png]", outputItems.get(0).asInputText().text());
+        assertEquals("data:image/png;base64,def456",
+                outputItems.get(1).asInputImage().imageUrl().orElseThrow());
     }
 
     public void testBuildRequestSerializesProviderNeutralTools() {

@@ -11,6 +11,7 @@ import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
+import io.github.lingjiuu.message.content.ImageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.provider.Provider;
@@ -84,6 +85,54 @@ public class AgentSessionReadToolIntegrationTest extends TestCase {
         assertTrue(events.contains(AgentSessionEvent.Type.TOOL_RESULT));
     }
 
+    public void testImageReadToolResultReachesNextRequestAndTranscript() throws Exception {
+        Path root = Files.createTempDirectory("aether-read-session-root");
+        Files.write(root.resolve("pixel.png"), tinyPngBytes());
+        TranscriptStore transcriptStore = new TranscriptStore(Files.createTempDirectory("aether-read-transcripts"));
+        ToolRegistry toolRegistry = new ToolRegistry();
+        toolRegistry.register(new ReadTool(FileAccessPolicy.rootedAt(root)));
+
+        StubModelRegistry modelRegistry = new StubModelRegistry();
+        ReadThenFinalProvider provider = new ReadThenFinalProvider("pixel.png");
+        LlmClient llmClient = new LlmClient(modelRegistry, new ProviderRegistry().register(provider));
+        AgentSessionConfig config = AgentSessionConfig.builder()
+                .authStorage(AuthStorage.create(Files.createTempDirectory("aether-auth-test").resolve("auth.json")))
+                .modelRegistry(modelRegistry)
+                .llmClient(llmClient)
+                .systemPrompt("You are a helpful assistant")
+                .model(LlmModel.builder()
+                        .id("test-model")
+                        .name("Test Model")
+                        .api("fake")
+                        .provider("fake")
+                        .baseUrl("https://example.test/v1")
+                        .build())
+                .transcriptStore(transcriptStore)
+                .build();
+        AgentSessionServices services = new AgentSessionServices(config, modelRegistry, toolRegistry, llmClient);
+        AgentSession session = new AgentSession(services, new AgentLoop(services));
+
+        session.prompt("Read pixel.png");
+
+        assertEquals(2, provider.requestsSeen().size());
+        ToolResultMessage requestToolResult = findToolResult(provider.requestsSeen().get(1).getMessages());
+        assertNotNull(requestToolResult);
+        assertFalse(requestToolResult.isError());
+        assertEquals("read", requestToolResult.getToolName());
+        assertTrue(MessageContents.text(requestToolResult).contains("Read image file [image/png]"));
+        assertEquals(2, requestToolResult.getContents().size());
+        assertTrue(requestToolResult.getContents().get(1) instanceof ImageContent);
+        assertEquals("image/png", ((ImageContent) requestToolResult.getContents().get(1)).getMimeType());
+
+        ToolResultMessage transcriptToolResult = findToolResult(transcriptStore.read(session.sessionId()).stream()
+                .map(TranscriptRecord::getMessage)
+                .toList());
+        assertNotNull(transcriptToolResult);
+        assertTrue(transcriptToolResult.getContents().get(1) instanceof ImageContent);
+        assertEquals(((ImageContent) requestToolResult.getContents().get(1)).getData(),
+                ((ImageContent) transcriptToolResult.getContents().get(1)).getData());
+    }
+
     private ToolResultMessage findToolResult(List<Message> messages) {
         for (Message message : messages) {
             if (message instanceof ToolResultMessage toolResultMessage) {
@@ -95,6 +144,15 @@ public class AgentSessionReadToolIntegrationTest extends TestCase {
 
     private static final class ReadThenFinalProvider implements Provider {
         private final List<LlmRequest> requestsSeen = new ArrayList<>();
+        private final String path;
+
+        private ReadThenFinalProvider() {
+            this("notes.txt");
+        }
+
+        private ReadThenFinalProvider(String path) {
+            this.path = path;
+        }
 
         @Override
         public String name() {
@@ -114,7 +172,7 @@ public class AgentSessionReadToolIntegrationTest extends TestCase {
                                 ToolCallContent.builder()
                                         .toolCallId("call-1")
                                         .toolName("read")
-                                        .argumentsJson("{\"path\":\"notes.txt\"}")
+                                        .argumentsJson("{\"path\":\"" + path + "\"}")
                                         .build()
                         ))
                         .build());
@@ -130,6 +188,25 @@ public class AgentSessionReadToolIntegrationTest extends TestCase {
         private List<LlmRequest> requestsSeen() {
             return requestsSeen;
         }
+    }
+
+    private byte[] tinyPngBytes() {
+        return new byte[]{
+                (byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+                0x00, 0x00, 0x00, 0x0d,
+                0x49, 0x48, 0x44, 0x52,
+                0x00, 0x00, 0x00, 0x01,
+                0x00, 0x00, 0x00, 0x01,
+                0x08, 0x02, 0x00, 0x00, 0x00,
+                (byte) 0x90, 0x77, 0x53, (byte) 0xde,
+                0x00, 0x00, 0x00, 0x0a,
+                0x49, 0x44, 0x41, 0x54,
+                0x08, (byte) 0xd7, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
+                (byte) 0xe2, 0x21, (byte) 0xbc, 0x33,
+                0x00, 0x00, 0x00, 0x00,
+                0x49, 0x45, 0x4e, 0x44,
+                (byte) 0xae, 0x42, 0x60, (byte) 0x82
+        };
     }
 
     private static final class FixedAssistantStream extends AssistantStream {

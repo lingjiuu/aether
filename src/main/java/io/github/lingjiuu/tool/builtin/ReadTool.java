@@ -1,6 +1,8 @@
 package io.github.lingjiuu.tool.builtin;
 
 import io.github.lingjiuu.message.MessageContents;
+import io.github.lingjiuu.message.content.ImageContent;
+import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
 import io.github.lingjiuu.tool.ToolExecutionMode;
@@ -17,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -45,9 +48,10 @@ public class ReadTool implements ToolDefinition {
 
     @Override
     public String description() {
-        return "Read the contents of a workspace text file. Output is truncated to "
+        return "Read the contents of a workspace file. Supports text files and images (jpg, png, gif, webp). "
+                + "Images are sent as attachments. For text files, output is truncated to "
                 + ToolOutputTruncator.formatSize(ToolOutputLimits.READ_MAX_BYTES)
-                + ". Supports offset and limit for large files. When more content remains, continue with offset.";
+                + ". Supports offset and limit for large text files. When more text remains, continue with offset.";
     }
 
     @Override
@@ -118,8 +122,6 @@ public class ReadTool implements ToolDefinition {
         try {
             context.throwIfCancellationRequested();
             requestedPath = BuiltinToolArguments.requiredString(context.getArguments(), "path");
-            int offset = BuiltinToolArguments.optionalPositiveInt(context.getArguments(), "offset", 1);
-            Integer limit = optionalLimit(context.getArguments());
             Path resolvedPath;
             try {
                 resolvedPath = accessPolicy.resolveReadablePath(requestedPath);
@@ -129,7 +131,7 @@ public class ReadTool implements ToolDefinition {
                 }
                 throw e;
             }
-            ToolExecutionResult result = readFile(requestedPath, resolvedPath, offset, limit);
+            ToolExecutionResult result = readFile(requestedPath, resolvedPath, context.getArguments());
             context.throwIfCancellationRequested();
             return result;
         } catch (Exception e) {
@@ -144,7 +146,7 @@ public class ReadTool implements ToolDefinition {
         return BuiltinToolArguments.optionalPositiveInt(arguments, "limit", 1);
     }
 
-    private ToolExecutionResult readFile(String requestedPath, Path resolvedPath, int offset, Integer limit) throws IOException {
+    private ToolExecutionResult readFile(String requestedPath, Path resolvedPath, Map<String, Object> arguments) throws IOException {
         if (!Files.exists(resolvedPath)) {
             throw new IOException("Path not found: " + requestedPath);
         }
@@ -155,6 +157,13 @@ public class ReadTool implements ToolDefinition {
             throw new IOException("File is not readable: " + requestedPath);
         }
 
+        String mimeType = ImageMimeDetector.detect(resolvedPath);
+        if (mimeType != null) {
+            return readImageFile(requestedPath, resolvedPath, mimeType);
+        }
+
+        int offset = BuiltinToolArguments.optionalPositiveInt(arguments, "offset", 1);
+        Integer limit = optionalLimit(arguments);
         String content = Files.readString(resolvedPath, StandardCharsets.UTF_8);
         List<String> lines = splitLines(content);
         int totalLines = lines.size();
@@ -209,6 +218,51 @@ public class ReadTool implements ToolDefinition {
                         "totalLines", totalLines,
                         "truncated", truncated,
                         "hasMore", hasMore
+                ))
+                .error(false)
+                .build();
+    }
+
+    private ToolExecutionResult readImageFile(String requestedPath, Path resolvedPath, String mimeType) throws IOException {
+        byte[] bytes = Files.readAllBytes(resolvedPath);
+        String base64 = Base64.getEncoder().encodeToString(bytes);
+        int base64Bytes = base64.getBytes(StandardCharsets.UTF_8).length;
+        String text = "Read image file [" + mimeType + "]";
+        if (base64Bytes > ToolOutputLimits.READ_MAX_IMAGE_BASE64_BYTES) {
+            return ToolExecutionResult.builder()
+                    .contents(ToolExecutionResult.text(text
+                            + "\n[Image omitted: inline image exceeds "
+                            + ToolOutputTruncator.formatSize(ToolOutputLimits.READ_MAX_IMAGE_BASE64_BYTES)
+                            + " limit.]").getContents())
+                    .details(Map.of(
+                            "path", requestedPath,
+                            "resolvedPath", resolvedPath.toString(),
+                            "mimeType", mimeType,
+                            "bytes", bytes.length,
+                            "base64Bytes", base64Bytes,
+                            "image", true,
+                            "omitted", true
+                    ))
+                    .error(false)
+                    .build();
+        }
+
+        return ToolExecutionResult.builder()
+                .contents(List.of(
+                        TextContent.builder().text(text).build(),
+                        ImageContent.builder()
+                                .data(base64)
+                                .mimeType(mimeType)
+                                .build()
+                ))
+                .details(Map.of(
+                        "path", requestedPath,
+                        "resolvedPath", resolvedPath.toString(),
+                        "mimeType", mimeType,
+                        "bytes", bytes.length,
+                        "base64Bytes", base64Bytes,
+                        "image", true,
+                        "omitted", false
                 ))
                 .error(false)
                 .build();

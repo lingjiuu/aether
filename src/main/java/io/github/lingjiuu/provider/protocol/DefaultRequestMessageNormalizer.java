@@ -8,6 +8,7 @@ import io.github.lingjiuu.message.SystemMessage;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.attachment.Attachment;
+import io.github.lingjiuu.message.content.ImageContent;
 import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
@@ -42,11 +43,11 @@ public class DefaultRequestMessageNormalizer implements RequestMessageNormalizer
     }
 
     private NormalizedUserMessage normalizeUserMessage(UserMessage userMessage) {
-        String text = MessageContents.text(userMessage);
-        if (text.isBlank()) {
+        List<NormalizedContent> contents = normalizeTextAndImages(userMessage.messageContents());
+        if (contents.isEmpty()) {
             return null;
         }
-        return new NormalizedUserMessage(List.of(new NormalizedTextContent(text)));
+        return new NormalizedUserMessage(contents);
     }
 
     private void appendAssistantMessage(List<NormalizedRequestMessage> output, AssistantMessage assistantMessage) {
@@ -81,6 +82,7 @@ public class DefaultRequestMessageNormalizer implements RequestMessageNormalizer
                 toolResultMessage.getToolCallId(),
                 toolResultMessage.getToolName(),
                 MessageContents.text(toolResultMessage),
+                imagesOf(toolResultMessage.messageContents()),
                 toolResultMessage.isError(),
                 toolResultMessage.getDetails()
         )));
@@ -138,6 +140,52 @@ public class DefaultRequestMessageNormalizer implements RequestMessageNormalizer
         List<NormalizedContent> merged = new ArrayList<>(first);
         merged.addAll(second);
         return merged;
+    }
+
+    private List<NormalizedContent> normalizeTextAndImages(List<MessageContent> messageContents) {
+        List<NormalizedContent> contents = new ArrayList<>();
+        if (messageContents == null) {
+            return contents;
+        }
+        for (MessageContent content : messageContents) {
+            if (content instanceof TextContent textContent) {
+                String text = textContent.getText() == null ? "" : textContent.getText().trim();
+                if (!text.isBlank()) {
+                    contents.add(new NormalizedTextContent(text));
+                }
+            } else if (content instanceof ImageContent imageContent) {
+                NormalizedImageContent image = normalizeImage(imageContent);
+                if (image != null) {
+                    contents.add(image);
+                }
+            }
+        }
+        return contents;
+    }
+
+    private List<NormalizedImageContent> imagesOf(List<MessageContent> messageContents) {
+        List<NormalizedImageContent> images = new ArrayList<>();
+        if (messageContents == null) {
+            return images;
+        }
+        for (MessageContent content : messageContents) {
+            if (content instanceof ImageContent imageContent) {
+                NormalizedImageContent image = normalizeImage(imageContent);
+                if (image != null) {
+                    images.add(image);
+                }
+            }
+        }
+        return images;
+    }
+
+    private NormalizedImageContent normalizeImage(ImageContent imageContent) {
+        String data = imageContent.getData() == null ? "" : imageContent.getData().trim();
+        String mimeType = imageContent.getMimeType() == null ? "" : imageContent.getMimeType().trim();
+        if (data.isBlank() || mimeType.isBlank()) {
+            return null;
+        }
+        return new NormalizedImageContent(data, mimeType);
     }
 
     private String resolveArgumentsJson(ToolCallContent toolCallContent) {

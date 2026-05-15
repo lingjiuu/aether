@@ -3,14 +3,21 @@ package io.github.lingjiuu.provider.openai;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.core.JsonValue;
 import com.openai.models.responses.EasyInputMessage;
+import com.openai.models.responses.ResponseFunctionCallOutputItem;
 import com.openai.models.responses.ResponseFunctionToolCall;
+import com.openai.models.responses.ResponseInputContent;
+import com.openai.models.responses.ResponseInputImage;
+import com.openai.models.responses.ResponseInputImageContent;
 import com.openai.models.responses.ResponseInputItem;
+import com.openai.models.responses.ResponseInputText;
+import com.openai.models.responses.ResponseInputTextContent;
 import com.openai.models.responses.ResponseOutputMessage;
 import com.openai.models.responses.ResponseOutputText;
 import com.openai.models.responses.ResponseReasoningItem;
 import io.github.lingjiuu.provider.protocol.NormalizedAssistantMessage;
 import io.github.lingjiuu.provider.protocol.NormalizedContent;
 import io.github.lingjiuu.provider.protocol.NormalizedContextMessage;
+import io.github.lingjiuu.provider.protocol.NormalizedImageContent;
 import io.github.lingjiuu.provider.protocol.NormalizedRequestMessage;
 import io.github.lingjiuu.provider.protocol.NormalizedTextContent;
 import io.github.lingjiuu.provider.protocol.NormalizedThinkingContent;
@@ -64,6 +71,10 @@ public class OpenAiMessageAdapter {
     }
 
     private void appendUserMessage(List<ResponseInputItem> inputItems, NormalizedUserMessage userMessage) {
+        if (hasImages(userMessage.contents())) {
+            appendEasyInputMessage(inputItems, EasyInputMessage.Role.USER, toResponseInputContentList(userMessage.contents()));
+            return;
+        }
         appendUserText(inputItems, textOf(userMessage.contents()));
     }
 
@@ -135,13 +146,7 @@ public class OpenAiMessageAdapter {
             if (content instanceof NormalizedToolResultContent toolResultContent) {
                 appendUserText(inputItems, joinedText(pendingText));
                 pendingText.clear();
-                inputItems.add(ResponseInputItem.ofFunctionCallOutput(
-                        ResponseInputItem.FunctionCallOutput.builder()
-                                .callId(toolResultContent.toolCallId())
-                                .output(toolResultContent.outputText())
-                                .status(ResponseInputItem.FunctionCallOutput.Status.COMPLETED)
-                                .build()
-                ));
+                inputItems.add(ResponseInputItem.ofFunctionCallOutput(toFunctionCallOutput(toolResultContent)));
             } else if (content instanceof NormalizedTextContent textContent && !textContent.text().isBlank()) {
                 pendingText.add(textContent.text());
             }
@@ -153,10 +158,34 @@ public class OpenAiMessageAdapter {
         if (text == null || text.isBlank()) {
             return;
         }
+        appendEasyInputMessage(inputItems, EasyInputMessage.Role.USER, text);
+    }
+
+    private void appendEasyInputMessage(
+            List<ResponseInputItem> inputItems,
+            EasyInputMessage.Role role,
+            String text
+    ) {
         inputItems.add(ResponseInputItem.ofEasyInputMessage(
                 EasyInputMessage.builder()
-                        .role(EasyInputMessage.Role.USER)
+                        .role(role)
                         .content(text)
+                        .build()
+        ));
+    }
+
+    private void appendEasyInputMessage(
+            List<ResponseInputItem> inputItems,
+            EasyInputMessage.Role role,
+            List<ResponseInputContent> contents
+    ) {
+        if (contents == null || contents.isEmpty()) {
+            return;
+        }
+        inputItems.add(ResponseInputItem.ofEasyInputMessage(
+                EasyInputMessage.builder()
+                        .role(role)
+                        .contentOfResponseInputMessageContentList(contents)
                         .build()
         ));
     }
@@ -171,11 +200,72 @@ public class OpenAiMessageAdapter {
         return joinedText(textParts);
     }
 
+    private boolean hasImages(List<NormalizedContent> contents) {
+        for (NormalizedContent content : contents) {
+            if (content instanceof NormalizedImageContent) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<ResponseInputContent> toResponseInputContentList(List<NormalizedContent> contents) {
+        List<ResponseInputContent> inputContents = new ArrayList<>();
+        for (NormalizedContent content : contents) {
+            if (content instanceof NormalizedTextContent textContent && !textContent.text().isBlank()) {
+                inputContents.add(ResponseInputContent.ofInputText(ResponseInputText.builder()
+                        .text(textContent.text())
+                        .build()));
+            } else if (content instanceof NormalizedImageContent imageContent && !imageContent.data().isBlank()) {
+                inputContents.add(ResponseInputContent.ofInputImage(ResponseInputImage.builder()
+                        .detail(ResponseInputImage.Detail.AUTO)
+                        .imageUrl(toDataUrl(imageContent))
+                        .build()));
+            }
+        }
+        return inputContents;
+    }
+
+    private ResponseInputItem.FunctionCallOutput toFunctionCallOutput(NormalizedToolResultContent toolResultContent) {
+        if (!toolResultContent.hasImages()) {
+            return ResponseInputItem.FunctionCallOutput.builder()
+                    .callId(toolResultContent.toolCallId())
+                    .output(toolResultContent.outputText())
+                    .status(ResponseInputItem.FunctionCallOutput.Status.COMPLETED)
+                    .build();
+        }
+
+        List<ResponseFunctionCallOutputItem> outputItems = new ArrayList<>();
+        if (toolResultContent.outputText() != null && !toolResultContent.outputText().isBlank()) {
+            outputItems.add(ResponseFunctionCallOutputItem.ofInputText(ResponseInputTextContent.builder()
+                    .text(toolResultContent.outputText())
+                    .build()));
+        }
+        for (NormalizedImageContent imageContent : toolResultContent.images()) {
+            if (imageContent.data().isBlank() || imageContent.mimeType().isBlank()) {
+                continue;
+            }
+            outputItems.add(ResponseFunctionCallOutputItem.ofInputImage(ResponseInputImageContent.builder()
+                    .detail(ResponseInputImageContent.Detail.AUTO)
+                    .imageUrl(toDataUrl(imageContent))
+                    .build()));
+        }
+        return ResponseInputItem.FunctionCallOutput.builder()
+                .callId(toolResultContent.toolCallId())
+                .outputOfResponseFunctionCallOutputItemList(outputItems)
+                .status(ResponseInputItem.FunctionCallOutput.Status.COMPLETED)
+                .build();
+    }
+
     private String joinedText(List<String> textParts) {
         if (textParts == null || textParts.isEmpty()) {
             return "";
         }
         return String.join("\n", textParts).trim();
+    }
+
+    private String toDataUrl(NormalizedImageContent imageContent) {
+        return "data:" + imageContent.mimeType() + ";base64," + imageContent.data();
     }
 
     private ResponseOutputMessage toResponseOutputMessage(String text, int index) {

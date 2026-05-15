@@ -6,6 +6,7 @@ public interface NormalizedContent {
 
     enum Type {
         TEXT,
+        IMAGE,
         THINKING,
         TOOL_CALL,
         TOOL_RESULT
