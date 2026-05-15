@@ -19,11 +19,13 @@ final class ToolOutputTruncator {
                     false,
                     null,
                     lines.size(),
-                    totalBytes,
-                    lines.size(),
-                    totalBytes,
-                    false,
-                    maxBytes
+                totalBytes,
+                lines.size(),
+                totalBytes,
+                false,
+                false,
+                0,
+                maxBytes
             );
         }
 
@@ -37,6 +39,8 @@ final class ToolOutputTruncator {
                     0,
                     0,
                     true,
+                    false,
+                    0,
                     maxBytes
             );
         }
@@ -62,6 +66,69 @@ final class ToolOutputTruncator {
                 output.size(),
                 byteLength(truncated),
                 false,
+                false,
+                0,
+                maxBytes
+        );
+    }
+
+    static TruncationResult truncateTail(String content, int maxLines, int maxBytes) {
+        String safeContent = content == null ? "" : content;
+        int totalBytes = byteLength(safeContent);
+        List<String> lines = List.of(safeContent.split("\n", -1));
+        int totalLines = lines.size();
+        if (totalLines <= maxLines && totalBytes <= maxBytes) {
+            return new TruncationResult(
+                    safeContent,
+                    false,
+                    null,
+                    totalLines,
+                    totalBytes,
+                    totalLines,
+                    totalBytes,
+                    false,
+                    false,
+                    maxLines,
+                    maxBytes
+            );
+        }
+
+        List<String> output = new ArrayList<>();
+        int outputBytes = 0;
+        String truncatedBy = "lines";
+        boolean lastLinePartial = false;
+        for (int i = lines.size() - 1; i >= 0 && output.size() < maxLines; i--) {
+            String line = lines.get(i);
+            int lineBytes = byteLength(line) + (output.isEmpty() ? 0 : 1);
+            if (outputBytes + lineBytes > maxBytes) {
+                truncatedBy = "bytes";
+                if (output.isEmpty()) {
+                    String partial = tailByBytes(line, maxBytes);
+                    output.addFirst(partial);
+                    outputBytes = byteLength(partial);
+                    lastLinePartial = true;
+                }
+                break;
+            }
+            output.addFirst(line);
+            outputBytes += lineBytes;
+        }
+
+        if (output.size() >= maxLines && totalLines > maxLines && !"bytes".equals(truncatedBy)) {
+            truncatedBy = "lines";
+        }
+        String truncated = String.join("\n", output);
+        return new TruncationResult(
+                truncated,
+                true,
+                truncatedBy,
+                totalLines,
+                totalBytes,
+                output.size(),
+                byteLength(truncated),
+                false,
+                lastLinePartial,
+                maxLines,
                 maxBytes
         );
     }
@@ -88,6 +155,18 @@ final class ToolOutputTruncator {
         return text.getBytes(StandardCharsets.UTF_8).length;
     }
 
+    private static String tailByBytes(String text, int maxBytes) {
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length <= maxBytes) {
+            return text;
+        }
+        int start = bytes.length - maxBytes;
+        while (start < bytes.length && (bytes[start] & 0xc0) == 0x80) {
+            start++;
+        }
+        return new String(bytes, start, bytes.length - start, StandardCharsets.UTF_8);
+    }
+
     record TruncationResult(
             String content,
             boolean truncated,
@@ -97,6 +176,8 @@ final class ToolOutputTruncator {
             int outputLines,
             int outputBytes,
             boolean firstLineExceedsLimit,
+            boolean lastLinePartial,
+            int maxLines,
             int maxBytes
     ) {
     }

@@ -16,10 +16,10 @@ public class BuiltinToolFactoryTest extends TestCase {
         assertEquals(List.of("ls", "find", "grep", "read"), BuiltinToolFactory.readOnlyToolNames());
     }
 
-    public void testCreateAllToolsIncludesMutationToolsInDefaultOrder() {
+    public void testCreateAllToolsIncludesCodingToolsInDefaultOrder() {
         List<ToolDefinition> tools = BuiltinToolFactory.createAllTools(FileAccessPolicy.rootedAt(Path.of(".")));
 
-        assertEquals(List.of("ls", "find", "grep", "read", "write", "edit"), tools.stream().map(ToolDefinition::name).toList());
-        assertEquals(List.of("ls", "find", "grep", "read", "write", "edit"), BuiltinToolFactory.defaultToolNames());
+        assertEquals(List.of("ls", "find", "grep", "read", "write", "edit", "bash"), tools.stream().map(ToolDefinition::name).toList());
+        assertEquals(List.of("ls", "find", "grep", "read", "write", "edit", "bash"), BuiltinToolFactory.defaultToolNames());
     }
 }

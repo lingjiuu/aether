@@ -8,7 +8,7 @@ import java.util.List;
 public final class BuiltinToolFactory {
 
     private static final List<String> READ_ONLY_TOOL_NAMES = List.of("ls", "find", "grep", "read");
-    private static final List<String> DEFAULT_TOOL_NAMES = List.of("ls", "find", "grep", "read", "write", "edit");
+    private static final List<String> DEFAULT_TOOL_NAMES = List.of("ls", "find", "grep", "read", "write", "edit", "bash");
 
     private BuiltinToolFactory() {
     }
@@ -35,7 +35,8 @@ public final class BuiltinToolFactory {
                 new GrepTool(accessPolicy),
                 new ReadTool(accessPolicy),
                 new WriteTool(accessPolicy),
-                new EditTool(accessPolicy)
+                new EditTool(accessPolicy),
+                new BashTool(accessPolicy)
         );
     }
 

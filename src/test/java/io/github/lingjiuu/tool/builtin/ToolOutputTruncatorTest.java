@@ -28,4 +28,41 @@ public class ToolOutputTruncatorTest extends TestCase {
         assertEquals("abc... [truncated]", result.text());
         assertTrue(result.wasTruncated());
     }
+
+    public void testTruncateTailPreservesLastLines() {
+        ToolOutputTruncator.TruncationResult result = ToolOutputTruncator.truncateTail("alpha\nbeta\ngamma", 2, 100);
+
+        assertTrue(result.truncated());
+        assertEquals("beta\ngamma", result.content());
+        assertEquals("lines", result.truncatedBy());
+        assertEquals(3, result.totalLines());
+        assertEquals(2, result.outputLines());
+        assertFalse(result.lastLinePartial());
+    }
+
+    public void testTruncateTailByBytesKeepsCompleteLinesWhenPossible() {
+        ToolOutputTruncator.TruncationResult result = ToolOutputTruncator.truncateTail("alpha\nbeta\ngamma", 10, 9);
+
+        assertTrue(result.truncated());
+        assertEquals("gamma", result.content());
+        assertEquals("bytes", result.truncatedBy());
+        assertFalse(result.lastLinePartial());
+    }
+
+    public void testTruncateTailKeepsEndOfOversizedFinalLine() {
+        ToolOutputTruncator.TruncationResult result = ToolOutputTruncator.truncateTail("0123456789", 10, 5);
+
+        assertTrue(result.truncated());
+        assertEquals("56789", result.content());
+        assertEquals("bytes", result.truncatedBy());
+        assertTrue(result.lastLinePartial());
+    }
+
+    public void testTruncateTailDoesNotSplitUtf8Characters() {
+        ToolOutputTruncator.TruncationResult result = ToolOutputTruncator.truncateTail("你好世界", 10, 7);
+
+        assertTrue(result.truncated());
+        assertEquals("世界", result.content());
+        assertTrue(result.lastLinePartial());
+    }
 }
