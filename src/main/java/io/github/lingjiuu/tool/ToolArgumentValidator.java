@@ -17,7 +17,10 @@ public class ToolArgumentValidator {
         try {
             String json = argumentsJson == null || argumentsJson.isBlank() ? "{}" : argumentsJson;
             JsonNode argumentsNode = OBJECT_MAPPER.readTree(json);
-            if (argumentsNode == null || !argumentsNode.isObject()) {
+            Object rawArguments = OBJECT_MAPPER.convertValue(argumentsNode, Object.class);
+            Object preparedArguments = definition.prepareArguments(rawArguments);
+            JsonNode preparedNode = OBJECT_MAPPER.valueToTree(preparedArguments);
+            if (preparedNode == null || !preparedNode.isObject()) {
                 throw new IllegalArgumentException("Tool arguments must be a JSON object");
             }
 
@@ -26,10 +29,10 @@ public class ToolArgumentValidator {
                     : OBJECT_MAPPER.valueToTree(definition.parametersSchema());
 
             if (parametersNode != null) {
-                validateNode(argumentsNode, parametersNode, "");
+                validateNode(preparedNode, parametersNode, "");
             }
 
-            return OBJECT_MAPPER.convertValue(argumentsNode, new TypeReference<>() {
+            return OBJECT_MAPPER.convertValue(preparedNode, new TypeReference<>() {
             });
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Invalid tool arguments JSON: " + e.getMessage(), e);

@@ -86,6 +86,33 @@ public class ToolArgumentValidatorTest extends TestCase {
         assertValidationMessage(validator, "{\"text\":\"ping\",\"tags\":[\"ok\", 2]}", "tags[1] must be a string");
     }
 
+    public void testValidateAppliesPrepareArgumentsBeforeSchemaValidation() {
+        ToolArgumentValidator validator = new ToolArgumentValidator();
+
+        Map<String, Object> arguments = validator.validate(new PreparedTextTool(), "{\"message\":\"ping\"}");
+
+        assertEquals(Map.of("text", "ping"), arguments);
+    }
+
+    public void testValidatePrepareArgumentsRunsBeforeAdditionalPropertiesCheck() {
+        ToolArgumentValidator validator = new ToolArgumentValidator();
+
+        Map<String, Object> arguments = validator.validate(new PreparedTextTool(), "{\"message\":\"pong\"}");
+
+        assertEquals(Map.of("text", "pong"), arguments);
+    }
+
+    public void testValidateRejectsPreparedNonObjectRoot() {
+        ToolArgumentValidator validator = new ToolArgumentValidator();
+
+        try {
+            validator.validate(new NonObjectPreparingTool(), "{\"text\":\"ping\"}");
+            fail("Expected prepared non-object root to throw");
+        } catch (IllegalArgumentException error) {
+            assertEquals("Tool arguments must be a JSON object", error.getMessage());
+        }
+    }
+
     private void assertValidationMessage(ToolArgumentValidator validator, String argumentsJson, String expected) {
         try {
             validator.validate(new RequiredTextTool(), argumentsJson);
@@ -136,6 +163,56 @@ public class ToolArgumentValidatorTest extends TestCase {
         @Override
         public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
             return ToolExecutionResult.text(String.valueOf(context.getArguments().get("text")));
+        }
+    }
+
+    private static class PreparedTextTool implements ToolDefinition {
+        @Override
+        public String name() {
+            return "prepared_text";
+        }
+
+        @Override
+        public String label() {
+            return "prepared_text";
+        }
+
+        @Override
+        public String description() {
+            return "Prepares message into text.";
+        }
+
+        @Override
+        public Map<String, Object> parametersSchema() {
+            return Map.of(
+                    "type", "object",
+                    "properties", Map.of("text", Map.of("type", "string")),
+                    "required", List.of("text"),
+                    "additionalProperties", false
+            );
+        }
+
+        @Override
+        public Object prepareArguments(Object arguments) {
+            if (!(arguments instanceof Map<?, ?> map)) {
+                return arguments;
+            }
+            if (!(map.get("message") instanceof String message)) {
+                return arguments;
+            }
+            return Map.of("text", message);
+        }
+
+        @Override
+        public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
+            return ToolExecutionResult.text(String.valueOf(context.getArguments().get("text")));
+        }
+    }
+
+    private static final class NonObjectPreparingTool extends PreparedTextTool {
+        @Override
+        public Object prepareArguments(Object arguments) {
+            return "not-an-object";
         }
     }
 }

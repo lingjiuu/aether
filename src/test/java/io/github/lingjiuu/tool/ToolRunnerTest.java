@@ -147,6 +147,17 @@ public class ToolRunnerTest extends TestCase {
         assertEquals(5, details.get("maxTextChars"));
     }
 
+    public void testPreparedArgumentsArePassedToExecutionContext() {
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(new PreparedTextTool());
+        ToolRunner runner = new ToolRunner(registry);
+
+        ToolResultMessage result = runner.run(assistantMessage(), toolCall("prepared_text", "{\"message\":\"ping\"}"), null);
+
+        assertFalse(result.isError());
+        assertEquals("ping", MessageContents.text(result));
+    }
+
     private static AssistantMessage assistantMessage() {
         return AssistantMessage.builder()
                 .provider("fake")
@@ -239,6 +250,49 @@ public class ToolRunnerTest extends TestCase {
                     .details(Map.of("kind", "long"))
                     .error(false)
                     .build();
+        }
+    }
+
+    private static final class PreparedTextTool implements ToolDefinition {
+        @Override
+        public String name() {
+            return "prepared_text";
+        }
+
+        @Override
+        public String label() {
+            return "prepared_text";
+        }
+
+        @Override
+        public String description() {
+            return "Prepares message into text.";
+        }
+
+        @Override
+        public Map<String, Object> parametersSchema() {
+            return Map.of(
+                    "type", "object",
+                    "properties", Map.of("text", Map.of("type", "string")),
+                    "required", List.of("text"),
+                    "additionalProperties", false
+            );
+        }
+
+        @Override
+        public Object prepareArguments(Object arguments) {
+            if (!(arguments instanceof Map<?, ?> map)) {
+                return arguments;
+            }
+            if (!(map.get("message") instanceof String message)) {
+                return arguments;
+            }
+            return Map.of("text", message);
+        }
+
+        @Override
+        public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
+            return ToolExecutionResult.text(String.valueOf(context.getArguments().get("text")));
         }
     }
 }

@@ -17,6 +17,10 @@ public interface ToolDefinition {
 
     Map<String, Object> parametersSchema();
 
+    default Object prepareArguments(Object arguments) {
+        return arguments;
+    }
+
     default ToolSourceInfo sourceInfo() {
         return ToolSourceInfo.custom();
     }
