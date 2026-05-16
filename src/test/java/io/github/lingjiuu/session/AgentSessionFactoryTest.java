@@ -91,4 +91,57 @@ public class AgentSessionFactoryTest extends TestCase {
         }
     }
 
+    public void testCreateDefaultLoadsProjectPromptResources() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-factory-test");
+        Path cwd = tempDir.resolve("workspace");
+        Path agentDir = tempDir.resolve("agent");
+        Path authPath = tempDir.resolve("auth.json");
+        Path modelsPath = tempDir.resolve("models.json");
+        Path settingsPath = tempDir.resolve("settings.json");
+        Files.createDirectories(cwd.resolve(".aether"));
+        Files.createDirectories(agentDir);
+        Files.writeString(modelsPath, """
+                {
+                  "providers": {
+                    "local-openai": {
+                      "baseUrl": "http://localhost:1234/v1",
+                      "api": "openai",
+                      "apiKey": "local-key",
+                      "models": [{ "id": "demo-model" }]
+                    }
+                  }
+                }
+                """);
+        Files.writeString(cwd.resolve(".aether").resolve("SYSTEM.md"), "Project system");
+        Files.writeString(cwd.resolve(".aether").resolve("APPEND_SYSTEM.md"), "Append prompt");
+        Files.writeString(cwd.resolve("AGENTS.md"), "Workspace agents");
+        Path skillFile = cwd.resolve(".aether").resolve("skills").resolve("java-test").resolve("SKILL.md");
+        Files.createDirectories(skillFile.getParent());
+        Files.writeString(skillFile, """
+                ---
+                name: java-test
+                description: Run Java tests
+                ---
+                """);
+        SettingsManager.create(settingsPath).setDefaultModelAndProvider("local-openai", "demo-model");
+
+        AgentSessionFactory factory = AgentSessionFactory.createDefault(
+                null,
+                null,
+                authPath,
+                modelsPath,
+                settingsPath,
+                cwd,
+                agentDir
+        );
+
+        assertEquals("Project system", factory.configuration().getSystemPrompt());
+        assertEquals(cwd.toAbsolutePath().normalize(), factory.configuration().getCwd());
+        assertEquals("Append prompt", factory.configuration().getPromptResources().getAppendSystemPrompt());
+        assertEquals(1, factory.configuration().getPromptResources().getContextFiles().size());
+        assertEquals("Workspace agents", factory.configuration().getPromptResources().getContextFiles().getFirst().getContent());
+        assertEquals(1, factory.configuration().getPromptResources().getSkills().size());
+        assertEquals("java-test", factory.configuration().getPromptResources().getSkills().getFirst().getName());
+    }
+
 }

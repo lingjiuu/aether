@@ -6,6 +6,8 @@ import io.github.lingjiuu.infra.config.AetherPaths;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.ReasoningOptions;
+import io.github.lingjiuu.resource.PromptResources;
+import io.github.lingjiuu.resource.ResourceLoader;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
 import io.github.lingjiuu.tool.tools.DefaultTools;
@@ -51,22 +53,54 @@ public class AgentSessionFactory {
             Path modelsPath,
             Path settingsPath
     ) {
+        return createDefault(
+                provider,
+                modelId,
+                authPath,
+                modelsPath,
+                settingsPath,
+                Path.of(System.getProperty("user.dir")),
+                AetherPaths.getAgentDir()
+        );
+    }
+
+    static AgentSessionFactory createDefault(
+            String provider,
+            String modelId,
+            Path authPath,
+            Path modelsPath,
+            Path settingsPath,
+            Path cwd,
+            Path agentDir
+    ) {
         AuthStorage authStorage = AuthStorage.create(authPath);
         ModelRegistry modelRegistry = new ModelRegistry(authStorage, modelsPath);
         SettingsManager settingsManager = SettingsManager.create(settingsPath);
         LlmClient llmClient = new LlmClient(modelRegistry);
         LlmModel model = new ModelResolver().findInitialModel(modelRegistry, settingsManager, provider, modelId);
+        Path resolvedCwd = cwd == null
+                ? Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize()
+                : cwd.toAbsolutePath().normalize();
+        Path resolvedAgentDir = agentDir == null
+                ? AetherPaths.getAgentDir()
+                : agentDir.toAbsolutePath().normalize();
+        PromptResources promptResources = new ResourceLoader(resolvedCwd, resolvedAgentDir).load();
+        String systemPrompt = promptResources.getSystemPrompt() == null || promptResources.getSystemPrompt().isBlank()
+                ? DEFAULT_SYSTEM_PROMPT
+                : promptResources.getSystemPrompt();
 
         AgentSessionConfig configuration = AgentSessionConfig.builder()
                 .authStorage(authStorage)
                 .modelRegistry(modelRegistry)
                 .settingsManager(settingsManager)
                 .llmClient(llmClient)
-                .systemPrompt(DEFAULT_SYSTEM_PROMPT)
+                .systemPrompt(systemPrompt)
+                .cwd(resolvedCwd)
                 .model(model)
                 .reasoning(defaultReasoning(settingsManager))
                 .toolDefinitions(buildDefaultTools())
                 .activeToolNames(DefaultTools.defaultNames())
+                .promptResources(promptResources)
                 .transcriptStore(new TranscriptStore(AetherPaths.getTranscriptsDir()))
                 .build();
 

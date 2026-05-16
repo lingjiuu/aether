@@ -9,6 +9,9 @@ import io.github.lingjiuu.llm.ReasoningOptions;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
+import io.github.lingjiuu.resource.ContextFile;
+import io.github.lingjiuu.resource.PromptResources;
+import io.github.lingjiuu.resource.Skill;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.session.AgentSessionConfig;
 import io.github.lingjiuu.session.AgentSessionServices;
@@ -19,6 +22,7 @@ import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import junit.framework.TestCase;
 
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -45,6 +49,18 @@ public class TurnPreprocessorTest extends TestCase {
                 .reasoning(ReasoningOptions.builder()
                         .reasoningEffort(ReasoningOptions.ReasoningEffort.HIGH)
                         .build())
+                .promptResources(PromptResources.builder()
+                        .appendSystemPrompt("Append prompt")
+                        .contextFiles(List.of(ContextFile.builder()
+                                .path(Path.of("/tmp/demo/AGENTS.md"))
+                                .content("Project rule")
+                                .build()))
+                        .skills(List.of(Skill.builder()
+                                .name("java-test")
+                                .description("Run Java tests")
+                                .location(Path.of("/tmp/demo/.aether/skills/java-test/SKILL.md"))
+                                .build()))
+                        .build())
                 .build();
         ToolRegistry toolRegistry = new ToolRegistry();
         WorkspaceAccessPolicy accessPolicy = WorkspaceAccessPolicy.rootedAt(Files.createTempDirectory("aether-active-tools"));
@@ -67,8 +83,13 @@ public class TurnPreprocessorTest extends TestCase {
         LlmRequest request = preprocessor.prepare(runtimeState);
 
         assertTrue(request.getSystemPrompt().startsWith("You are a helpful assistant"));
+        assertTrue(request.getSystemPrompt().contains("Append prompt"));
         assertTrue(request.getSystemPrompt().contains("- grep: Search file contents for patterns (respects .gitignore)"));
         assertTrue(request.getSystemPrompt().contains("Use grep to search file contents before opening broad areas of the project."));
+        assertTrue(request.getSystemPrompt().contains("## /tmp/demo/AGENTS.md"));
+        assertTrue(request.getSystemPrompt().contains("<name>java-test</name>"));
+        assertTrue(request.getSystemPrompt().contains("Current date: "));
+        assertTrue(request.getSystemPrompt().contains("Current working directory: "));
         assertFalse(request.getSystemPrompt().contains("- ls:"));
         assertFalse(request.getSystemPrompt().contains("Use ls to inspect directory contents"));
         assertEquals(config.getModel(), request.getModel());
@@ -102,6 +123,7 @@ public class TurnPreprocessorTest extends TestCase {
                         .baseUrl("https://example.test/v1")
                         .build())
                 .activeToolNames(List.of())
+                .cwd(Path.of("/tmp/no-tools"))
                 .build();
         ToolRegistry toolRegistry = new ToolRegistry();
         toolRegistry.register(new GrepTool(WorkspaceAccessPolicy.rootedAt(Files.createTempDirectory("aether-active-tools"))));
@@ -119,7 +141,8 @@ public class TurnPreprocessorTest extends TestCase {
 
         LlmRequest request = new TurnPreprocessor(services).prepare(runtimeState);
 
-        assertEquals("Base", request.getSystemPrompt());
+        assertTrue(request.getSystemPrompt().startsWith("Base"));
+        assertTrue(request.getSystemPrompt().contains("Current working directory: /tmp/no-tools"));
         assertTrue(request.getTools().isEmpty());
     }
 }

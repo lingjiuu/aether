@@ -53,8 +53,7 @@ public class TurnPreprocessor {
         ActiveToolSet activeToolSet = services.activeToolSet();
         List<ToolDefinition> activeTools = activeToolSet.activeTools();
         String systemPrompt = services.getSystemPromptBuilder().build(
-                services.getConfig().getSystemPrompt(),
-                activeTools
+                services.systemPromptBuildOptions(activeTools)
         );
 
         LlmRequest request = LlmRequest.builder()

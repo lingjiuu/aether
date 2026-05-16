@@ -1,9 +1,11 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.llm.LlmClient;
+import io.github.lingjiuu.resource.PromptResources;
 import io.github.lingjiuu.tool.runtime.ActiveToolSet;
 import io.github.lingjiuu.tool.runtime.ActiveToolSetResolver;
 import io.github.lingjiuu.tool.runtime.ToolRunner;
+import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
 import io.github.lingjiuu.tool.hook.ToolHookChain;
 import io.github.lingjiuu.tool.permission.DefaultToolPermissionService;
@@ -11,6 +13,8 @@ import io.github.lingjiuu.tool.permission.ToolPermissionService;
 import io.github.lingjiuu.transcript.TranscriptStore;
 import lombok.Getter;
 
+import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.List;
 
 @Getter
@@ -143,5 +147,26 @@ public class AgentSessionServices {
 
     public synchronized void setActiveToolNames(List<String> activeToolNames) {
         this.activeToolNames = activeToolNames == null ? null : List.copyOf(activeToolNames);
+    }
+
+    public SystemPromptBuildOptions systemPromptBuildOptions(List<ToolDefinition> activeTools) {
+        PromptResources resources = config.getPromptResources() == null
+                ? PromptResources.empty()
+                : config.getPromptResources();
+        return SystemPromptBuildOptions.builder()
+                .customPrompt(config.getSystemPrompt())
+                .appendPrompt(resources.getAppendSystemPrompt())
+                .cwd(resolveCwd())
+                .currentDate(LocalDate.now())
+                .activeTools(activeTools == null ? List.of() : activeTools)
+                .contextFiles(resources.getContextFiles() == null ? List.of() : resources.getContextFiles())
+                .skills(resources.getSkills() == null ? List.of() : resources.getSkills())
+                .build();
+    }
+
+    private Path resolveCwd() {
+        return config.getCwd() == null
+                ? Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize()
+                : config.getCwd().toAbsolutePath().normalize();
     }
 }
