@@ -1,16 +1,10 @@
 package io.github.lingjiuu.tool.tools;
 
-import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
-import io.github.lingjiuu.tool.ToolExecutionMode;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
-import io.github.lingjiuu.tool.ToolSourceInfo;
-import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
-import io.github.lingjiuu.tool.render.ToolRenderRequest;
-import io.github.lingjiuu.tool.render.ToolRenderedOutput;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -61,16 +55,6 @@ public class WriteTool implements ToolDefinition {
     }
 
     @Override
-    public ToolSourceInfo sourceInfo() {
-        return ToolSourceInfo.builtin();
-    }
-
-    @Override
-    public ToolExecutionMode executionMode() {
-        return ToolExecutionMode.SEQUENTIAL;
-    }
-
-    @Override
     public ToolRiskLevel riskLevel() {
         return ToolRiskLevel.WRITE;
     }
@@ -89,23 +73,7 @@ public class WriteTool implements ToolDefinition {
     }
 
     @Override
-    public ToolRenderedOutput renderCall(ToolRenderRequest request) {
-        String path = stringArg(request, "path", "<path>");
-        Object content = request.arguments().get("content");
-        int chars = content instanceof String stringValue ? stringValue.length() : 0;
-        return ToolRenderedOutput.text("write " + path + " (" + chars + " chars)");
-    }
-
-    @Override
-    public ToolRenderedOutput renderResult(ToolRenderRequest request) {
-        if (request.toolResult() == null) {
-            return null;
-        }
-        return ToolRenderedOutput.text(MessageContents.text(request.toolResult()));
-    }
-
-    @Override
-    public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
+    public ToolExecutionResult execute(ToolExecutionContext context) {
         try {
             context.throwIfCancellationRequested();
             String requestedPath = ToolArguments.requiredString(context.getArguments(), "path");
@@ -158,10 +126,5 @@ public class WriteTool implements ToolDefinition {
 
     private boolean isOutsideWorkspaceError(IllegalArgumentException e) {
         return e.getMessage() != null && e.getMessage().contains("outside the allowed root");
-    }
-
-    private String stringArg(ToolRenderRequest request, String name, String defaultValue) {
-        Object value = request.arguments().get(name);
-        return value instanceof String stringValue && !stringValue.isBlank() ? stringValue : defaultValue;
     }
 }

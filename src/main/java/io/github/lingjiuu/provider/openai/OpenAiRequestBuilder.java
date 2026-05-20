@@ -5,39 +5,24 @@ import com.openai.models.responses.ResponseCreateParams;
 import io.github.lingjiuu.llm.LlmCallOptions;
 import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.llm.ReasoningOptions;
-import io.github.lingjiuu.provider.protocol.DefaultRequestFinalizer;
-import io.github.lingjiuu.provider.protocol.DefaultRequestMessageNormalizer;
-import io.github.lingjiuu.provider.protocol.NormalizedRequestMessage;
-import io.github.lingjiuu.provider.protocol.RequestFinalizer;
-import io.github.lingjiuu.provider.protocol.RequestMessageNormalizer;
 import io.github.lingjiuu.tool.ToolDefinition;
-
-import java.util.List;
 
 public class OpenAiRequestBuilder {
 
-    private final RequestMessageNormalizer messageNormalizer;
-    private final RequestFinalizer requestFinalizer;
     private final OpenAiMessageAdapter messageAdapter;
     private final OpenAiToolSchemaBuilder toolSchemaBuilder;
 
     public OpenAiRequestBuilder() {
         this(
-                new DefaultRequestMessageNormalizer(),
-                new DefaultRequestFinalizer(),
                 new OpenAiMessageAdapter(),
                 new OpenAiToolSchemaBuilder()
         );
     }
 
     OpenAiRequestBuilder(
-            RequestMessageNormalizer messageNormalizer,
-            RequestFinalizer requestFinalizer,
             OpenAiMessageAdapter messageAdapter,
             OpenAiToolSchemaBuilder toolSchemaBuilder
     ) {
-        this.messageNormalizer = messageNormalizer;
-        this.requestFinalizer = requestFinalizer;
         this.messageAdapter = messageAdapter;
         this.toolSchemaBuilder = toolSchemaBuilder;
     }
@@ -48,13 +33,10 @@ public class OpenAiRequestBuilder {
         }
 
         LlmCallOptions safeOptions = request.getCallOptions() == null ? LlmCallOptions.builder().build() : request.getCallOptions();
-        List<NormalizedRequestMessage> normalizedMessages = requestFinalizer.finalizeMessages(
-                messageNormalizer.normalize(request.getMessages(), request.getTools())
-        );
         ResponseCreateParams.Builder builder = ResponseCreateParams.builder()
                 .model(request.getModel().getId())
                 .store(false)
-                .inputOfResponse(messageAdapter.toInputItems(request.getSystemPrompt(), normalizedMessages));
+                .inputOfResponse(messageAdapter.toInputItems(request.getSystemPrompt(), request.getMessages()));
 
         if (safeOptions.getTemperature() != null) {
             builder.temperature(safeOptions.getTemperature());

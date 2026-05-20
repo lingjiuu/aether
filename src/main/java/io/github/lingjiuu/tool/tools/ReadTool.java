@@ -1,18 +1,12 @@
 package io.github.lingjiuu.tool.tools;
 
-import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.content.ImageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
-import io.github.lingjiuu.tool.ToolExecutionMode;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
-import io.github.lingjiuu.tool.ToolSourceInfo;
-import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
-import io.github.lingjiuu.tool.render.ToolRenderRequest;
-import io.github.lingjiuu.tool.render.ToolRenderedOutput;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -69,16 +63,6 @@ public class ReadTool implements ToolDefinition {
     }
 
     @Override
-    public ToolSourceInfo sourceInfo() {
-        return ToolSourceInfo.builtin();
-    }
-
-    @Override
-    public ToolExecutionMode executionMode() {
-        return ToolExecutionMode.PARALLEL_SAFE;
-    }
-
-    @Override
     public ToolRiskLevel riskLevel() {
         return ToolRiskLevel.READ_ONLY;
     }
@@ -94,30 +78,7 @@ public class ReadTool implements ToolDefinition {
     }
 
     @Override
-    public ToolRenderedOutput renderCall(ToolRenderRequest request) {
-        String path = stringArg(request, "path", "<path>");
-        Object offset = request.arguments().get("offset");
-        Object limit = request.arguments().get("limit");
-        StringBuilder text = new StringBuilder("read ").append(path);
-        if (offset != null) {
-            text.append(" offset=").append(offset);
-        }
-        if (limit != null) {
-            text.append(" limit=").append(limit);
-        }
-        return ToolRenderedOutput.text(text.toString());
-    }
-
-    @Override
-    public ToolRenderedOutput renderResult(ToolRenderRequest request) {
-        if (request.toolResult() == null) {
-            return null;
-        }
-        return ToolRenderedOutput.text(MessageContents.text(request.toolResult()));
-    }
-
-    @Override
-    public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
+    public ToolExecutionResult execute(ToolExecutionContext context) {
         String requestedPath;
         try {
             context.throwIfCancellationRequested();
@@ -277,10 +238,5 @@ public class ReadTool implements ToolDefinition {
                 .replace("\r\n", "\n")
                 .replace("\r", "\n");
         return List.of(normalized.split("\n", -1));
-    }
-
-    private String stringArg(ToolRenderRequest request, String name, String defaultValue) {
-        Object value = request.arguments().get(name);
-        return value instanceof String stringValue && !stringValue.isBlank() ? stringValue : defaultValue;
     }
 }

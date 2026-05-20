@@ -1,48 +1,60 @@
 package io.github.lingjiuu.transcript;
 
-import io.github.lingjiuu.agent.runtime.AgentRuntimeState;
+import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.transcript.item.CompactedTranscriptItem;
+import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
+import io.github.lingjiuu.transcript.item.SessionMetaItem;
+import io.github.lingjiuu.transcript.item.TranscriptItem;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class TranscriptRestorer {
 
     private final TranscriptStore store;
-    private final TranscriptChainBuilder chainBuilder;
-    private final TranscriptProjector projector;
 
     public TranscriptRestorer(TranscriptStore store) {
-        this(store, new TranscriptChainBuilder(), new TranscriptProjector());
-    }
-
-    public TranscriptRestorer(TranscriptStore store, TranscriptChainBuilder chainBuilder) {
-        this(store, chainBuilder, new TranscriptProjector());
-    }
-
-    public TranscriptRestorer(
-            TranscriptStore store,
-            TranscriptChainBuilder chainBuilder,
-            TranscriptProjector projector
-    ) {
         if (store == null) {
             throw new IllegalArgumentException("store must not be null");
         }
-        if (chainBuilder == null) {
-            throw new IllegalArgumentException("chainBuilder must not be null");
-        }
-        if (projector == null) {
-            throw new IllegalArgumentException("projector must not be null");
-        }
         this.store = store;
-        this.chainBuilder = chainBuilder;
-        this.projector = projector;
     }
 
-    public RestoredTranscript restore(String sessionId) {
-        TranscriptChain chain = chainBuilder.build(store.read(sessionId));
-        TranscriptProjection projection = projector.project(chain);
-        return new RestoredTranscript(
+    public TranscriptReconstruction restore(String sessionId) {
+        List<Message> messages = new ArrayList<>();
+        SessionMetaItem sessionMeta = null;
+        String lastRecordId = null;
+        for (TranscriptRecord record : store.read(sessionId)) {
+            if (record == null || record.getItem() == null) {
+                continue;
+            }
+            if (record.getItem() instanceof SessionMetaItem metaItem && sessionMeta == null) {
+                sessionMeta = metaItem;
+            } else {
+                replay(messages, record.getItem());
+            }
+            lastRecordId = record.getId();
+        }
+        return new TranscriptReconstruction(
                 sessionId,
-                chain,
-                new AgentRuntimeState(projection.messages()),
-                chain.lastRecordId()
+                sessionMeta,
+                messages,
+                lastRecordId
         );
+    }
+
+    private void replay(List<Message> messages, TranscriptItem item) {
+        if (item instanceof MessageTranscriptItem messageItem) {
+            if (messageItem.getMessage() != null) {
+                messages.add(messageItem.getMessage());
+            }
+            return;
+        }
+        if (item instanceof CompactedTranscriptItem compactedItem) {
+            messages.clear();
+            if (compactedItem.getReplacementMessages() != null) {
+                messages.addAll(compactedItem.getReplacementMessages());
+            }
+        }
     }
 }

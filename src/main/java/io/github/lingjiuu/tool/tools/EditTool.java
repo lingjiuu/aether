@@ -3,17 +3,11 @@ package io.github.lingjiuu.tool.tools;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
-import io.github.lingjiuu.tool.ToolExecutionMode;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
-import io.github.lingjiuu.tool.ToolSourceInfo;
-import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
-import io.github.lingjiuu.tool.render.ToolRenderRequest;
-import io.github.lingjiuu.tool.render.ToolRenderedOutput;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -122,16 +116,6 @@ public class EditTool implements ToolDefinition {
     }
 
     @Override
-    public ToolSourceInfo sourceInfo() {
-        return ToolSourceInfo.builtin();
-    }
-
-    @Override
-    public ToolExecutionMode executionMode() {
-        return ToolExecutionMode.SEQUENTIAL;
-    }
-
-    @Override
     public ToolRiskLevel riskLevel() {
         return ToolRiskLevel.WRITE;
     }
@@ -153,25 +137,7 @@ public class EditTool implements ToolDefinition {
     }
 
     @Override
-    public ToolRenderedOutput renderCall(ToolRenderRequest request) {
-        return ToolRenderedOutput.text("edit " + stringArg(request, "path", "<path>"));
-    }
-
-    @Override
-    public ToolRenderedOutput renderResult(ToolRenderRequest request) {
-        if (request.toolResult() == null) {
-            return null;
-        }
-        String text = MessageContents.text(request.toolResult());
-        Object details = request.toolResult().getDetails();
-        if (details instanceof Map<?, ?> detailsMap && detailsMap.get("diff") instanceof String diff && !diff.isBlank()) {
-            return ToolRenderedOutput.text(text + "\n" + diff);
-        }
-        return ToolRenderedOutput.text(text);
-    }
-
-    @Override
-    public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
+    public ToolExecutionResult execute(ToolExecutionContext context) {
         try {
             context.throwIfCancellationRequested();
             String requestedPath = ToolArguments.requiredString(context.getArguments(), "path");
@@ -257,10 +223,5 @@ public class EditTool implements ToolDefinition {
 
     private boolean isOutsideWorkspaceError(IllegalArgumentException e) {
         return e.getMessage() != null && e.getMessage().contains("outside the allowed root");
-    }
-
-    private String stringArg(ToolRenderRequest request, String name, String defaultValue) {
-        Object value = request.arguments().get(name);
-        return value instanceof String stringValue && !stringValue.isBlank() ? stringValue : defaultValue;
     }
 }

@@ -46,7 +46,7 @@ public class TranscriptStore {
                     StandardOpenOption.APPEND
             );
         } catch (Exception e) {
-            throw new IllegalStateException("Failed to append transcript record.", e);
+            throw new TranscriptException("Failed to append transcript record.", e);
         }
     }
 
@@ -66,7 +66,7 @@ public class TranscriptStore {
             }
             return List.copyOf(records);
         } catch (Exception e) {
-            throw new IllegalStateException("Failed to read transcript records for session: " + sessionId, e);
+            throw new TranscriptException("Failed to read transcript records for session: " + sessionId, e);
         }
     }
 

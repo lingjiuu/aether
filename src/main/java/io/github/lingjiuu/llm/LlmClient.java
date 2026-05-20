@@ -4,25 +4,19 @@ import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.RequestAuth;
 import io.github.lingjiuu.provider.openai.OpenAiProvider;
-import io.github.lingjiuu.session.ModelRegistry;
 
 public class LlmClient {
 
-    private final ModelRegistry modelRegistry;
     private final ProviderRegistry providerRegistry;
 
-    public LlmClient(ModelRegistry modelRegistry) {
-        this(modelRegistry, defaultRegistry());
+    public LlmClient() {
+        this(defaultRegistry());
     }
 
-    public LlmClient(ModelRegistry modelRegistry, ProviderRegistry providerRegistry) {
-        if (modelRegistry == null) {
-            throw new IllegalArgumentException("modelRegistry must not be null");
-        }
+    public LlmClient(ProviderRegistry providerRegistry) {
         if (providerRegistry == null) {
             throw new IllegalArgumentException("providerRegistry must not be null");
         }
-        this.modelRegistry = modelRegistry;
         this.providerRegistry = providerRegistry;
     }
 
@@ -31,9 +25,10 @@ public class LlmClient {
             throw new IllegalArgumentException("request model must not be null");
         }
 
-        RequestAuth auth = request.getAuth() != null
-                ? request.getAuth()
-                : modelRegistry.getRequestAuth(request.getModel());
+        RequestAuth auth = request.getAuth();
+        if (auth == null) {
+            throw new IllegalStateException("LLM request auth must be resolved before invoking provider.");
+        }
         if (!auth.isOk()) {
             throw new IllegalStateException(auth.getError());
         }

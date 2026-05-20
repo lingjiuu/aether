@@ -12,16 +12,8 @@ public final class AetherPaths {
         return Paths.get(System.getProperty("user.home"), ".aether");
     }
 
-    public static Path getAuthPath() {
-        return getAgentDir().resolve("auth.json");
-    }
-
-    public static Path getModelsPath() {
-        return getAgentDir().resolve("models.json");
-    }
-
-    public static Path getSettingsPath() {
-        return getAgentDir().resolve("settings.json");
+    public static Path getConfigPath() {
+        return getAgentDir().resolve("config.toml");
     }
 
     public static Path getTranscriptsDir() {

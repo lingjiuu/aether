@@ -1,0 +1,81 @@
+package io.github.lingjiuu.context;
+
+import io.github.lingjiuu.message.UserMessage;
+import io.github.lingjiuu.message.ContextMessage;
+import io.github.lingjiuu.message.ToolResultMessage;
+import io.github.lingjiuu.compact.CompactPromptBuilder;
+import io.github.lingjiuu.message.content.TextContent;
+import io.github.lingjiuu.message.content.ToolCallContent;
+import io.github.lingjiuu.tool.ToolExecutionResult;
+
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
+
+public class ContextBuilder {
+
+    public ToolResultMessage toolResultMessage(ToolCallContent toolCall, ToolExecutionResult result) {
+        if (toolCall == null) {
+            throw new IllegalArgumentException("tool call must not be null");
+        }
+        ToolExecutionResult safeResult = result == null
+                ? ToolExecutionResult.errorText("Tool returned no result.")
+                : result;
+        return ToolResultMessage.builder()
+                .toolCallId(toolCall.getToolCallId())
+                .toolName(toolCall.getToolName())
+                .details(safeResult.getDetails())
+                .isError(safeResult.isError())
+                .contents(safeResult.getContents() == null ? List.of() : safeResult.getContents())
+                .build();
+    }
+
+    public UserMessage userMessage(String content) {
+        if (content == null || content.isBlank()) {
+            throw new IllegalArgumentException("prompt content must not be blank");
+        }
+        return UserMessage.builder()
+                .contents(List.of(TextContent.builder()
+                        .text(content)
+                        .build()))
+                .build();
+    }
+
+    public UserMessage compactSummaryMessage(String summary) {
+        String safeSummary = summary == null || summary.isBlank()
+                ? "(compact summary was empty)"
+                : summary.trim();
+        return userMessage(CompactPromptBuilder.SUMMARY_PREFIX + "\n" + safeSummary);
+    }
+
+    public EnvironmentContext environmentContext(Path cwd) {
+        return EnvironmentContext.from(cwd);
+    }
+
+    public Optional<ContextMessage> environmentMessage(
+            EnvironmentContext previous,
+            EnvironmentContext current
+    ) {
+        if (current == null) {
+            return Optional.empty();
+        }
+
+        List<String> lines = current.diffLines(previous);
+        if (lines.isEmpty()) {
+            return Optional.empty();
+        }
+
+        StringBuilder text = new StringBuilder();
+        text.append(previous == null ? "Environment context:\n" : "Environment context update:\n");
+        for (String line : lines) {
+            text.append(line).append('\n');
+        }
+        return Optional.of(ContextMessage.builder()
+                .kind(ContextMessage.ContextKind.ENVIRONMENT)
+                .contents(List.of(TextContent.builder()
+                        .text(text.toString())
+                        .build()))
+                .build());
+    }
+
+}

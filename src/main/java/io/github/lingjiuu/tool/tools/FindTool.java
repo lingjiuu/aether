@@ -1,16 +1,10 @@
 package io.github.lingjiuu.tool.tools;
 
-import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
-import io.github.lingjiuu.tool.ToolExecutionMode;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
-import io.github.lingjiuu.tool.ToolSourceInfo;
-import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
-import io.github.lingjiuu.tool.render.ToolRenderRequest;
-import io.github.lingjiuu.tool.render.ToolRenderedOutput;
 
 import java.io.IOException;
 import java.io.BufferedReader;
@@ -28,21 +22,12 @@ import java.util.concurrent.TimeUnit;
 public class FindTool implements ToolDefinition {
 
     private final WorkspaceAccessPolicy accessPolicy;
-    private final ExternalToolResolver binaryResolver;
 
     public FindTool(WorkspaceAccessPolicy accessPolicy) {
-        this(accessPolicy, ExternalToolResolver.defaults());
-    }
-
-    FindTool(WorkspaceAccessPolicy accessPolicy, ExternalToolResolver binaryResolver) {
         if (accessPolicy == null) {
             throw new IllegalArgumentException("accessPolicy must not be null");
         }
-        if (binaryResolver == null) {
-            throw new IllegalArgumentException("binaryResolver must not be null");
-        }
         this.accessPolicy = accessPolicy;
-        this.binaryResolver = binaryResolver;
     }
 
     @Override
@@ -88,16 +73,6 @@ public class FindTool implements ToolDefinition {
     }
 
     @Override
-    public ToolSourceInfo sourceInfo() {
-        return ToolSourceInfo.builtin();
-    }
-
-    @Override
-    public ToolExecutionMode executionMode() {
-        return ToolExecutionMode.PARALLEL_SAFE;
-    }
-
-    @Override
     public ToolRiskLevel riskLevel() {
         return ToolRiskLevel.READ_ONLY;
     }
@@ -113,33 +88,16 @@ public class FindTool implements ToolDefinition {
     }
 
     @Override
-    public ToolRenderedOutput renderCall(ToolRenderRequest request) {
-        String pattern = stringArg(request, "pattern", "<pattern>");
-        String path = stringArg(request, "path", ".");
-        Object limit = request.arguments().get("limit");
-        String text = "find " + pattern + " in " + path;
-        return ToolRenderedOutput.text(limit == null ? text : text + " limit=" + limit);
-    }
-
-    @Override
-    public ToolRenderedOutput renderResult(ToolRenderRequest request) {
-        if (request.toolResult() == null) {
-            return null;
-        }
-        return ToolRenderedOutput.text(MessageContents.text(request.toolResult()));
-    }
-
-    @Override
-    public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
+    public ToolExecutionResult execute(ToolExecutionContext context) {
         try {
             context.throwIfCancellationRequested();
             String pattern = ToolArguments.requiredString(context.getArguments(), "pattern");
             String requestedPath = ToolArguments.optionalString(context.getArguments(), "path", ".");
             int limit = ToolArguments.optionalPositiveInt(context.getArguments(), "limit", ToolOutputLimits.FIND_DEFAULT_LIMIT);
             Path resolvedPath = accessPolicy.resolveReadablePath(requestedPath);
-            Optional<String> fdPath = binaryResolver.resolve(ExternalTool.FD);
+            Optional<String> fdPath = findOnPath("fd");
             if (fdPath.isEmpty()) {
-                return ToolExecutionResult.errorText("find failed: fd is not available and could not be downloaded");
+                return ToolExecutionResult.errorText("find failed: fd is not available on PATH");
             }
             return findFiles(context, fdPath.get(), pattern, requestedPath, resolvedPath, limit);
         } catch (Exception e) {
@@ -303,8 +261,21 @@ public class FindTool implements ToolDefinition {
         return path.toString().replace('\\', '/');
     }
 
-    private String stringArg(ToolRenderRequest request, String name, String defaultValue) {
-        Object value = request.arguments().get(name);
-        return value instanceof String stringValue && !stringValue.isBlank() ? stringValue : defaultValue;
+    private Optional<String> findOnPath(String executable) {
+        String path = System.getenv("PATH");
+        if (path == null || path.isBlank()) {
+            return Optional.empty();
+        }
+        String separator = System.getProperty("path.separator");
+        for (String entry : path.split(java.util.regex.Pattern.quote(separator))) {
+            if (entry.isBlank()) {
+                continue;
+            }
+            Path candidate = Path.of(entry).resolve(executable);
+            if (Files.isExecutable(candidate)) {
+                return Optional.of(candidate.toString());
+            }
+        }
+        return Optional.empty();
     }
 }

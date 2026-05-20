@@ -1,72 +1,75 @@
 package io.github.lingjiuu.transcript;
 
 import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.transcript.item.CompactedTranscriptItem;
+import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
+import io.github.lingjiuu.transcript.item.SessionMetaItem;
+import io.github.lingjiuu.transcript.item.TranscriptItem;
 
+import java.util.List;
 import java.util.UUID;
 
 public class TranscriptRecorder {
 
     private final TranscriptStore store;
-    private final TranscriptRecordingPolicy policy;
     private final String sessionId;
-    private String parentRecordId;
 
     public TranscriptRecorder(TranscriptStore store, String sessionId) {
-        this(store, new TranscriptRecordingPolicy(), sessionId, null);
+        this(store, sessionId, null);
     }
 
-    public TranscriptRecorder(TranscriptStore store, String sessionId, String parentRecordId) {
-        this(store, new TranscriptRecordingPolicy(), sessionId, parentRecordId);
-    }
-
-    public TranscriptRecorder(
-            TranscriptStore store,
-            TranscriptRecordingPolicy policy,
-            String sessionId,
-            String parentRecordId
-    ) {
+    public TranscriptRecorder(TranscriptStore store, String sessionId, String ignoredLastRecordId) {
         if (store == null) {
             throw new IllegalArgumentException("store must not be null");
-        }
-        if (policy == null) {
-            throw new IllegalArgumentException("policy must not be null");
         }
         if (sessionId == null || sessionId.isBlank()) {
             throw new IllegalArgumentException("sessionId must not be blank");
         }
         this.store = store;
-        this.policy = policy;
         this.sessionId = sessionId;
-        this.parentRecordId = parentRecordId;
     }
 
     public synchronized TranscriptRecord record(Message message, int turn) {
-        if (!policy.shouldRecord(message)) {
+        if (message == null) {
             return null;
         }
+        return append(MessageTranscriptItem.builder()
+                .message(message)
+                .build(), turn);
+    }
 
-        boolean participatesInChain = policy.participatesInChain(message);
+    public synchronized TranscriptRecord recordSessionMeta(SessionMetaItem sessionMeta) {
+        if (sessionMeta == null) {
+            return null;
+        }
+        return append(sessionMeta, 0);
+    }
+
+    public synchronized TranscriptRecord recordCompaction(
+            String summary,
+            List<Message> replacementMessages,
+            int turn,
+            int originalMessageCount,
+            int preservedUserMessageCount
+    ) {
+        return append(CompactedTranscriptItem.builder()
+                .summary(summary)
+                .originalMessageCount(originalMessageCount)
+                .replacementMessageCount(replacementMessages == null ? 0 : replacementMessages.size())
+                .preservedUserMessageCount(preservedUserMessageCount)
+                .replacementMessages(replacementMessages)
+                .build(), turn);
+    }
+
+    private TranscriptRecord append(TranscriptItem item, int turn) {
         TranscriptRecord record = TranscriptRecord.builder()
                 .id(UUID.randomUUID().toString())
                 .sessionId(sessionId)
-                .parentRecordId(participatesInChain ? parentRecordId : null)
                 .turn(turn)
                 .timestamp(System.currentTimeMillis())
-                .message(message)
+                .item(item)
                 .build();
-
         store.append(record);
-        if (participatesInChain) {
-            parentRecordId = record.getId();
-        }
         return record;
-    }
-
-    public synchronized String lastRecordId() {
-        return parentRecordId;
-    }
-
-    public synchronized void resetParent(String parentRecordId) {
-        this.parentRecordId = parentRecordId;
     }
 }

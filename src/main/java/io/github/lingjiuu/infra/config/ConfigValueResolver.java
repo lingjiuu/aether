@@ -18,22 +18,34 @@ public final class ConfigValueResolver {
         if (config == null || config.isBlank()) {
             return null;
         }
+        if (config.startsWith("$")) {
+            return resolveEnvironmentVariable(config.substring(1));
+        }
         if (config.startsWith("!")) {
             return COMMAND_CACHE.computeIfAbsent(config, ConfigValueResolver::executeCommandCached);
         }
         String envValue = System.getenv(config);
-        return envValue == null || envValue.isBlank() ? config : envValue;
+        if (envValue != null && !envValue.isBlank()) {
+            return envValue;
+        }
+        return looksLikeEnvironmentVariable(config) ? null : config;
     }
 
     public static String resolveConfigValueUncached(String config) {
         if (config == null || config.isBlank()) {
             return null;
         }
+        if (config.startsWith("$")) {
+            return resolveEnvironmentVariable(config.substring(1));
+        }
         if (config.startsWith("!")) {
             return executeCommand(config);
         }
         String envValue = System.getenv(config);
-        return envValue == null || envValue.isBlank() ? config : envValue;
+        if (envValue != null && !envValue.isBlank()) {
+            return envValue;
+        }
+        return looksLikeEnvironmentVariable(config) ? null : config;
     }
 
     public static String resolveConfigValueOrThrow(String config, String description) {
@@ -113,5 +125,17 @@ public final class ConfigValueResolver {
             in.transferTo(out);
             return out.toString(StandardCharsets.UTF_8);
         }
+    }
+
+    private static String resolveEnvironmentVariable(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private static boolean looksLikeEnvironmentVariable(String value) {
+        return value.matches("[A-Z][A-Z0-9_]*");
     }
 }

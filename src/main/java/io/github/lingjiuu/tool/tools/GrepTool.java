@@ -2,17 +2,11 @@ package io.github.lingjiuu.tool.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
-import io.github.lingjiuu.tool.ToolExecutionMode;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
-import io.github.lingjiuu.tool.ToolSourceInfo;
-import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
-import io.github.lingjiuu.tool.render.ToolRenderRequest;
-import io.github.lingjiuu.tool.render.ToolRenderedOutput;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -32,21 +26,12 @@ public class GrepTool implements ToolDefinition {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
 
     private final WorkspaceAccessPolicy accessPolicy;
-    private final ExternalToolResolver binaryResolver;
 
     public GrepTool(WorkspaceAccessPolicy accessPolicy) {
-        this(accessPolicy, ExternalToolResolver.defaults());
-    }
-
-    GrepTool(WorkspaceAccessPolicy accessPolicy, ExternalToolResolver binaryResolver) {
         if (accessPolicy == null) {
             throw new IllegalArgumentException("accessPolicy must not be null");
         }
-        if (binaryResolver == null) {
-            throw new IllegalArgumentException("binaryResolver must not be null");
-        }
         this.accessPolicy = accessPolicy;
-        this.binaryResolver = binaryResolver;
     }
 
     @Override
@@ -87,16 +72,6 @@ public class GrepTool implements ToolDefinition {
     }
 
     @Override
-    public ToolSourceInfo sourceInfo() {
-        return ToolSourceInfo.builtin();
-    }
-
-    @Override
-    public ToolExecutionMode executionMode() {
-        return ToolExecutionMode.PARALLEL_SAFE;
-    }
-
-    @Override
     public ToolRiskLevel riskLevel() {
         return ToolRiskLevel.READ_ONLY;
     }
@@ -112,24 +87,7 @@ public class GrepTool implements ToolDefinition {
     }
 
     @Override
-    public ToolRenderedOutput renderCall(ToolRenderRequest request) {
-        String pattern = stringArg(request, "pattern", "<pattern>");
-        String path = stringArg(request, "path", ".");
-        String glob = stringArg(request, "glob", null);
-        String text = "grep " + pattern + " in " + path;
-        return ToolRenderedOutput.text(glob == null ? text : text + " glob=" + glob);
-    }
-
-    @Override
-    public ToolRenderedOutput renderResult(ToolRenderRequest request) {
-        if (request.toolResult() == null) {
-            return null;
-        }
-        return ToolRenderedOutput.text(MessageContents.text(request.toolResult()));
-    }
-
-    @Override
-    public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
+    public ToolExecutionResult execute(ToolExecutionContext context) {
         try {
             context.throwIfCancellationRequested();
             String pattern = ToolArguments.requiredString(context.getArguments(), "pattern");
@@ -140,9 +98,9 @@ public class GrepTool implements ToolDefinition {
             int contextLines = ToolArguments.optionalNonNegativeInt(context.getArguments(), "context", 0);
             int limit = ToolArguments.optionalPositiveInt(context.getArguments(), "limit", ToolOutputLimits.GREP_DEFAULT_LIMIT);
             Path resolvedPath = accessPolicy.resolveReadablePath(requestedPath);
-            Optional<String> rgPath = binaryResolver.resolve(ExternalTool.RG);
+            Optional<String> rgPath = findOnPath("rg");
             if (rgPath.isEmpty()) {
-                return ToolExecutionResult.errorText("grep failed: ripgrep (rg) is not available and could not be downloaded");
+                return ToolExecutionResult.errorText("grep failed: ripgrep (rg) is not available on PATH");
             }
             return grep(context, rgPath.get(), pattern, requestedPath, resolvedPath, glob, ignoreCase, literal, contextLines, limit);
         } catch (Exception e) {
@@ -411,9 +369,22 @@ public class GrepTool implements ToolDefinition {
         return path.toString().replace('\\', '/');
     }
 
-    private String stringArg(ToolRenderRequest request, String name, String defaultValue) {
-        Object value = request.arguments().get(name);
-        return value instanceof String stringValue && !stringValue.isBlank() ? stringValue : defaultValue;
+    private Optional<String> findOnPath(String executable) {
+        String path = System.getenv("PATH");
+        if (path == null || path.isBlank()) {
+            return Optional.empty();
+        }
+        String separator = System.getProperty("path.separator");
+        for (String entry : path.split(java.util.regex.Pattern.quote(separator))) {
+            if (entry.isBlank()) {
+                continue;
+            }
+            Path candidate = Path.of(entry).resolve(executable);
+            if (Files.isExecutable(candidate)) {
+                return Optional.of(candidate.toString());
+            }
+        }
+        return Optional.empty();
     }
 
     private record Match(Path file, int lineNumber, String lineText) {

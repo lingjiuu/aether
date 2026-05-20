@@ -1,6 +1,6 @@
 package io.github.lingjiuu.tool.tools;
 
-public final class ToolOutputLimits {
+final class ToolOutputLimits {
 
     public static final int DEFAULT_MAX_BYTES = 50 * 1024;
     public static final int READ_MAX_BYTES = 24 * 1024;

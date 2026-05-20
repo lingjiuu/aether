@@ -14,107 +14,146 @@ import com.openai.models.responses.ResponseInputTextContent;
 import com.openai.models.responses.ResponseOutputMessage;
 import com.openai.models.responses.ResponseOutputText;
 import com.openai.models.responses.ResponseReasoningItem;
-import io.github.lingjiuu.provider.protocol.NormalizedAssistantMessage;
-import io.github.lingjiuu.provider.protocol.NormalizedContent;
-import io.github.lingjiuu.provider.protocol.NormalizedContextMessage;
-import io.github.lingjiuu.provider.protocol.NormalizedImageContent;
-import io.github.lingjiuu.provider.protocol.NormalizedRequestMessage;
-import io.github.lingjiuu.provider.protocol.NormalizedTextContent;
-import io.github.lingjiuu.provider.protocol.NormalizedThinkingContent;
-import io.github.lingjiuu.provider.protocol.NormalizedToolCallContent;
-import io.github.lingjiuu.provider.protocol.NormalizedToolResultContent;
-import io.github.lingjiuu.provider.protocol.NormalizedUserMessage;
+import io.github.lingjiuu.message.AssistantMessage;
+import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.message.MessageContents;
+import io.github.lingjiuu.message.ToolResultMessage;
+import io.github.lingjiuu.message.UserMessage;
+import io.github.lingjiuu.message.content.ImageContent;
+import io.github.lingjiuu.message.content.MessageContent;
+import io.github.lingjiuu.message.content.TextContent;
+import io.github.lingjiuu.message.content.ThinkingContent;
+import io.github.lingjiuu.message.content.ToolCallContent;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 public class OpenAiMessageAdapter {
 
+    private static final String EMPTY_ASSISTANT_PLACEHOLDER = "[No assistant content]";
+
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
-    public List<ResponseInputItem> toInputItems(String systemPrompt, List<NormalizedRequestMessage> messages) {
+    public List<ResponseInputItem> toInputItems(String systemPrompt, List<Message> messages) {
         List<ResponseInputItem> inputItems = new ArrayList<>();
 
         if (systemPrompt != null && !systemPrompt.isBlank()) {
-            inputItems.add(ResponseInputItem.ofEasyInputMessage(
-                    EasyInputMessage.builder()
-                            .role(EasyInputMessage.Role.DEVELOPER)
-                            .content(systemPrompt)
-                            .build()
-            ));
+            appendEasyInputMessage(inputItems, EasyInputMessage.Role.DEVELOPER, systemPrompt);
         }
 
         if (messages == null || messages.isEmpty()) {
             return inputItems;
         }
 
+        RequestState state = new RequestState();
         int assistantTextIndex = 0;
         int reasoningIndex = 0;
-        for (NormalizedRequestMessage message : messages) {
-            switch (message.kind()) {
-                case USER -> appendUserMessage(inputItems, (NormalizedUserMessage) message);
+        for (Message message : messages) {
+            if (message == null) {
+                continue;
+            }
+            switch (message.role()) {
+                case USER -> {
+                    flushMissingToolResults(inputItems, state);
+                    appendUserMessage(inputItems, (UserMessage) message);
+                    state.previousAssistantHadReplayData = false;
+                }
                 case ASSISTANT -> {
+                    flushMissingToolResults(inputItems, state);
                     AssistantIndexes indexes = appendAssistantMessage(
                             inputItems,
-                            (NormalizedAssistantMessage) message,
+                            (AssistantMessage) message,
+                            state,
                             assistantTextIndex,
                             reasoningIndex
                     );
                     assistantTextIndex = indexes.textIndex();
                     reasoningIndex = indexes.reasoningIndex();
                 }
-                case CONTEXT -> appendContextMessage(inputItems, (NormalizedContextMessage) message);
+                case TOOLRESULT -> {
+                    appendToolResult(inputItems, (ToolResultMessage) message, state);
+                    state.previousAssistantHadReplayData = false;
+                }
+                case CONTEXT -> {
+                    flushMissingToolResults(inputItems, state);
+                    appendContextMessage(inputItems, message);
+                    state.previousAssistantHadReplayData = false;
+                }
             }
         }
-
+        flushMissingToolResults(inputItems, state);
         return inputItems;
     }
 
-    private void appendUserMessage(List<ResponseInputItem> inputItems, NormalizedUserMessage userMessage) {
-        if (hasImages(userMessage.contents())) {
-            appendEasyInputMessage(inputItems, EasyInputMessage.Role.USER, toResponseInputContentList(userMessage.contents()));
+    private void appendUserMessage(List<ResponseInputItem> inputItems, UserMessage userMessage) {
+        List<MessageContent> contents = userMessage.messageContents();
+        if (hasImages(contents)) {
+            appendEasyInputMessage(inputItems, EasyInputMessage.Role.USER, toResponseInputContentList(contents));
             return;
         }
-        appendUserText(inputItems, textOf(userMessage.contents()));
+        appendUserText(inputItems, MessageContents.text(userMessage));
     }
 
     private AssistantIndexes appendAssistantMessage(
             List<ResponseInputItem> inputItems,
-            NormalizedAssistantMessage assistantMessage,
+            AssistantMessage assistantMessage,
+            RequestState state,
             int textIndex,
             int reasoningIndex
     ) {
-        if (assistantMessage.providerState() instanceof OpenAiReplayData replayData
+        if (assistantMessage.getProviderState() instanceof OpenAiReplayData replayData
                 && replayData.getItems() != null
                 && !replayData.getItems().isEmpty()) {
             appendReplayItems(inputItems, replayData);
+            state.previousAssistantHadReplayData = true;
             return new AssistantIndexes(textIndex, reasoningIndex);
         }
 
         int nextTextIndex = textIndex;
         int nextReasoningIndex = reasoningIndex;
-        for (NormalizedContent content : assistantMessage.contents()) {
-            if (content instanceof NormalizedTextContent textContent) {
-                String text = textContent.text().trim();
+        int appendedContentCount = 0;
+        for (MessageContent content : assistantMessage.messageContents()) {
+            if (content instanceof TextContent textContent) {
+                String text = safeText(textContent.getText());
                 if (!text.isBlank()) {
                     inputItems.add(ResponseInputItem.ofResponseOutputMessage(toResponseOutputMessage(text, nextTextIndex++)));
+                    appendedContentCount++;
                 }
-            } else if (content instanceof NormalizedThinkingContent thinkingContent) {
-                ResponseReasoningItem reasoningItem = toReasoningItem(thinkingContent, nextReasoningIndex++);
+            } else if (content instanceof ThinkingContent thinkingContent) {
+                ResponseReasoningItem reasoningItem = toReasoningItem(thinkingContent.getThinking(), nextReasoningIndex++);
                 if (reasoningItem != null) {
                     inputItems.add(ResponseInputItem.ofReasoning(reasoningItem));
+                    appendedContentCount++;
                 }
-            } else if (content instanceof NormalizedToolCallContent toolCallContent) {
+            } else if (content instanceof ToolCallContent toolCallContent) {
+                String toolCallId = safeText(toolCallContent.getToolCallId());
+                if (!toolCallId.isBlank() && state.seenToolCallIds.contains(toolCallId)) {
+                    continue;
+                }
+                if (!toolCallId.isBlank()) {
+                    state.seenToolCallIds.add(toolCallId);
+                    state.pendingToolCallIds.add(toolCallId);
+                }
                 inputItems.add(ResponseInputItem.ofFunctionCall(
                         ResponseFunctionToolCall.builder()
-                                .callId(toolCallContent.toolCallId())
-                                .name(toolCallContent.toolName())
-                                .arguments(toolCallContent.argumentsJson())
+                                .callId(toolCallId)
+                                .name(safeText(toolCallContent.getToolName()))
+                                .arguments(resolveArgumentsJson(toolCallContent))
                                 .build()
                 ));
+                appendedContentCount++;
             }
         }
 
+        if (appendedContentCount == 0) {
+            inputItems.add(ResponseInputItem.ofResponseOutputMessage(toResponseOutputMessage(
+                    EMPTY_ASSISTANT_PLACEHOLDER,
+                    nextTextIndex++
+            )));
+        }
+        state.previousAssistantHadReplayData = false;
         return new AssistantIndexes(nextTextIndex, nextReasoningIndex);
     }
 
@@ -140,18 +179,50 @@ public class OpenAiMessageAdapter {
         }
     }
 
-    private void appendContextMessage(List<ResponseInputItem> inputItems, NormalizedContextMessage contextMessage) {
-        List<String> pendingText = new ArrayList<>();
-        for (NormalizedContent content : contextMessage.contents()) {
-            if (content instanceof NormalizedToolResultContent toolResultContent) {
-                appendUserText(inputItems, joinedText(pendingText));
-                pendingText.clear();
-                inputItems.add(ResponseInputItem.ofFunctionCallOutput(toFunctionCallOutput(toolResultContent)));
-            } else if (content instanceof NormalizedTextContent textContent && !textContent.text().isBlank()) {
-                pendingText.add(textContent.text());
-            }
+    private void appendToolResult(
+            List<ResponseInputItem> inputItems,
+            ToolResultMessage toolResultMessage,
+            RequestState state
+    ) {
+        if (state.previousAssistantHadReplayData) {
+            inputItems.add(ResponseInputItem.ofFunctionCallOutput(toFunctionCallOutput(toolResultMessage)));
+            return;
         }
-        appendUserText(inputItems, joinedText(pendingText));
+
+        String toolCallId = safeText(toolResultMessage.getToolCallId());
+        if (toolCallId.isBlank()
+                || !state.pendingToolCallIds.contains(toolCallId)
+                || state.seenToolResultIds.contains(toolCallId)) {
+            return;
+        }
+        state.pendingToolCallIds.remove(toolCallId);
+        state.seenToolResultIds.add(toolCallId);
+        inputItems.add(ResponseInputItem.ofFunctionCallOutput(toFunctionCallOutput(toolResultMessage)));
+    }
+
+    private void appendContextMessage(List<ResponseInputItem> inputItems, Message message) {
+        List<MessageContent> contents = message.messageContents();
+        if (hasImages(contents)) {
+            appendEasyInputMessage(inputItems, EasyInputMessage.Role.USER, toResponseInputContentList(contents));
+            return;
+        }
+        appendUserText(inputItems, MessageContents.text(message));
+    }
+
+    private void flushMissingToolResults(List<ResponseInputItem> inputItems, RequestState state) {
+        if (state.pendingToolCallIds.isEmpty()) {
+            return;
+        }
+        for (String toolCallId : List.copyOf(state.pendingToolCallIds)) {
+            inputItems.add(ResponseInputItem.ofFunctionCallOutput(
+                    ResponseInputItem.FunctionCallOutput.builder()
+                            .callId(toolCallId)
+                            .output("Tool execution did not return a result.")
+                            .status(ResponseInputItem.FunctionCallOutput.Status.COMPLETED)
+                            .build()
+            ));
+        }
+        state.pendingToolCallIds.clear();
     }
 
     private void appendUserText(List<ResponseInputItem> inputItems, String text) {
@@ -190,59 +261,68 @@ public class OpenAiMessageAdapter {
         ));
     }
 
-    private String textOf(List<NormalizedContent> contents) {
-        List<String> textParts = new ArrayList<>();
-        for (NormalizedContent content : contents) {
-            if (content instanceof NormalizedTextContent textContent && !textContent.text().isBlank()) {
-                textParts.add(textContent.text());
-            }
+    private boolean hasImages(List<MessageContent> contents) {
+        if (contents == null) {
+            return false;
         }
-        return joinedText(textParts);
-    }
-
-    private boolean hasImages(List<NormalizedContent> contents) {
-        for (NormalizedContent content : contents) {
-            if (content instanceof NormalizedImageContent) {
+        for (MessageContent content : contents) {
+            if (content instanceof ImageContent) {
                 return true;
             }
         }
         return false;
     }
 
-    private List<ResponseInputContent> toResponseInputContentList(List<NormalizedContent> contents) {
+    private List<ResponseInputContent> toResponseInputContentList(List<MessageContent> contents) {
         List<ResponseInputContent> inputContents = new ArrayList<>();
-        for (NormalizedContent content : contents) {
-            if (content instanceof NormalizedTextContent textContent && !textContent.text().isBlank()) {
-                inputContents.add(ResponseInputContent.ofInputText(ResponseInputText.builder()
-                        .text(textContent.text())
-                        .build()));
-            } else if (content instanceof NormalizedImageContent imageContent && !imageContent.data().isBlank()) {
-                inputContents.add(ResponseInputContent.ofInputImage(ResponseInputImage.builder()
-                        .detail(ResponseInputImage.Detail.AUTO)
-                        .imageUrl(toDataUrl(imageContent))
-                        .build()));
+        if (contents == null) {
+            return inputContents;
+        }
+        for (MessageContent content : contents) {
+            if (content instanceof TextContent textContent) {
+                String text = safeText(textContent.getText());
+                if (!text.isBlank()) {
+                    inputContents.add(ResponseInputContent.ofInputText(ResponseInputText.builder()
+                            .text(text)
+                            .build()));
+                }
+            } else if (content instanceof ImageContent imageContent) {
+                if (imageContent.getData() != null
+                        && !imageContent.getData().isBlank()
+                        && imageContent.getMimeType() != null
+                        && !imageContent.getMimeType().isBlank()) {
+                    inputContents.add(ResponseInputContent.ofInputImage(ResponseInputImage.builder()
+                            .detail(ResponseInputImage.Detail.AUTO)
+                            .imageUrl(toDataUrl(imageContent))
+                            .build()));
+                }
             }
         }
         return inputContents;
     }
 
-    private ResponseInputItem.FunctionCallOutput toFunctionCallOutput(NormalizedToolResultContent toolResultContent) {
-        if (!toolResultContent.hasImages()) {
+    private ResponseInputItem.FunctionCallOutput toFunctionCallOutput(ToolResultMessage toolResultMessage) {
+        List<ImageContent> images = imagesOf(toolResultMessage.messageContents());
+        if (images.isEmpty()) {
             return ResponseInputItem.FunctionCallOutput.builder()
-                    .callId(toolResultContent.toolCallId())
-                    .output(toolResultContent.outputText())
+                    .callId(safeText(toolResultMessage.getToolCallId()))
+                    .output(MessageContents.text(toolResultMessage))
                     .status(ResponseInputItem.FunctionCallOutput.Status.COMPLETED)
                     .build();
         }
 
         List<ResponseFunctionCallOutputItem> outputItems = new ArrayList<>();
-        if (toolResultContent.outputText() != null && !toolResultContent.outputText().isBlank()) {
+        String outputText = MessageContents.text(toolResultMessage);
+        if (!outputText.isBlank()) {
             outputItems.add(ResponseFunctionCallOutputItem.ofInputText(ResponseInputTextContent.builder()
-                    .text(toolResultContent.outputText())
+                    .text(outputText)
                     .build()));
         }
-        for (NormalizedImageContent imageContent : toolResultContent.images()) {
-            if (imageContent.data().isBlank() || imageContent.mimeType().isBlank()) {
+        for (ImageContent imageContent : images) {
+            if (imageContent.getData() == null
+                    || imageContent.getData().isBlank()
+                    || imageContent.getMimeType() == null
+                    || imageContent.getMimeType().isBlank()) {
                 continue;
             }
             outputItems.add(ResponseFunctionCallOutputItem.ofInputImage(ResponseInputImageContent.builder()
@@ -251,21 +331,27 @@ public class OpenAiMessageAdapter {
                     .build()));
         }
         return ResponseInputItem.FunctionCallOutput.builder()
-                .callId(toolResultContent.toolCallId())
+                .callId(safeText(toolResultMessage.getToolCallId()))
                 .outputOfResponseFunctionCallOutputItemList(outputItems)
                 .status(ResponseInputItem.FunctionCallOutput.Status.COMPLETED)
                 .build();
     }
 
-    private String joinedText(List<String> textParts) {
-        if (textParts == null || textParts.isEmpty()) {
-            return "";
+    private List<ImageContent> imagesOf(List<MessageContent> contents) {
+        List<ImageContent> images = new ArrayList<>();
+        if (contents == null) {
+            return images;
         }
-        return String.join("\n", textParts).trim();
+        for (MessageContent content : contents) {
+            if (content instanceof ImageContent imageContent) {
+                images.add(imageContent);
+            }
+        }
+        return images;
     }
 
-    private String toDataUrl(NormalizedImageContent imageContent) {
-        return "data:" + imageContent.mimeType() + ";base64," + imageContent.data();
+    private String toDataUrl(ImageContent imageContent) {
+        return "data:" + imageContent.getMimeType() + ";base64," + imageContent.getData();
     }
 
     private ResponseOutputMessage toResponseOutputMessage(String text, int index) {
@@ -280,18 +366,39 @@ public class OpenAiMessageAdapter {
                 .build();
     }
 
-    private ResponseReasoningItem toReasoningItem(NormalizedThinkingContent thinkingContent, int index) {
-        if (thinkingContent.thinking() == null || thinkingContent.thinking().isBlank()) {
+    private ResponseReasoningItem toReasoningItem(String thinking, int index) {
+        if (thinking == null || thinking.isBlank()) {
             return null;
         }
         return ResponseReasoningItem.builder()
                 .id("rs_" + index)
                 .addSummary(ResponseReasoningItem.Summary.builder()
-                        .text(thinkingContent.thinking())
+                        .text(thinking)
                         .build())
                 .build();
     }
 
+    private String resolveArgumentsJson(ToolCallContent toolCallContent) {
+        if (toolCallContent.getArgumentsJson() != null && !toolCallContent.getArgumentsJson().isBlank()) {
+            return toolCallContent.getArgumentsJson();
+        }
+        if (toolCallContent.getArguments() != null) {
+            return toolCallContent.getArguments().toString();
+        }
+        return "{}";
+    }
+
+    private String safeText(String text) {
+        return text == null ? "" : text.trim();
+    }
+
     private record AssistantIndexes(int textIndex, int reasoningIndex) {
+    }
+
+    private static final class RequestState {
+        private final Set<String> seenToolCallIds = new LinkedHashSet<>();
+        private final Set<String> pendingToolCallIds = new LinkedHashSet<>();
+        private final Set<String> seenToolResultIds = new LinkedHashSet<>();
+        private boolean previousAssistantHadReplayData;
     }
 }

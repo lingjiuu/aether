@@ -11,8 +11,7 @@ import java.util.List;
         @JsonSubTypes.Type(value = UserMessage.class, name = "USER"),
         @JsonSubTypes.Type(value = AssistantMessage.class, name = "ASSISTANT"),
         @JsonSubTypes.Type(value = ToolResultMessage.class, name = "TOOLRESULT"),
-        @JsonSubTypes.Type(value = SystemMessage.class, name = "SYSTEM"),
-        @JsonSubTypes.Type(value = AttachmentMessage.class, name = "ATTACHMENT")
+        @JsonSubTypes.Type(value = ContextMessage.class, name = "CONTEXT")
 })
 public interface Message {
 
@@ -28,8 +27,7 @@ public interface Message {
         USER,
         ASSISTANT,
         TOOLRESULT,
-        SYSTEM,
-        ATTACHMENT
+        CONTEXT
     }
 
 }

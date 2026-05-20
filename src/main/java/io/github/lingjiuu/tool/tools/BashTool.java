@@ -1,17 +1,11 @@
 package io.github.lingjiuu.tool.tools;
 
-import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.tool.ToolCancelledException;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
-import io.github.lingjiuu.tool.ToolExecutionMode;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
-import io.github.lingjiuu.tool.ToolSourceInfo;
-import io.github.lingjiuu.tool.ToolUpdateCallback;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
-import io.github.lingjiuu.tool.render.ToolRenderRequest;
-import io.github.lingjiuu.tool.render.ToolRenderedOutput;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -78,18 +72,8 @@ public class BashTool implements ToolDefinition {
     }
 
     @Override
-    public ToolSourceInfo sourceInfo() {
-        return ToolSourceInfo.builtin();
-    }
-
-    @Override
-    public ToolExecutionMode executionMode() {
-        return ToolExecutionMode.SEQUENTIAL;
-    }
-
-    @Override
     public ToolRiskLevel riskLevel() {
-        return ToolRiskLevel.DESTRUCTIVE;
+        return ToolRiskLevel.EXEC;
     }
 
     @Override
@@ -106,23 +90,7 @@ public class BashTool implements ToolDefinition {
     }
 
     @Override
-    public ToolRenderedOutput renderCall(ToolRenderRequest request) {
-        String command = stringArg(request, "command", "<command>");
-        Object timeout = request.arguments().get("timeout");
-        String suffix = timeout == null ? "" : " (timeout " + timeout + "s)";
-        return ToolRenderedOutput.text("$ " + command + suffix);
-    }
-
-    @Override
-    public ToolRenderedOutput renderResult(ToolRenderRequest request) {
-        if (request.toolResult() == null) {
-            return null;
-        }
-        return ToolRenderedOutput.text(MessageContents.text(request.toolResult()));
-    }
-
-    @Override
-    public ToolExecutionResult execute(ToolExecutionContext context, ToolUpdateCallback onUpdate) {
+    public ToolExecutionResult execute(ToolExecutionContext context) {
         Instant startedAt = Instant.now();
         Process process = null;
         Thread readerThread = null;
@@ -140,7 +108,7 @@ public class BashTool implements ToolDefinition {
             CountDownLatch readerDone = new CountDownLatch(1);
             AtomicReference<IOException> readerError = new AtomicReference<>();
             readerThread = new Thread(
-                    () -> readOutput(runningProcess, output, onUpdate, readerDone, readerError),
+                    () -> readOutput(runningProcess, output, context, readerDone, readerError),
                     "aether-bash-output"
             );
             readerThread.setDaemon(true);
@@ -185,7 +153,7 @@ public class BashTool implements ToolDefinition {
     private void readOutput(
             Process process,
             BashOutputAccumulator output,
-            ToolUpdateCallback onUpdate,
+            ToolExecutionContext context,
             CountDownLatch readerDone,
             AtomicReference<IOException> readerError
     ) {
@@ -195,17 +163,13 @@ public class BashTool implements ToolDefinition {
             int read;
             while ((read = input.read(buffer)) != -1) {
                 output.append(buffer, read);
-                if (onUpdate != null) {
-                    long now = System.currentTimeMillis();
-                    if (now - lastUpdateAt >= 100L) {
-                        lastUpdateAt = now;
-                        emitPartial(output, onUpdate);
-                    }
+                long now = System.currentTimeMillis();
+                if (now - lastUpdateAt >= 100L) {
+                    lastUpdateAt = now;
+                    emitPartial(output, context);
                 }
             }
-            if (onUpdate != null) {
-                emitPartial(output, onUpdate);
-            }
+            emitPartial(output, context);
         } catch (IOException e) {
             readerError.set(e);
         } finally {
@@ -213,10 +177,10 @@ public class BashTool implements ToolDefinition {
         }
     }
 
-    private void emitPartial(BashOutputAccumulator output, ToolUpdateCallback onUpdate) {
+    private void emitPartial(BashOutputAccumulator output, ToolExecutionContext context) {
         try {
             BashOutputAccumulator.Snapshot snapshot = output.snapshot(false);
-            onUpdate.onUpdate(ToolExecutionResult.builder()
+            context.emitUpdate(ToolExecutionResult.builder()
                     .contents(ToolExecutionResult.text(snapshot.content()).getContents())
                     .details(Map.of("partial", true))
                     .error(false)
@@ -344,10 +308,5 @@ public class BashTool implements ToolDefinition {
             process.destroyForcibly();
         } catch (Exception ignored) {
         }
-    }
-
-    private String stringArg(ToolRenderRequest request, String name, String defaultValue) {
-        Object value = request.arguments().get(name);
-        return value instanceof String stringValue && !stringValue.isBlank() ? stringValue : defaultValue;
     }
 }

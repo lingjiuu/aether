@@ -1,14 +1,17 @@
 package io.github.lingjiuu;
 
-import io.github.lingjiuu.cli.ConsoleAgentSessionRenderer;
-import io.github.lingjiuu.session.AgentSession;
-import io.github.lingjiuu.session.AgentSessionFactory;
+import io.github.lingjiuu.cli.ConsoleInputLoop;
+import io.github.lingjiuu.session.SessionFactory;
 
 public class App {
-    public static void main( String[] args ) {
-        AgentSessionFactory agentSessionFactory = AgentSessionFactory.createDefault();
-        AgentSession agentSession = agentSessionFactory.openSession();
-        agentSession.subscribe(new ConsoleAgentSessionRenderer(agentSession.toolRegistry()::findDefinition));
-        agentSession.prompt("现在几点啊？");
+    public static void main(String[] args) {
+        SessionFactory sessionFactory = SessionFactory.createDefault();
+        ConsoleInputLoop inputLoop = new ConsoleInputLoop(sessionFactory);
+        String oneShotInput = String.join(" ", args).trim();
+        if (!oneShotInput.isBlank()) {
+            inputLoop.runOneShot(oneShotInput);
+            return;
+        }
+        inputLoop.run();
     }
 }

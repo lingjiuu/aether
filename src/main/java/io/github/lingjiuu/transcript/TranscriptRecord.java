@@ -1,6 +1,6 @@
 package io.github.lingjiuu.transcript;
 
-import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.transcript.item.TranscriptItem;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -16,13 +16,9 @@ public class TranscriptRecord {
 
     private String sessionId;
 
-    private String parentRecordId;
-
-    private String logicalParentRecordId;
-
     private int turn;
 
     private long timestamp;
 
-    private Message message;
+    private TranscriptItem item;
 }

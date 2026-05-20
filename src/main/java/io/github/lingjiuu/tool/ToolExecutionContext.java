@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 @Getter
 @Builder(toBuilder = true)
@@ -35,6 +36,8 @@ public class ToolExecutionContext {
     private String blockedReason;
 
     private ToolExecutionResult result;
+
+    private Consumer<ToolExecutionResult> updateSink;
 
     @Builder.Default
     private ToolCancellationToken cancellationToken = ToolCancellationToken.none();
@@ -67,5 +70,11 @@ public class ToolExecutionContext {
 
     public Duration remainingTimeoutOr(Duration fallback) {
         return remainingTimeout().orElse(fallback);
+    }
+
+    public void emitUpdate(ToolExecutionResult partialResult) {
+        if (updateSink != null && partialResult != null) {
+            updateSink.accept(partialResult);
+        }
     }
 }
