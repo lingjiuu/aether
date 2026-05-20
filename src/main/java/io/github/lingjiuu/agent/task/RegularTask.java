@@ -25,6 +25,9 @@ import java.util.List;
 
 public class RegularTask implements SessionTask {
 
+    private static final long MIN_EFFECTIVE_COMPACT_TOKEN_DROP = 512;
+    private static final int MAX_CONTEXT_WINDOW_RECOVERIES = 2;
+
     @Override
     public TaskKind kind() {
         return TaskKind.REGULAR;
@@ -41,11 +44,38 @@ public class RegularTask implements SessionTask {
                 .turn(turnContext.turn())
                 .build());
 
+        CompactTask compactTask = new CompactTask();
+        long blockedAutoCompactAtOrBelow = -1;
+        int contextWindowRecoveries = 0;
+        AutoCompactState autoCompactState = runAutoCompactIfNeeded(
+                session,
+                context,
+                compactTask,
+                "pre-turn",
+                blockedAutoCompactAtOrBelow
+        );
+        blockedAutoCompactAtOrBelow = autoCompactState.blockedAtOrBelow();
+        if (context.isCancelled()) {
+            return;
+        }
+
         session.recordEnvironmentContextIfChanged(turnContext);
         recordMaterializedInput(session, context.materializedInput(), turnContext);
 
         while (!context.isCancelled()) {
             state.nextSampling();
+            autoCompactState = runAutoCompactIfNeeded(
+                    session,
+                    context,
+                    compactTask,
+                    "pre-sampling",
+                    blockedAutoCompactAtOrBelow
+            );
+            blockedAutoCompactAtOrBelow = autoCompactState.blockedAtOrBelow();
+            if (context.isCancelled()) {
+                return;
+            }
+
             ContextProjection projection = session.contextManager().normalizeMessagesForModel();
             Prompt prompt = session.promptBuilder().build(new PromptBuildInput(
                     session.config(),
@@ -62,6 +92,15 @@ public class RegularTask implements SessionTask {
                 return;
             }
             if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ERROR) {
+                if (session.isContextWindowExceeded(assistantMessage)
+                        && contextWindowRecoveries < MAX_CONTEXT_WINDOW_RECOVERIES) {
+                    contextWindowRecoveries++;
+                    session.markContextWindowFull(turnContext);
+                    if (compactTask.runInlineAutoCompact(context, "context-window-exceeded")) {
+                        blockedAutoCompactAtOrBelow = -1;
+                        continue;
+                    }
+                }
                 session.recordAssistantAndEmit(assistantMessage, turnContext);
                 session.emitError(turnContext, assistantMessage.getErrorMessage());
                 return;
@@ -76,7 +115,45 @@ public class RegularTask implements SessionTask {
 
             state.addToolCalls(toolCalls.size());
             runToolCalls(session, context, turnContext, assistantMessage, toolCalls);
+            autoCompactState = runAutoCompactIfNeeded(
+                    session,
+                    context,
+                    compactTask,
+                    "mid-turn",
+                    blockedAutoCompactAtOrBelow
+            );
+            blockedAutoCompactAtOrBelow = autoCompactState.blockedAtOrBelow();
         }
+    }
+
+    private AutoCompactState runAutoCompactIfNeeded(
+            Session session,
+            TaskContext context,
+            CompactTask compactTask,
+            String phase,
+            long blockedAtOrBelow
+    ) {
+        if (context.isCancelled() || !session.shouldAutoCompact()) {
+            return new AutoCompactState(blockedAtOrBelow);
+        }
+
+        long beforeTokens = session.currentContextTokenUsage();
+        if (blockedAtOrBelow >= 0 && beforeTokens <= blockedAtOrBelow) {
+            return new AutoCompactState(blockedAtOrBelow);
+        }
+
+        boolean compacted = compactTask.runInlineAutoCompact(context, phase);
+        if (!compacted || context.isCancelled()) {
+            return new AutoCompactState(blockedAtOrBelow);
+        }
+        long afterTokens = session.currentContextTokenUsage();
+        if (beforeTokens - afterTokens < MIN_EFFECTIVE_COMPACT_TOKEN_DROP) {
+            return new AutoCompactState(afterTokens);
+        }
+        return new AutoCompactState(-1);
+    }
+
+    private record AutoCompactState(long blockedAtOrBelow) {
     }
 
     private void recordMaterializedInput(

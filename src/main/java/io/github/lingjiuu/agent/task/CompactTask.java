@@ -5,6 +5,7 @@ import io.github.lingjiuu.compact.CompactPromptBuilder;
 import io.github.lingjiuu.event.UiEvent;
 import io.github.lingjiuu.event.UiEventType;
 import io.github.lingjiuu.message.AssistantMessage;
+import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
@@ -19,6 +20,7 @@ import java.util.List;
 public class CompactTask implements SessionTask {
 
     private static final int DEFAULT_MAX_PRESERVED_USER_MESSAGE_CHARS = 80_000;
+    private static final int MAX_COMPACT_CONTEXT_RETRIES = 3;
     private static final String USER_MESSAGE_TRUNCATION_MARKER = "\n\n[user message truncated by compact policy]";
 
     private final CompactPromptBuilder promptBuilder;
@@ -40,6 +42,23 @@ public class CompactTask implements SessionTask {
 
     @Override
     public void run(TaskContext context) {
+        compact(context, "manual");
+    }
+
+    public boolean runInlineAutoCompact(TaskContext context) {
+        return runInlineAutoCompact(context, "auto");
+    }
+
+    public boolean runInlineAutoCompact(TaskContext context, String phase) {
+        String label = phase == null || phase.isBlank() ? "auto" : "auto:" + phase;
+        return compact(context, label, shouldInjectInitialContext(phase));
+    }
+
+    private boolean compact(TaskContext context, String trigger) {
+        return compact(context, trigger, false);
+    }
+
+    private boolean compact(TaskContext context, String trigger, boolean injectInitialContext) {
         Session session = context.session();
         TurnContext turnContext = context.turnContext();
         List<Message> originalMessages = session.contextManager().snapshot();
@@ -47,6 +66,7 @@ public class CompactTask implements SessionTask {
                 .type(UiEventType.COMPACT_STARTED)
                 .sessionId(turnContext.sessionId())
                 .turn(context.turn())
+                .text(trigger)
                 .originalMessageCount(originalMessages.size())
                 .build());
 
@@ -59,21 +79,26 @@ public class CompactTask implements SessionTask {
                     .originalMessageCount(originalMessages.size())
                     .replacementMessageCount(originalMessages.size())
                     .build());
-            return;
+            return false;
         }
 
         if (context.isCancelled()) {
-            return;
+            return false;
         }
-        Prompt prompt = promptBuilder.build(session.config(), originalMessages);
-        AssistantMessage assistantMessage = session.sampleModel(
-                context.modelSession(),
-                prompt,
-                turnContext,
-                context.cancellationToken()
-        );
+        AssistantMessage assistantMessage = summarize(context, session, turnContext, originalMessages);
         if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ABORTED || context.isCancelled()) {
-            return;
+            return false;
+        }
+        if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ERROR) {
+            session.emit(UiEvent.builder()
+                    .type(UiEventType.COMPACT_SKIPPED)
+                    .sessionId(turnContext.sessionId())
+                    .turn(context.turn())
+                    .text(assistantMessage.getErrorMessage())
+                    .originalMessageCount(originalMessages.size())
+                    .replacementMessageCount(originalMessages.size())
+                    .build());
+            return false;
         }
 
         String summary = MessageContents.text(assistantMessage);
@@ -82,9 +107,15 @@ public class CompactTask implements SessionTask {
         }
 
         List<UserMessage> preservedUserMessages = preservedUserMessages(originalMessages);
-        List<Message> replacementMessages = replacementMessages(session, summary, preservedUserMessages);
+        List<Message> replacementMessages = replacementMessages(
+                session,
+                turnContext,
+                summary,
+                preservedUserMessages,
+                injectInitialContext
+        );
         if (context.isCancelled()) {
-            return;
+            return false;
         }
         session.recorder().recordCompaction(
                 summary,
@@ -94,6 +125,7 @@ public class CompactTask implements SessionTask {
                 preservedUserMessages.size()
         );
         session.invalidateReferenceEnvironmentContext();
+        session.recomputeTokenUsageFromHistory(turnContext);
         session.emit(UiEvent.builder()
                 .type(UiEventType.COMPACT_FINISHED)
                 .sessionId(turnContext.sessionId())
@@ -102,17 +134,66 @@ public class CompactTask implements SessionTask {
                 .originalMessageCount(originalMessages.size())
                 .replacementMessageCount(replacementMessages.size())
                 .build());
+        return true;
+    }
+
+    private AssistantMessage summarize(
+            TaskContext context,
+            Session session,
+            TurnContext turnContext,
+            List<Message> originalMessages
+    ) {
+        List<Message> compactInput = originalMessages;
+        int retries = 0;
+        while (true) {
+            Prompt prompt = promptBuilder.build(session.config(), compactInput);
+            AssistantMessage assistantMessage = session.sampleModel(
+                    context.modelSession(),
+                    prompt,
+                    turnContext,
+                    context.cancellationToken()
+            );
+            if (!session.isContextWindowExceeded(assistantMessage)
+                    || retries >= MAX_COMPACT_CONTEXT_RETRIES
+                    || compactInput.size() <= 1) {
+                return assistantMessage;
+            }
+
+            session.markContextWindowFull(turnContext);
+            compactInput = List.copyOf(compactInput.subList(1, compactInput.size()));
+            retries++;
+        }
     }
 
     private List<Message> replacementMessages(
             Session session,
+            TurnContext turnContext,
             String summary,
-            List<UserMessage> preservedUserMessages
+            List<UserMessage> preservedUserMessages,
+            boolean injectInitialContext
     ) {
         List<Message> replacement = new ArrayList<>();
-        replacement.addAll(preservedUserMessages);
+        ContextMessage initialContext = injectInitialContext
+                ? session.fullEnvironmentContextMessage(turnContext)
+                : null;
+        if (initialContext != null && preservedUserMessages != null && !preservedUserMessages.isEmpty()) {
+            replacement.addAll(preservedUserMessages.subList(0, preservedUserMessages.size() - 1));
+            replacement.add(initialContext);
+            replacement.add(preservedUserMessages.getLast());
+        } else {
+            if (initialContext != null) {
+                replacement.add(initialContext);
+            }
+            if (preservedUserMessages != null) {
+                replacement.addAll(preservedUserMessages);
+            }
+        }
         replacement.add(session.contextBuilder().compactSummaryMessage(summary));
         return List.copyOf(replacement);
+    }
+
+    private boolean shouldInjectInitialContext(String phase) {
+        return "mid-turn".equals(phase) || "context-window-exceeded".equals(phase);
     }
 
     private List<UserMessage> preservedUserMessages(List<Message> messages) {
@@ -161,4 +242,5 @@ public class CompactTask implements SessionTask {
                         .build()))
                 .build();
     }
+
 }

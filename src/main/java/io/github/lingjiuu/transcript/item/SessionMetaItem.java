@@ -27,6 +27,10 @@ public class SessionMetaItem implements TranscriptItem {
 
     private String modelBaseUrl;
 
+    private Long modelContextWindowTokens;
+
+    private Long modelAutoCompactTokenLimit;
+
     private String systemPromptHash;
 
     @Builder.Default

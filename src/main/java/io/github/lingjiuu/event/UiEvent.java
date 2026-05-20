@@ -5,6 +5,7 @@ import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
+import io.github.lingjiuu.llm.TokenUsageInfo;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.permission.ApprovalRequest;
 import io.github.lingjiuu.tool.permission.ApprovalResponse;
@@ -50,4 +51,10 @@ public class UiEvent {
     private Integer originalMessageCount;
 
     private Integer replacementMessageCount;
+
+    private TokenUsageInfo tokenUsageInfo;
+
+    private Long contextTokenUsage;
+
+    private Long autoCompactTokenLimit;
 }

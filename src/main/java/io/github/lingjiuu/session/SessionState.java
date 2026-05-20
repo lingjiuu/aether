@@ -1,6 +1,8 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.context.EnvironmentContext;
+import io.github.lingjiuu.llm.TokenUsage;
+import io.github.lingjiuu.llm.TokenUsageInfo;
 
 public class SessionState {
 
@@ -9,6 +11,7 @@ public class SessionState {
     private volatile long updatedAt;
     private volatile SessionStatus status = SessionStatus.IDLE;
     private EnvironmentContext referenceEnvironmentContext;
+    private TokenUsageInfo tokenUsageInfo;
     private int turn = 1;
 
     public SessionState(String sessionId) {
@@ -50,6 +53,41 @@ public class SessionState {
 
     public synchronized void setReferenceEnvironmentContext(EnvironmentContext environmentContext) {
         referenceEnvironmentContext = environmentContext;
+        touch();
+    }
+
+    public synchronized TokenUsageInfo tokenUsageInfo() {
+        return tokenUsageInfo;
+    }
+
+    public synchronized void updateTokenUsage(TokenUsage usage, Long modelContextWindow) {
+        tokenUsageInfo = TokenUsageInfo.append(tokenUsageInfo, usage, modelContextWindow);
+        touch();
+    }
+
+    public synchronized void recomputeTokenUsage(long estimatedTotalTokens, Long modelContextWindow) {
+        tokenUsageInfo = TokenUsageInfo.recomputeHistoryBaseline(
+                tokenUsageInfo,
+                estimatedTotalTokens,
+                modelContextWindow
+        );
+        touch();
+    }
+
+    public synchronized void setTokenUsageFull(Long modelContextWindow) {
+        if (modelContextWindow == null || modelContextWindow <= 0) {
+            return;
+        }
+        tokenUsageInfo = TokenUsageInfo.recomputeHistoryBaseline(
+                tokenUsageInfo,
+                modelContextWindow,
+                modelContextWindow
+        );
+        touch();
+    }
+
+    public synchronized void clearTokenUsage() {
+        tokenUsageInfo = null;
         touch();
     }
 

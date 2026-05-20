@@ -32,6 +32,14 @@ public class ConsoleRenderer implements EventSink {
             }
             case REASONING_DELTA -> {
             }
+            case TOKEN_USAGE -> {
+                if (event.getContextTokenUsage() != null) {
+                    String limit = event.getAutoCompactTokenLimit() == null
+                            ? "off"
+                            : event.getAutoCompactTokenLimit().toString();
+                    System.out.println("[TOKENS] context=" + event.getContextTokenUsage() + " auto_compact_at=" + limit);
+                }
+            }
             case ASSISTANT_MESSAGE -> {
                 System.out.println();
                 if (event.getAssistantMessage() != null && event.getAssistantMessage().getStopReason() != null) {
@@ -99,7 +107,10 @@ public class ConsoleRenderer implements EventSink {
             }
             case TURN_ABORTED -> System.out.println("[AGENT] turn interrupted");
             case COMPACT_STARTED -> {
-                System.out.println("[CONTEXT] compact start");
+                String trigger = event.getText() == null || event.getText().isBlank()
+                        ? ""
+                        : " (" + event.getText() + ")";
+                System.out.println("[CONTEXT] compact start" + trigger);
                 if (event.getOriginalMessageCount() != null) {
                     System.out.println("[CONTEXT] original messages=" + event.getOriginalMessageCount());
                 }

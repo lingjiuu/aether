@@ -87,6 +87,8 @@ public class AetherConfigLoader {
                     blankToNull(modelTable.getString("name")),
                     blankToNull(modelTable.getString("api")),
                     blankToNull(modelTable.getString("base_url")),
+                    positiveLong(modelTable, "context_window"),
+                    positiveLong(modelTable, "auto_compact_token_limit"),
                     readStringMap(modelTable.getTable("headers")),
                     readStringList(modelTable.getArray("input"))
             ));
@@ -122,6 +124,14 @@ public class AetherConfigLoader {
             }
         }
         return values;
+    }
+
+    private Long positiveLong(TomlTable table, String key) {
+        if (table == null || key == null) {
+            return null;
+        }
+        Long value = table.getLong(key);
+        return value == null || value <= 0 ? null : value;
     }
 
     private void validate(AetherConfig config, Path configPath) {

@@ -22,6 +22,9 @@ import io.github.lingjiuu.input.TurnInput;
 import io.github.lingjiuu.llm.AssistantStream;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
 import io.github.lingjiuu.llm.LlmClientSession;
+import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.llm.TokenUsage;
+import io.github.lingjiuu.llm.TokenUsageInfo;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
@@ -100,6 +103,7 @@ public class Session {
             transcriptRecorder.recordSessionMeta(sessionMeta);
         }
         this.toolRunner = new ToolRunner(toolRegistry);
+        recomputeTokenUsageFromHistory();
     }
 
     public void prompt(String content) {
@@ -146,6 +150,7 @@ public class Session {
     public synchronized void reset() {
         ensureIdle();
         recorder.clear();
+        state.clearTokenUsage();
         invalidateReferenceEnvironmentContext();
         state.touch();
         eventManager.emit(UiEvent.builder()
@@ -267,6 +272,79 @@ public class Session {
 
     public PermissionManager permissionManager() {
         return permissionManager;
+    }
+
+    public TokenUsageInfo tokenUsageInfo() {
+        return state.tokenUsageInfo();
+    }
+
+    public long currentContextTokenUsage() {
+        TokenUsageInfo tokenUsageInfo = state.tokenUsageInfo();
+        TokenUsage lastUsage = tokenUsageInfo == null ? null : tokenUsageInfo.lastTokenUsage();
+        if (lastUsage != null && lastUsage.totalTokens() > 0) {
+            long addedSinceLastAssistant = contextManager.estimateTokensAfterLastAssistantMessage();
+            if (addedSinceLastAssistant >= 0) {
+                return lastUsage.totalTokens() + addedSinceLastAssistant;
+            }
+        }
+        return contextManager.estimateTokensForModel(config.systemPrompt());
+    }
+
+    public boolean shouldAutoCompact() {
+        if (!contextManager.policy().autoCompactEnabled()) {
+            return false;
+        }
+        Long limit = autoCompactTokenLimit();
+        return limit != null
+                && limit > 0
+                && contextManager.snapshot().size() > 1
+                && currentContextTokenUsage() >= limit;
+    }
+
+    public boolean isContextWindowExceeded(AssistantMessage assistantMessage) {
+        if (assistantMessage == null || assistantMessage.getStopReason() != AssistantMessage.StopReason.ERROR) {
+            return false;
+        }
+        String errorMessage = assistantMessage.getErrorMessage();
+        if (errorMessage == null || errorMessage.isBlank()) {
+            return false;
+        }
+
+        String normalized = errorMessage.toLowerCase();
+        return normalized.contains("context_window_exceeded")
+                || normalized.contains("context window")
+                || normalized.contains("maximum context")
+                || normalized.contains("context length")
+                || normalized.contains("too many tokens")
+                || normalized.contains("token limit");
+    }
+
+    public void markContextWindowFull(TurnContext turnContext) {
+        state.setTokenUsageFull(modelContextWindowTokens());
+        if (turnContext != null) {
+            emit(UiEvent.builder()
+                    .type(UiEventType.TOKEN_USAGE)
+                    .sessionId(turnContext.sessionId())
+                    .turn(turnContext.turn())
+                    .tokenUsageInfo(tokenUsageInfo())
+                    .contextTokenUsage(currentContextTokenUsage())
+                    .autoCompactTokenLimit(autoCompactTokenLimit())
+                    .build());
+        }
+    }
+
+    public void recomputeTokenUsageFromHistory(TurnContext turnContext) {
+        recomputeTokenUsageFromHistory();
+        if (turnContext != null) {
+            emit(UiEvent.builder()
+                    .type(UiEventType.TOKEN_USAGE)
+                    .sessionId(turnContext.sessionId())
+                    .turn(turnContext.turn())
+                    .tokenUsageInfo(tokenUsageInfo())
+                    .contextTokenUsage(currentContextTokenUsage())
+                    .autoCompactTokenLimit(autoCompactTokenLimit())
+                    .build());
+        }
     }
 
     public void emit(UiEvent event) {
@@ -404,6 +482,14 @@ public class Session {
         state.setReferenceEnvironmentContext(null);
     }
 
+    public ContextMessage fullEnvironmentContextMessage(TurnContext turnContext) {
+        if (turnContext == null) {
+            return null;
+        }
+        EnvironmentContext current = contextBuilder.environmentContext(turnContext.cwd());
+        return contextBuilder.environmentMessage(null, current).orElse(null);
+    }
+
     public AssistantMessage sampleModel(
             LlmClientSession modelSession,
             Prompt prompt,
@@ -442,6 +528,7 @@ public class Session {
         if (token.isCancellationRequested()) {
             return abortedMessage();
         }
+        recordTokenUsage(assistantMessage, turnContext);
         return assistantMessage;
     }
 
@@ -581,6 +668,44 @@ public class Session {
                 cancellationSource.token(),
                 modelSession
         );
+    }
+
+    private void recordTokenUsage(AssistantMessage assistantMessage, TurnContext turnContext) {
+        if (assistantMessage == null || assistantMessage.getStopReason() == AssistantMessage.StopReason.ABORTED) {
+            return;
+        }
+        TokenUsage usage = TokenUsage.fromUsageMap(assistantMessage.getUsage());
+        if (usage.isEmpty()) {
+            return;
+        }
+        state.updateTokenUsage(usage, modelContextWindowTokens());
+        if (turnContext != null) {
+            emit(UiEvent.builder()
+                    .type(UiEventType.TOKEN_USAGE)
+                    .sessionId(turnContext.sessionId())
+                    .turn(turnContext.turn())
+                    .tokenUsageInfo(tokenUsageInfo())
+                    .contextTokenUsage(currentContextTokenUsage())
+                    .autoCompactTokenLimit(autoCompactTokenLimit())
+                    .build());
+        }
+    }
+
+    private void recomputeTokenUsageFromHistory() {
+        state.recomputeTokenUsage(
+                contextManager.estimateTokensForModel(config.systemPrompt()),
+                modelContextWindowTokens()
+        );
+    }
+
+    private Long modelContextWindowTokens() {
+        LlmModel model = config.model();
+        return model == null ? null : model.getContextWindowTokens();
+    }
+
+    private Long autoCompactTokenLimit() {
+        LlmModel model = config.model();
+        return model == null ? null : model.resolvedAutoCompactTokenLimit();
     }
 
     private UiEvent mapStreamEvent(AssistantStreamEvent event, TurnContext turnContext) {

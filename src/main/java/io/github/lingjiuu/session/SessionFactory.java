@@ -212,6 +212,8 @@ public class SessionFactory {
                 .id(modelDefinition.id())
                 .name(firstNonBlank(modelDefinition.name(), modelDefinition.id()))
                 .baseUrl(baseUrl)
+                .contextWindowTokens(modelDefinition.contextWindowTokens())
+                .autoCompactTokenLimit(modelDefinition.autoCompactTokenLimit())
                 .headers(mergeHeaders(provider.headers(), modelDefinition.headers()))
                 .input(modelDefinition.input())
                 .build();
@@ -337,6 +339,8 @@ public class SessionFactory {
                 .modelId(model == null ? null : model.getId())
                 .modelApi(model == null ? null : model.getApi())
                 .modelBaseUrl(model == null ? null : model.getBaseUrl())
+                .modelContextWindowTokens(model == null ? null : model.getContextWindowTokens())
+                .modelAutoCompactTokenLimit(model == null ? null : model.getAutoCompactTokenLimit())
                 .systemPromptHash(systemPromptHash)
                 .activeToolNames(activeTools)
                 .configFingerprint(configFingerprint(systemPromptHash, activeTools))
@@ -352,6 +356,8 @@ public class SessionFactory {
         joiner.add("modelId=" + nullToEmpty(model == null ? null : model.getId()));
         joiner.add("modelApi=" + nullToEmpty(model == null ? null : model.getApi()));
         joiner.add("modelBaseUrl=" + nullToEmpty(model == null ? null : model.getBaseUrl()));
+        joiner.add("modelContextWindowTokens=" + nullToEmpty(model == null ? null : String.valueOf(model.getContextWindowTokens())));
+        joiner.add("modelAutoCompactTokenLimit=" + nullToEmpty(model == null ? null : String.valueOf(model.getAutoCompactTokenLimit())));
         joiner.add("systemPromptHash=" + nullToEmpty(systemPromptHash));
         joiner.add("activeToolNames=" + String.join(",", activeToolNames == null ? List.of() : activeToolNames));
         return sha256(joiner.toString());
@@ -371,6 +377,8 @@ public class SessionFactory {
         compare(differences, "modelId", actual.getModelId(), expected.getModelId());
         compare(differences, "modelApi", actual.getModelApi(), expected.getModelApi());
         compare(differences, "modelBaseUrl", actual.getModelBaseUrl(), expected.getModelBaseUrl());
+        compare(differences, "modelContextWindowTokens", actual.getModelContextWindowTokens(), expected.getModelContextWindowTokens());
+        compare(differences, "modelAutoCompactTokenLimit", actual.getModelAutoCompactTokenLimit(), expected.getModelAutoCompactTokenLimit());
         compare(differences, "systemPromptHash", actual.getSystemPromptHash(), expected.getSystemPromptHash());
         compare(differences, "activeToolNames", actual.getActiveToolNames(), expected.getActiveToolNames());
         compare(differences, "configFingerprint", actual.getConfigFingerprint(), expected.getConfigFingerprint());

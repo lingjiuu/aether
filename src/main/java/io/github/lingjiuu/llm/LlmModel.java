@@ -25,9 +25,24 @@ public class LlmModel {
 
     private String baseUrl;
 
+    private Long contextWindowTokens;
+
+    private Long autoCompactTokenLimit;
+
     @Builder.Default
     private Map<String, String> headers = new LinkedHashMap<>();
 
     @Builder.Default
     private List<String> input = List.of("text");
+
+    public Long resolvedAutoCompactTokenLimit() {
+        Long contextLimit = contextWindowTokens == null ? null : (contextWindowTokens * 9) / 10;
+        if (contextLimit == null) {
+            return autoCompactTokenLimit;
+        }
+        if (autoCompactTokenLimit == null) {
+            return contextLimit;
+        }
+        return Math.min(autoCompactTokenLimit, contextLimit);
+    }
 }

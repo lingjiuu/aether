@@ -35,6 +35,8 @@ public record AetherConfig(
             String name,
             String api,
             String baseUrl,
+            Long contextWindowTokens,
+            Long autoCompactTokenLimit,
             Map<String, String> headers,
             List<String> input
     ) {
