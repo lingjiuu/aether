@@ -2,6 +2,7 @@ package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.agent.task.CompactTask;
 import io.github.lingjiuu.agent.task.RegularTask;
+import io.github.lingjiuu.agent.task.RunningTask;
 import io.github.lingjiuu.agent.task.SessionTask;
 import io.github.lingjiuu.agent.task.TaskContext;
 import io.github.lingjiuu.agent.task.TaskRunner;
@@ -20,6 +21,7 @@ import io.github.lingjiuu.input.MaterializedInput;
 import io.github.lingjiuu.input.TurnInput;
 import io.github.lingjiuu.llm.AssistantStream;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
+import io.github.lingjiuu.llm.LlmClientSession;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
@@ -105,6 +107,11 @@ public class Session {
     }
 
     public void submit(TurnInput input) {
+        submitAsync(input);
+        waitForIdle();
+    }
+
+    public void submitAsync(TurnInput input) {
         MaterializedInput materializedInput = inputMaterializer.materialize(input);
         synchronized (this) {
             ensureIdle();
@@ -121,9 +128,15 @@ public class Session {
             }
         }
         runRegularTask(null);
+        waitForIdle();
     }
 
     public void compact() {
+        compactAsync();
+        waitForIdle();
+    }
+
+    public void compactAsync() {
         synchronized (this) {
             ensureIdle();
         }
@@ -181,7 +194,11 @@ public class Session {
     }
 
     public void abort() {
-        taskRunner.abort();
+        cancelRunningTask();
+    }
+
+    public boolean cancelRunningTask() {
+        return taskRunner.cancelRunningTask();
     }
 
     public synchronized void waitForIdle() {
@@ -388,6 +405,7 @@ public class Session {
     }
 
     public AssistantMessage sampleModel(
+            LlmClientSession modelSession,
             Prompt prompt,
             TurnContext turnContext,
             ToolCancellationToken cancellationToken
@@ -398,15 +416,27 @@ public class Session {
         }
 
         AssistantMessage assistantMessage;
-        try (AssistantStream stream = config.llmClient().stream(prompt.toLlmRequest(config.requestAuth()))) {
+        try (AssistantStream stream = modelSession.stream(prompt.toLlmRequest(config.requestAuth()), token)) {
             AutoCloseable cancelRegistration = token.onCancel(() -> closeQuietly(stream));
             try {
-                assistantMessage = stream.consume(event -> emit(mapStreamEvent(event, turnContext)));
+                assistantMessage = stream.consume(event -> {
+                    if (!token.isCancellationRequested()) {
+                        emit(mapStreamEvent(event, turnContext));
+                    }
+                });
             } finally {
                 closeQuietly(cancelRegistration);
             }
         } catch (IOException e) {
+            if (token.isCancellationRequested()) {
+                return abortedMessage();
+            }
             throw new RuntimeException("Failed to close assistant stream.", e);
+        } catch (RuntimeException e) {
+            if (token.isCancellationRequested()) {
+                return abortedMessage();
+            }
+            throw e;
         }
 
         if (token.isCancellationRequested()) {
@@ -455,11 +485,14 @@ public class Session {
                 .turn(turn)
                 .build());
         try {
-            taskRunner.run(
-                    task,
-                    taskContext(cancellationSource, turnContext, materializedInput),
-                    cancellationSource
+            RunningTask runningTask = taskRunner.start(
+                    cancellationSource,
+                    "aether-" + task.kind().name().toLowerCase() + "-turn-" + turn,
+                    () -> runTaskBody(task, turnContext, materializedInput, cancellationSource)
             );
+            if (runningTask == null) {
+                throw new IllegalStateException("Failed to start session task.");
+            }
         } catch (RuntimeException e) {
             eventManager.emit(UiEvent.builder()
                     .type(UiEventType.ERROR)
@@ -467,8 +500,6 @@ public class Session {
                     .turn(turn)
                     .errorMessage(e.getMessage())
                     .build());
-            throw e;
-        } finally {
             eventManager.emit(UiEvent.builder()
                     .type(UiEventType.RUN_FINISHED)
                     .sessionId(sessionId())
@@ -478,10 +509,67 @@ public class Session {
                 state.markIdle();
                 notifyAll();
             }
+            throw e;
         }
     }
 
+    private void runTaskBody(
+            SessionTask task,
+            TurnContext turnContext,
+            MaterializedInput materializedInput,
+            ToolCancellationSource cancellationSource
+    ) {
+        try (LlmClientSession modelSession = config.llmClient().openSession(config.model(), config.requestAuth())) {
+            TaskContext context = taskContext(modelSession, cancellationSource, turnContext, materializedInput);
+            task.run(context);
+        } catch (RuntimeException e) {
+            if (!cancellationSource.token().isCancellationRequested()) {
+                eventManager.emit(UiEvent.builder()
+                        .type(UiEventType.ERROR)
+                        .sessionId(sessionId())
+                        .turn(turnContext.turn())
+                        .errorMessage(e.getMessage())
+                        .build());
+            }
+        } finally {
+            boolean cancelled = cancellationSource.token().isCancellationRequested();
+            if (cancelled) {
+                try {
+                    recordInterruptedTurn(turnContext);
+                } catch (RuntimeException e) {
+                    eventManager.emit(UiEvent.builder()
+                            .type(UiEventType.ERROR)
+                            .sessionId(sessionId())
+                            .turn(turnContext.turn())
+                            .errorMessage("Failed to record interrupted turn: " + e.getMessage())
+                            .build());
+                }
+            }
+            eventManager.emit(UiEvent.builder()
+                    .type(cancelled ? UiEventType.TURN_ABORTED : UiEventType.RUN_FINISHED)
+                    .sessionId(sessionId())
+                    .turn(turnContext.turn())
+                    .build());
+            if (cancelled) {
+                eventManager.emit(UiEvent.builder()
+                        .type(UiEventType.RUN_FINISHED)
+                        .sessionId(sessionId())
+                        .turn(turnContext.turn())
+                        .build());
+            }
+            synchronized (this) {
+                state.markIdle();
+                notifyAll();
+            }
+        }
+    }
+
+    private void recordInterruptedTurn(TurnContext turnContext) {
+        recordContextMessageAndEmit(contextBuilder.interruptedTurnMessage(), turnContext);
+    }
+
     private TaskContext taskContext(
+            LlmClientSession modelSession,
             ToolCancellationSource cancellationSource,
             TurnContext turnContext,
             MaterializedInput materializedInput
@@ -490,7 +578,8 @@ public class Session {
                 this,
                 turnContext,
                 materializedInput,
-                cancellationSource.token()
+                cancellationSource.token(),
+                modelSession
         );
     }
 
@@ -535,7 +624,7 @@ public class Session {
     }
 
     private synchronized void ensureIdle() {
-        if (state.status() == SessionStatus.RUNNING || taskRunner.isRunning()) {
+        if (state.status() == SessionStatus.RUNNING) {
             throw new IllegalStateException("Agent session is already running.");
         }
     }

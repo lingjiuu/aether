@@ -1,6 +1,5 @@
 package io.github.lingjiuu.llm;
 
-import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.RequestAuth;
 import io.github.lingjiuu.provider.openai.OpenAiProvider;
@@ -20,28 +19,25 @@ public class LlmClient {
         this.providerRegistry = providerRegistry;
     }
 
-    public AssistantStream stream(LlmRequest request) {
-        if (request == null || request.getModel() == null) {
+    public LlmClientSession openSession(LlmModel model, RequestAuth auth) {
+        validate(model, auth);
+        return new LlmClientSession(
+                providerRegistry.require(model.getApi()).openSession(model, auth),
+                model,
+                auth
+        );
+    }
+
+    private void validate(LlmModel model, RequestAuth auth) {
+        if (model == null) {
             throw new IllegalArgumentException("request model must not be null");
         }
-
-        RequestAuth auth = request.getAuth();
         if (auth == null) {
             throw new IllegalStateException("LLM request auth must be resolved before invoking provider.");
         }
         if (!auth.isOk()) {
             throw new IllegalStateException(auth.getError());
         }
-
-        Provider provider = providerRegistry.require(request.getModel().getApi());
-        return provider.stream(request.toBuilder()
-                .auth(auth)
-                .callOptions(request.getCallOptions() == null ? LlmCallOptions.builder().build() : request.getCallOptions())
-                .build());
-    }
-
-    public AssistantStream sample(LlmRequest request) {
-        return stream(request);
     }
 
     private static ProviderRegistry defaultRegistry() {

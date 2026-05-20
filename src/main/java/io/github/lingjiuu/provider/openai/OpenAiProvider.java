@@ -2,11 +2,9 @@ package io.github.lingjiuu.provider.openai;
 
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
-import com.openai.models.responses.ResponseCreateParams;
-import io.github.lingjiuu.llm.AssistantStream;
 import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.provider.Provider;
+import io.github.lingjiuu.provider.ProviderSession;
 import io.github.lingjiuu.provider.RequestAuth;
 
 import java.util.LinkedHashMap;
@@ -32,18 +30,14 @@ public class OpenAiProvider implements Provider {
     }
 
     @Override
-    public AssistantStream stream(LlmRequest request) {
-        if (request == null || request.getModel() == null) {
-            throw new IllegalArgumentException("request model must not be null");
+    public ProviderSession openSession(LlmModel model, RequestAuth auth) {
+        if (model == null) {
+            throw new IllegalArgumentException("model must not be null");
         }
-
-        LlmModel model = request.getModel();
-        OpenAIClient client = createClient(model, request.getAuth());
-        ResponseCreateParams params = requestBuilder.buildRequest(request);
-        return streamParser.parseStream(
-                client.responses().createStreaming(params),
-                model.getId(),
-                model.getProvider()
+        return new OpenAiProviderSession(
+                createClient(model, auth),
+                requestBuilder,
+                streamParser
         );
     }
 

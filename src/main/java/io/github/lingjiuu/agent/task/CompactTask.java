@@ -62,8 +62,16 @@ public class CompactTask implements SessionTask {
             return;
         }
 
+        if (context.isCancelled()) {
+            return;
+        }
         Prompt prompt = promptBuilder.build(session.config(), originalMessages);
-        AssistantMessage assistantMessage = session.sampleModel(prompt, turnContext, context.cancellationToken());
+        AssistantMessage assistantMessage = session.sampleModel(
+                context.modelSession(),
+                prompt,
+                turnContext,
+                context.cancellationToken()
+        );
         if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ABORTED || context.isCancelled()) {
             return;
         }
@@ -75,6 +83,9 @@ public class CompactTask implements SessionTask {
 
         List<UserMessage> preservedUserMessages = preservedUserMessages(originalMessages);
         List<Message> replacementMessages = replacementMessages(session, summary, preservedUserMessages);
+        if (context.isCancelled()) {
+            return;
+        }
         session.recorder().recordCompaction(
                 summary,
                 replacementMessages,

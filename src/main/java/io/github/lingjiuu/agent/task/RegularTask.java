@@ -52,16 +52,21 @@ public class RegularTask implements SessionTask {
                     projection,
                     session.activeTools()
             ));
-            AssistantMessage assistantMessage = session.sampleModel(prompt, turnContext, context.cancellationToken());
-            session.recordAssistantAndEmit(assistantMessage, turnContext);
-
+            AssistantMessage assistantMessage = session.sampleModel(
+                    context.modelSession(),
+                    prompt,
+                    turnContext,
+                    context.cancellationToken()
+            );
+            if (context.isCancelled() || assistantMessage.getStopReason() == AssistantMessage.StopReason.ABORTED) {
+                return;
+            }
             if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ERROR) {
+                session.recordAssistantAndEmit(assistantMessage, turnContext);
                 session.emitError(turnContext, assistantMessage.getErrorMessage());
                 return;
             }
-            if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ABORTED) {
-                return;
-            }
+            session.recordAssistantAndEmit(assistantMessage, turnContext);
 
             List<ToolCallContent> toolCalls = MessageContents.toolCalls(assistantMessage);
             if (toolCalls.isEmpty()) {
@@ -96,6 +101,9 @@ public class RegularTask implements SessionTask {
             List<ToolCallContent> toolCalls
     ) {
         for (ToolCallContent toolCall : toolCalls) {
+            if (context.isCancelled()) {
+                return;
+            }
             session.emit(UiEvent.builder()
                     .type(UiEventType.TOOL_CALL)
                     .sessionId(turnContext.sessionId())
@@ -124,6 +132,9 @@ public class RegularTask implements SessionTask {
                             .build())
             );
             ToolExecutionResult executionResult = runPreparedToolCall(session, turnContext, prepared);
+            if (context.isCancelled()) {
+                return;
+            }
             ToolResultMessage result = session.toolResultMessage(toolCall, executionResult);
             session.recordToolResultAndEmit(toolCall, result, turnContext);
         }

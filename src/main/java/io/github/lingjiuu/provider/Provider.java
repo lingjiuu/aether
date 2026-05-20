@@ -1,11 +1,10 @@
 package io.github.lingjiuu.provider;
 
-import io.github.lingjiuu.llm.AssistantStream;
-import io.github.lingjiuu.llm.LlmRequest;
+import io.github.lingjiuu.llm.LlmModel;
 
 public interface Provider {
 
     String name();
 
-    AssistantStream stream(LlmRequest request);
+    ProviderSession openSession(LlmModel model, RequestAuth auth);
 }

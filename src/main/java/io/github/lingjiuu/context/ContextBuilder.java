@@ -14,6 +14,12 @@ import java.util.Optional;
 
 public class ContextBuilder {
 
+    private static final String INTERRUPTED_TURN_GUIDANCE = """
+            <turn_aborted>
+            The previous turn was interrupted by the user. Some tools or commands may have partially executed.
+            </turn_aborted>
+            """.trim();
+
     public ToolResultMessage toolResultMessage(ToolCallContent toolCall, ToolExecutionResult result) {
         if (toolCall == null) {
             throw new IllegalArgumentException("tool call must not be null");
@@ -76,6 +82,15 @@ public class ContextBuilder {
                         .text(text.toString())
                         .build()))
                 .build());
+    }
+
+    public ContextMessage interruptedTurnMessage() {
+        return ContextMessage.builder()
+                .kind(ContextMessage.ContextKind.INFORMATIONAL)
+                .contents(List.of(TextContent.builder()
+                        .text(INTERRUPTED_TURN_GUIDANCE)
+                        .build()))
+                .build();
     }
 
 }

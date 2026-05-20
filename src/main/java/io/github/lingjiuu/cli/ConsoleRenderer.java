@@ -97,6 +97,7 @@ public class ConsoleRenderer implements EventSink {
                     System.out.println("[ASSISTANT] " + event.getText());
                 }
             }
+            case TURN_ABORTED -> System.out.println("[AGENT] turn interrupted");
             case COMPACT_STARTED -> {
                 System.out.println("[CONTEXT] compact start");
                 if (event.getOriginalMessageCount() != null) {
