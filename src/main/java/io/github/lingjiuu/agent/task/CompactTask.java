@@ -2,8 +2,6 @@ package io.github.lingjiuu.agent.task;
 
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.compact.CompactPromptBuilder;
-import io.github.lingjiuu.event.UiEvent;
-import io.github.lingjiuu.event.UiEventType;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
@@ -62,23 +60,15 @@ public class CompactTask implements SessionTask {
         Session session = context.session();
         TurnContext turnContext = context.turnContext();
         List<Message> originalMessages = session.contextManager().snapshot();
-        session.emit(UiEvent.builder()
-                .type(UiEventType.COMPACT_STARTED)
-                .sessionId(turnContext.sessionId())
-                .turn(context.turn())
-                .text(trigger)
-                .originalMessageCount(originalMessages.size())
-                .build());
+        session.events().compactStarted(turnContext, trigger, originalMessages.size());
 
         if (originalMessages.isEmpty()) {
-            session.emit(UiEvent.builder()
-                    .type(UiEventType.COMPACT_SKIPPED)
-                    .sessionId(turnContext.sessionId())
-                    .turn(context.turn())
-                    .text("No context to compact.")
-                    .originalMessageCount(originalMessages.size())
-                    .replacementMessageCount(originalMessages.size())
-                    .build());
+            session.events().compactSkipped(
+                    turnContext,
+                    "No context to compact.",
+                    originalMessages.size(),
+                    originalMessages.size()
+            );
             return false;
         }
 
@@ -90,14 +80,12 @@ public class CompactTask implements SessionTask {
             return false;
         }
         if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ERROR) {
-            session.emit(UiEvent.builder()
-                    .type(UiEventType.COMPACT_SKIPPED)
-                    .sessionId(turnContext.sessionId())
-                    .turn(context.turn())
-                    .text(assistantMessage.getErrorMessage())
-                    .originalMessageCount(originalMessages.size())
-                    .replacementMessageCount(originalMessages.size())
-                    .build());
+            session.events().compactSkipped(
+                    turnContext,
+                    assistantMessage.getErrorMessage(),
+                    originalMessages.size(),
+                    originalMessages.size()
+            );
             return false;
         }
 
@@ -130,14 +118,7 @@ public class CompactTask implements SessionTask {
             session.clearInitialContextBaseline();
         }
         session.recomputeTokenUsageFromHistory(turnContext);
-        session.emit(UiEvent.builder()
-                .type(UiEventType.COMPACT_FINISHED)
-                .sessionId(turnContext.sessionId())
-                .turn(context.turn())
-                .text(summary)
-                .originalMessageCount(originalMessages.size())
-                .replacementMessageCount(replacementMessages.size())
-                .build());
+        session.events().compactFinished(turnContext, summary, originalMessages.size(), replacementMessages.size());
         return true;
     }
 

@@ -152,6 +152,7 @@ public class OpenAiStreamParser {
                     contentIndexesByItemId.put(item.id(), contentIndex);
                     return AssistantStreamEvent.builder()
                             .type(AssistantStreamEvent.Type.THINKING_START)
+                            .itemId(item.id())
                             .contentIndex(contentIndex)
                             .partial(copyMessage(partial))
                             .build();
@@ -162,6 +163,7 @@ public class OpenAiStreamParser {
                     contentIndexesByItemId.put(item.id(), contentIndex);
                     return AssistantStreamEvent.builder()
                             .type(AssistantStreamEvent.Type.TEXT_START)
+                            .itemId(item.id())
                             .contentIndex(contentIndex)
                             .partial(copyMessage(partial))
                             .build();
@@ -169,17 +171,22 @@ public class OpenAiStreamParser {
                 if (added.item().isFunctionCall()) {
                     var item = added.item().asFunctionCall();
                     String itemId = item.id().orElse(item.callId());
-                    int contentIndex = appendContent(partial, ToolCallContent.builder()
+                    ToolCallContent toolCall = ToolCallContent.builder()
                             .toolCallId(item.callId())
                             .toolName(item.name())
                             .argumentsJson(item.arguments())
                             .arguments(parseStreamingJson(item.arguments()))
-                            .build());
+                            .build();
+                    int contentIndex = appendContent(partial, toolCall);
                     contentIndexesByItemId.put(itemId, contentIndex);
                     partialToolArguments.put(itemId, nullToEmpty(item.arguments()));
                     return AssistantStreamEvent.builder()
                             .type(AssistantStreamEvent.Type.TOOLCALL_START)
+                            .itemId(itemId)
+                            .toolCallId(item.callId())
+                            .toolName(item.name())
                             .contentIndex(contentIndex)
+                            .toolCall(copyToolCall(toolCall))
                             .partial(copyMessage(partial))
                             .build();
                 }
@@ -197,6 +204,7 @@ public class OpenAiStreamParser {
                         .build());
                 return AssistantStreamEvent.builder()
                         .type(AssistantStreamEvent.Type.TEXT_DELTA)
+                        .itemId(delta.itemId())
                         .contentIndex(contentIndex)
                         .delta(delta.delta())
                         .partial(copyMessage(partial))
@@ -215,6 +223,7 @@ public class OpenAiStreamParser {
                         .build());
                 return AssistantStreamEvent.builder()
                         .type(AssistantStreamEvent.Type.THINKING_DELTA)
+                        .itemId(delta.itemId())
                         .contentIndex(contentIndex)
                         .delta(delta.delta())
                         .partial(copyMessage(partial))
@@ -230,16 +239,21 @@ public class OpenAiStreamParser {
                 ToolCallContent toolCallContent = (ToolCallContent) partial.getContents().get(contentIndex);
                 String partialJson = partialToolArguments.getOrDefault(delta.itemId(), "") + nullToEmpty(delta.delta());
                 partialToolArguments.put(delta.itemId(), partialJson);
-                partial.getContents().set(contentIndex, ToolCallContent.builder()
+                ToolCallContent updatedToolCall = ToolCallContent.builder()
                         .toolCallId(toolCallContent.getToolCallId())
                         .toolName(toolCallContent.getToolName())
                         .argumentsJson(partialJson)
                         .arguments(parseStreamingJson(partialJson))
-                        .build());
+                        .build();
+                partial.getContents().set(contentIndex, updatedToolCall);
                 return AssistantStreamEvent.builder()
                         .type(AssistantStreamEvent.Type.TOOLCALL_DELTA)
+                        .itemId(delta.itemId())
+                        .toolCallId(updatedToolCall.getToolCallId())
+                        .toolName(updatedToolCall.getToolName())
                         .contentIndex(contentIndex)
                         .delta(delta.delta())
+                        .toolCall(copyToolCall(updatedToolCall))
                         .partial(copyMessage(partial))
                         .build();
             }
@@ -277,6 +291,7 @@ public class OpenAiStreamParser {
                     addReplayItem(replayItems, replayItem);
                     return AssistantStreamEvent.builder()
                             .type(AssistantStreamEvent.Type.THINKING_END)
+                            .itemId(reasoningItem.id())
                             .contentIndex(contentIndex)
                             .content(thinking)
                             .providerState(itemProviderState(partial, replayItem))
@@ -297,6 +312,7 @@ public class OpenAiStreamParser {
                     addReplayItem(replayItems, replayItem);
                     return AssistantStreamEvent.builder()
                             .type(AssistantStreamEvent.Type.TEXT_END)
+                            .itemId(messageItem.id())
                             .contentIndex(contentIndex)
                             .content(text)
                             .providerState(itemProviderState(partial, replayItem))
@@ -323,6 +339,9 @@ public class OpenAiStreamParser {
                     addReplayItem(replayItems, replayItem);
                     return AssistantStreamEvent.builder()
                             .type(AssistantStreamEvent.Type.TOOLCALL_END)
+                            .itemId(itemId)
+                            .toolCallId(toolCall.getToolCallId())
+                            .toolName(toolCall.getToolName())
                             .contentIndex(contentIndex)
                             .toolCall(copyToolCall(toolCall))
                             .providerState(itemProviderState(partial, replayItem))

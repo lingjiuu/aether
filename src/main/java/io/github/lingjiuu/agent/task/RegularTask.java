@@ -2,8 +2,7 @@ package io.github.lingjiuu.agent.task;
 
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.agent.turn.TurnState;
-import io.github.lingjiuu.event.UiEvent;
-import io.github.lingjiuu.event.UiEventType;
+import io.github.lingjiuu.protocol.UiItemKind;
 import io.github.lingjiuu.input.MaterializedInput;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
 import io.github.lingjiuu.message.AssistantMessage;
@@ -32,11 +31,7 @@ public class RegularTask implements SessionTask {
         Session session = context.session();
         TurnContext turnContext = context.turnContext();
         TurnState state = new TurnState();
-        session.emit(UiEvent.builder()
-                .type(UiEventType.TURN_STARTED)
-                .sessionId(turnContext.sessionId())
-                .turn(turnContext.turn())
-                .build());
+        session.events().turnStarted(turnContext);
 
         CompactTask compactTask = new CompactTask();
         long blockedAutoCompactAtOrBelow = -1;
@@ -89,9 +84,11 @@ public class RegularTask implements SessionTask {
                         event -> handleStreamItem(session, turnContext, toolScope, event)
                 );
                 if (context.isCancelled() || assistantMessage.getStopReason() == AssistantMessage.StopReason.ABORTED) {
+                    recordToolOutcomes(session, turnContext, toolScope.abortAndDrain());
                     return;
                 }
                 if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ERROR) {
+                    recordToolOutcomes(session, turnContext, toolScope.abortAndDrain());
                     if (session.isContextWindowExceeded(assistantMessage)
                             && contextWindowRecoveries < MAX_CONTEXT_WINDOW_RECOVERIES) {
                         contextWindowRecoveries++;
@@ -101,18 +98,21 @@ public class RegularTask implements SessionTask {
                             continue;
                         }
                     }
-                    session.recordAssistantAndEmit(assistantMessage, turnContext);
-                    session.emitError(turnContext, assistantMessage.getErrorMessage());
+                    session.recordAssistant(assistantMessage, turnContext);
+                    session.events().error(turnContext, assistantMessage.getErrorMessage());
                     return;
                 }
 
                 if (toolScope.size() == 0) {
-                    session.emitFinalAnswer(assistantMessage, turnContext);
+                    session.events().finalAnswer(assistantMessage, turnContext);
                     return;
                 }
 
                 state.addToolCalls(toolScope.size());
-                recordToolOutcomes(session, turnContext, toolScope.drain());
+                List<ToolOutcome> outcomes = context.isCancelled() || Thread.currentThread().isInterrupted()
+                        ? toolScope.abortAndDrain()
+                        : toolScope.drain();
+                recordToolOutcomes(session, turnContext, outcomes);
                 if (context.isCancelled() || Thread.currentThread().isInterrupted()) {
                     return;
                 }
@@ -139,34 +139,129 @@ public class RegularTask implements SessionTask {
         }
 
         switch (event.getType()) {
-            case TEXT_END -> session.recordAssistantAndEmit(
-                    session.contextBuilder().assistantTextItem(
-                            event.getPartial(),
-                            event.getContent(),
-                            event.getProviderState()
-                    ),
-                    turnContext
+            case TEXT_START -> session.events().itemStarted(
+                    turnContext,
+                    UiItemKind.ASSISTANT_TEXT,
+                    event.getItemId(),
+                    event.getContentIndex(),
+                    null
             );
-            case THINKING_END -> session.recordAssistantAndEmit(
-                    session.contextBuilder().assistantThinkingItem(
-                            event.getPartial(),
-                            event.getContent(),
-                            event.getProviderState()
-                    ),
-                    turnContext
+            case THINKING_START -> session.events().itemStarted(
+                    turnContext,
+                    UiItemKind.REASONING,
+                    event.getItemId(),
+                    event.getContentIndex(),
+                    null
             );
+            case TOOLCALL_START -> session.events().itemStarted(
+                    turnContext,
+                    UiItemKind.TOOL_CALL,
+                    event.getItemId(),
+                    event.getContentIndex(),
+                    event.getToolCall()
+            );
+            case TEXT_DELTA -> session.events().assistantTextDelta(
+                    turnContext,
+                    event.getItemId(),
+                    event.getContentIndex(),
+                    event.getDelta()
+            );
+            case THINKING_DELTA -> session.events().reasoningDelta(
+                    turnContext,
+                    event.getItemId(),
+                    event.getContentIndex(),
+                    event.getDelta()
+            );
+            case TOOLCALL_DELTA -> session.events().toolArgumentsDelta(
+                    turnContext,
+                    event.getItemId(),
+                    event.getContentIndex(),
+                    event.getToolCall(),
+                    event.getDelta()
+            );
+            case TEXT_END -> {
+                AssistantMessage assistantItem = session.contextBuilder().assistantTextItem(
+                        event.getPartial(),
+                        event.getContent(),
+                        event.getProviderState()
+                );
+                session.recordAssistant(
+                        assistantItem,
+                        turnContext
+                );
+                session.events().itemCompleted(
+                        turnContext,
+                        UiItemKind.ASSISTANT_TEXT,
+                        event.getItemId(),
+                        event.getContentIndex(),
+                        null,
+                        event.getContent()
+                );
+            }
+            case THINKING_END -> {
+                AssistantMessage assistantItem = session.contextBuilder().assistantThinkingItem(
+                        event.getPartial(),
+                        event.getContent(),
+                        event.getProviderState()
+                );
+                session.recordAssistant(
+                        assistantItem,
+                        turnContext
+                );
+                session.events().itemCompleted(
+                        turnContext,
+                        UiItemKind.REASONING,
+                        event.getItemId(),
+                        event.getContentIndex(),
+                        null,
+                        event.getContent()
+                );
+            }
             case TOOLCALL_END -> {
                 AssistantMessage assistantItem = session.contextBuilder().assistantToolCallItem(
                         event.getPartial(),
                         event.getToolCall(),
                         event.getProviderState()
                 );
-                session.recordAssistantAndEmit(assistantItem, turnContext);
+                session.recordAssistant(assistantItem, turnContext);
+                session.events().toolArgumentsDone(
+                        turnContext,
+                        event.getItemId(),
+                        event.getContentIndex(),
+                        event.getToolCall()
+                );
+                session.events().itemCompleted(
+                        turnContext,
+                        UiItemKind.TOOL_CALL,
+                        event.getItemId(),
+                        event.getContentIndex(),
+                        event.getToolCall(),
+                        event.getToolCall() == null ? null : event.getToolCall().getArgumentsJson()
+                );
                 toolScope.fork(assistantItem, event.getToolCall());
             }
+            case ERROR -> session.events().error(
+                    turnContext,
+                    streamErrorMessage(event)
+            );
             default -> {
             }
         }
+    }
+
+    private String streamErrorMessage(AssistantStreamEvent event) {
+        if (event == null) {
+            return "Model stream failed.";
+        }
+        if (event.getError() != null
+                && event.getError().getErrorMessage() != null
+                && !event.getError().getErrorMessage().isBlank()) {
+            return event.getError().getErrorMessage();
+        }
+        if (event.getReason() != null && !event.getReason().isBlank()) {
+            return event.getReason();
+        }
+        return "Model stream failed.";
     }
 
     private void recordToolOutcomes(
@@ -179,7 +274,7 @@ public class RegularTask implements SessionTask {
                 continue;
             }
             ToolResultMessage result = session.toolResultMessage(outcome.toolCall(), outcome.executionResult());
-            session.recordToolResultAndEmit(outcome.toolCall(), result, turnContext);
+            session.recordToolResult(outcome.toolCall(), result, turnContext);
         }
     }
 
@@ -222,9 +317,9 @@ public class RegularTask implements SessionTask {
             return;
         }
 
-        session.recordUserMessageAndEmit(materializedInput.userMessage(), turnContext);
+        session.recordUserMessage(materializedInput.userMessage(), turnContext);
         materializedInput.contextMessages()
-                .forEach(contextMessage -> session.recordContextMessageAndEmit(contextMessage, turnContext));
+                .forEach(contextMessage -> session.recordContextMessage(contextMessage, turnContext));
     }
 
     private void recordSkillInjections(
@@ -239,7 +334,7 @@ public class RegularTask implements SessionTask {
         List<SkillInjection> injections = session.skillsManager()
                 .resolveSkillInjections(materializedInput.turnInput(), turnSkills);
         for (SkillInjection injection : injections) {
-            session.recordContextMessageAndEmit(session.contextBuilder().skillContextMessage(injection), turnContext);
+            session.recordContextMessage(session.contextBuilder().skillContextMessage(injection), turnContext);
         }
     }
 

@@ -14,8 +14,6 @@ import io.github.lingjiuu.context.InitialContextSnapshot;
 import io.github.lingjiuu.event.EventManager;
 import io.github.lingjiuu.event.EventSink;
 import io.github.lingjiuu.event.EventSubscription;
-import io.github.lingjiuu.event.UiEvent;
-import io.github.lingjiuu.event.UiEventType;
 import io.github.lingjiuu.input.InputMaterializer;
 import io.github.lingjiuu.input.MaterializedInput;
 import io.github.lingjiuu.input.TurnInput;
@@ -28,13 +26,13 @@ import io.github.lingjiuu.llm.TokenUsageInfo;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
-import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.prompt.Prompt;
 import io.github.lingjiuu.prompt.PromptBuilder;
+import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.recording.MessageRecorder;
 import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.skill.SkillsManager;
@@ -66,7 +64,7 @@ public class Session implements AutoCloseable {
     private final ContextManager contextManager;
     private final ContextBuilder contextBuilder = new ContextBuilder();
     private final MessageRecorder recorder;
-    private final EventManager eventManager = new EventManager();
+    private final EventManager eventManager;
     private final PromptBuilder promptBuilder = new PromptBuilder();
     private final ToolRegistry toolRegistry;
     private final ToolRunner toolRunner;
@@ -87,7 +85,9 @@ public class Session implements AutoCloseable {
             SessionMetaItem sessionMeta,
             boolean recordSessionMeta,
             InitialContextSnapshot initialContextBaseline,
-            SkillsManager skillsManager
+            SkillsManager skillsManager,
+            List<UiEvent> initialTimelineEvents,
+            long initialEventSequence
     ) {
         if (config == null) {
             throw new IllegalArgumentException("config must not be null");
@@ -109,6 +109,7 @@ public class Session implements AutoCloseable {
                 contextManager,
                 transcriptRecorder
         );
+        this.eventManager = new EventManager(transcriptRecorder, initialTimelineEvents, initialEventSequence);
         if (recordSessionMeta && transcriptRecorder != null) {
             transcriptRecorder.recordSessionMeta(sessionMeta);
         }
@@ -161,14 +162,12 @@ public class Session implements AutoCloseable {
 
     public synchronized void reset() {
         ensureIdle();
-        recorder.clear();
+        int originalMessageCount = contextManager.snapshot().size();
+        recorder.recordCompaction("session reset", List.of(), 0, originalMessageCount, 0);
         state.clearTokenUsage();
         clearInitialContextBaseline();
         state.touch();
-        eventManager.emit(UiEvent.builder()
-                .type(UiEventType.SESSION_RESET)
-                .sessionId(sessionId())
-                .build());
+        eventManager.sessionReset(sessionId());
     }
 
     public synchronized void registerTool(ToolDefinition definition) {
@@ -210,6 +209,10 @@ public class Session implements AutoCloseable {
         return contextManager.snapshot();
     }
 
+    public List<UiEvent> timelineEvents() {
+        return eventManager.timelineEvents();
+    }
+
     public void abort() {
         cancelRunningTask();
     }
@@ -218,40 +221,50 @@ public class Session implements AutoCloseable {
         return taskRunner.cancelRunningTask();
     }
 
-    public synchronized void waitForIdle() {
-        while (state.status() == SessionStatus.RUNNING) {
-            try {
-                wait();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Interrupted while waiting for session to become idle.", e);
+    public void waitForIdle() {
+        synchronized (this) {
+            while (state.status() == SessionStatus.RUNNING) {
+                try {
+                    wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while waiting for session to become idle.", e);
+                }
             }
         }
+        eventManager.flush();
     }
 
-    public synchronized boolean waitForIdle(Duration timeout) {
+    public boolean waitForIdle(Duration timeout) {
         if (timeout == null) {
             waitForIdle();
             return true;
         }
         long deadline = System.nanoTime() + timeout.toNanos();
-        while (state.status() == SessionStatus.RUNNING) {
-            long remainingNanos = deadline - System.nanoTime();
-            if (remainingNanos <= 0) {
-                return false;
-            }
-            try {
-                wait(Math.max(1L, remainingNanos / 1_000_000L));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Interrupted while waiting for session to become idle.", e);
+        synchronized (this) {
+            while (state.status() == SessionStatus.RUNNING) {
+                long remainingNanos = deadline - System.nanoTime();
+                if (remainingNanos <= 0) {
+                    return false;
+                }
+                try {
+                    wait(Math.max(1L, remainingNanos / 1_000_000L));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while waiting for session to become idle.", e);
+                }
             }
         }
+        eventManager.flush();
         return true;
     }
 
     public EventSubscription subscribe(EventSink sink) {
         return eventManager.subscribe(sink);
+    }
+
+    public EventManager events() {
+        return eventManager;
     }
 
     public SessionConfig config() {
@@ -346,78 +359,41 @@ public class Session implements AutoCloseable {
     public void markContextWindowFull(TurnContext turnContext) {
         state.setTokenUsageFull(modelContextWindowTokens());
         if (turnContext != null) {
-            emit(UiEvent.builder()
-                    .type(UiEventType.TOKEN_USAGE)
-                    .sessionId(turnContext.sessionId())
-                    .turn(turnContext.turn())
-                    .tokenUsageInfo(tokenUsageInfo())
-                    .contextTokenUsage(currentContextTokenUsage())
-                    .autoCompactTokenLimit(autoCompactTokenLimit())
-                    .build());
+            eventManager.tokenUsage(turnContext, tokenUsageInfo(), currentContextTokenUsage(), autoCompactTokenLimit());
         }
     }
 
     public void recomputeTokenUsageFromHistory(TurnContext turnContext) {
         recomputeTokenUsageFromHistory();
         if (turnContext != null) {
-            emit(UiEvent.builder()
-                    .type(UiEventType.TOKEN_USAGE)
-                    .sessionId(turnContext.sessionId())
-                    .turn(turnContext.turn())
-                    .tokenUsageInfo(tokenUsageInfo())
-                    .contextTokenUsage(currentContextTokenUsage())
-                    .autoCompactTokenLimit(autoCompactTokenLimit())
-                    .build());
+            eventManager.tokenUsage(turnContext, tokenUsageInfo(), currentContextTokenUsage(), autoCompactTokenLimit());
         }
     }
 
-    public void emit(UiEvent event) {
-        eventManager.emit(event);
-    }
-
-    public void recordUserMessageAndEmit(UserMessage userMessage, TurnContext turnContext) {
+    public void recordUserMessage(UserMessage userMessage, TurnContext turnContext) {
         if (userMessage == null) {
             return;
         }
         recorder.record(userMessage, turnContext.turn());
-        emit(UiEvent.builder()
-                .type(UiEventType.USER_MESSAGE)
-                .sessionId(turnContext.sessionId())
-                .turn(turnContext.turn())
-                .userMessage(userMessage)
-                .text(MessageContents.text(userMessage))
-                .build());
+        eventManager.userMessage(userMessage, turnContext);
     }
 
-    public void recordContextMessageAndEmit(ContextMessage contextMessage, TurnContext turnContext) {
+    public void recordContextMessage(ContextMessage contextMessage, TurnContext turnContext) {
         if (contextMessage == null) {
             return;
         }
         recorder.record(contextMessage, turnContext.turn());
-        emit(UiEvent.builder()
-                .type(UiEventType.CONTEXT_MESSAGE)
-                .sessionId(turnContext.sessionId())
-                .turn(turnContext.turn())
-                .contextMessage(contextMessage)
-                .text(MessageContents.text(contextMessage))
-                .build());
+        eventManager.contextMessage(contextMessage, turnContext);
     }
 
-    public void recordAssistantAndEmit(AssistantMessage assistantMessage, TurnContext turnContext) {
+    public void recordAssistant(AssistantMessage assistantMessage, TurnContext turnContext) {
         if (assistantMessage == null) {
             return;
         }
         recorder.record(assistantMessage, turnContext.turn());
-        emit(UiEvent.builder()
-                .type(UiEventType.ASSISTANT_MESSAGE)
-                .sessionId(turnContext.sessionId())
-                .turn(turnContext.turn())
-                .assistantMessage(assistantMessage)
-                .text(MessageContents.text(assistantMessage))
-                .build());
     }
 
-    public void recordToolResultAndEmit(
+    public void recordToolResult(
             ToolCallContent toolCall,
             ToolResultMessage toolResult,
             TurnContext turnContext
@@ -426,70 +402,26 @@ public class Session implements AutoCloseable {
             return;
         }
         recorder.record(toolResult, turnContext.turn());
-        String resultText = MessageContents.text(toolResult);
-        emit(UiEvent.builder()
-                .type(UiEventType.TOOL_EXECUTION_FINISHED)
-                .sessionId(turnContext.sessionId())
-                .turn(turnContext.turn())
-                .toolCall(toolCall)
-                .toolResult(toolResult)
-                .text(resultText)
-                .build());
-        emit(UiEvent.builder()
-                .type(UiEventType.TOOL_RESULT)
-                .sessionId(turnContext.sessionId())
-                .turn(turnContext.turn())
-                .toolResult(toolResult)
-                .text(resultText)
-                .build());
+        eventManager.toolExecutionFinished(toolCall, toolResult, turnContext);
+        eventManager.toolResult(toolCall, toolResult, turnContext);
     }
 
     public ToolResultMessage toolResultMessage(ToolCallContent toolCall, ToolExecutionResult result) {
         return contextBuilder.toolResultMessage(toolCall, result);
     }
 
-    public void emitFinalAnswer(AssistantMessage assistantMessage, TurnContext turnContext) {
-        emit(UiEvent.builder()
-                .type(UiEventType.FINAL_ANSWER)
-                .sessionId(turnContext.sessionId())
-                .turn(turnContext.turn())
-                .assistantMessage(assistantMessage)
-                .text(MessageContents.text(assistantMessage))
-                .build());
-    }
-
-    public void emitError(TurnContext turnContext, String message) {
-        emit(UiEvent.builder()
-                .type(UiEventType.ERROR)
-                .sessionId(turnContext.sessionId())
-                .turn(turnContext.turn())
-                .errorMessage(message)
-                .build());
-    }
-
     public ApprovalResponse requestApproval(ApprovalRequest request, TurnContext turnContext) {
         if (request == null) {
             return null;
         }
-        emit(UiEvent.builder()
-                .type(UiEventType.APPROVAL_REQUESTED)
-                .sessionId(turnContext.sessionId())
-                .turn(turnContext.turn())
-                .approvalRequest(request)
-                .build());
+        eventManager.approvalRequested(request, turnContext);
 
         ApprovalResponse response = approvalHandler.requestApproval(request);
         if (response == null || !request.id().equals(response.id())) {
             response = ApprovalResponse.deny(request.id(), "Approval response did not match the request.");
         }
 
-        emit(UiEvent.builder()
-                .type(UiEventType.APPROVAL_RESOLVED)
-                .sessionId(turnContext.sessionId())
-                .turn(turnContext.turn())
-                .approvalRequest(request)
-                .approvalResponse(response)
-                .build());
+        eventManager.approvalResolved(request, response, turnContext);
         return response;
     }
 
@@ -497,7 +429,7 @@ public class Session implements AutoCloseable {
         InitialContextSnapshot previous = state.initialContextBaseline();
         InitialContextSnapshot current = contextBuilder.initialContextSnapshot(config, turnContext);
         contextBuilder.initialContextMessages(previous, current)
-                .forEach(message -> recordContextMessageAndEmit(message, turnContext));
+                .forEach(message -> recordContextMessage(message, turnContext));
         state.setInitialContextBaseline(current);
         recordTurnContextBaseline(turnContext, current);
     }
@@ -558,7 +490,6 @@ public class Session implements AutoCloseable {
             try {
                 assistantMessage = stream.consume(event -> {
                     if (!token.isCancellationRequested()) {
-                        emit(mapStreamEvent(event, turnContext));
                         if (itemConsumer != null) {
                             itemConsumer.accept(event);
                         }
@@ -605,8 +536,13 @@ public class Session implements AutoCloseable {
     @Override
     public void close() {
         cancelRunningTask();
-        if (skillsWatcher != null) {
-            skillsWatcher.close();
+        try {
+            waitForIdle(Duration.ofSeconds(5));
+        } finally {
+            if (skillsWatcher != null) {
+                skillsWatcher.close();
+            }
+            eventManager.close();
         }
     }
 
@@ -628,11 +564,7 @@ public class Session implements AutoCloseable {
         }
         TurnContext turnContext = new TurnContext(TurnId.create(), sessionId(), turn, config.cwd());
 
-        eventManager.emit(UiEvent.builder()
-                .type(UiEventType.RUN_STARTED)
-                .sessionId(sessionId())
-                .turn(turn)
-                .build());
+        eventManager.runStarted(sessionId(), turn);
         try {
             RunningTask runningTask = taskRunner.start(
                     cancellationSource,
@@ -643,17 +575,8 @@ public class Session implements AutoCloseable {
                 throw new IllegalStateException("Failed to start session task.");
             }
         } catch (RuntimeException e) {
-            eventManager.emit(UiEvent.builder()
-                    .type(UiEventType.ERROR)
-                    .sessionId(sessionId())
-                    .turn(turn)
-                    .errorMessage(e.getMessage())
-                    .build());
-            eventManager.emit(UiEvent.builder()
-                    .type(UiEventType.RUN_FINISHED)
-                    .sessionId(sessionId())
-                    .turn(turn)
-                    .build());
+            eventManager.error(sessionId(), turn, e.getMessage());
+            eventManager.runFinished(sessionId(), turn);
             synchronized (this) {
                 state.markIdle();
                 notifyAll();
@@ -673,12 +596,7 @@ public class Session implements AutoCloseable {
             task.run(context);
         } catch (RuntimeException e) {
             if (!cancellationSource.token().isCancellationRequested()) {
-                eventManager.emit(UiEvent.builder()
-                        .type(UiEventType.ERROR)
-                        .sessionId(sessionId())
-                        .turn(turnContext.turn())
-                        .errorMessage(e.getMessage())
-                        .build());
+                eventManager.error(turnContext, e.getMessage());
             }
         } finally {
             boolean cancelled = cancellationSource.token().isCancellationRequested();
@@ -686,25 +604,16 @@ public class Session implements AutoCloseable {
                 try {
                     recordInterruptedTurn(turnContext);
                 } catch (RuntimeException e) {
-                    eventManager.emit(UiEvent.builder()
-                            .type(UiEventType.ERROR)
-                            .sessionId(sessionId())
-                            .turn(turnContext.turn())
-                            .errorMessage("Failed to record interrupted turn: " + e.getMessage())
-                            .build());
+                    eventManager.error(turnContext, "Failed to record interrupted turn: " + e.getMessage());
                 }
             }
-            eventManager.emit(UiEvent.builder()
-                    .type(cancelled ? UiEventType.TURN_ABORTED : UiEventType.RUN_FINISHED)
-                    .sessionId(sessionId())
-                    .turn(turnContext.turn())
-                    .build());
             if (cancelled) {
-                eventManager.emit(UiEvent.builder()
-                        .type(UiEventType.RUN_FINISHED)
-                        .sessionId(sessionId())
-                        .turn(turnContext.turn())
-                        .build());
+                eventManager.turnAborted(turnContext);
+            } else {
+                eventManager.runFinished(sessionId(), turnContext.turn());
+            }
+            if (cancelled) {
+                eventManager.runFinished(sessionId(), turnContext.turn());
             }
             synchronized (this) {
                 state.markIdle();
@@ -714,7 +623,7 @@ public class Session implements AutoCloseable {
     }
 
     private void recordInterruptedTurn(TurnContext turnContext) {
-        recordContextMessageAndEmit(contextBuilder.interruptedTurnMessage(), turnContext);
+        recordContextMessage(contextBuilder.interruptedTurnMessage(), turnContext);
     }
 
     private SkillsWatcher startSkillsWatcher() {
@@ -728,11 +637,7 @@ public class Session implements AutoCloseable {
     }
 
     private void emitSkillsChanged(int availableSkillCount) {
-        eventManager.emit(UiEvent.builder()
-                .type(UiEventType.SKILLS_CHANGED)
-                .sessionId(sessionId())
-                .text("available skills=" + availableSkillCount)
-                .build());
+        eventManager.skillsChanged(sessionId(), availableSkillCount);
     }
 
     private TaskContext taskContext(
@@ -760,14 +665,7 @@ public class Session implements AutoCloseable {
         }
         state.updateTokenUsage(usage, modelContextWindowTokens());
         if (turnContext != null) {
-            emit(UiEvent.builder()
-                    .type(UiEventType.TOKEN_USAGE)
-                    .sessionId(turnContext.sessionId())
-                    .turn(turnContext.turn())
-                    .tokenUsageInfo(tokenUsageInfo())
-                    .contextTokenUsage(currentContextTokenUsage())
-                    .autoCompactTokenLimit(autoCompactTokenLimit())
-                    .build());
+            eventManager.tokenUsage(turnContext, tokenUsageInfo(), currentContextTokenUsage(), autoCompactTokenLimit());
         }
     }
 
@@ -786,28 +684,6 @@ public class Session implements AutoCloseable {
     private Long autoCompactTokenLimit() {
         LlmModel model = config.model();
         return model == null ? null : model.resolvedAutoCompactTokenLimit();
-    }
-
-    private UiEvent mapStreamEvent(AssistantStreamEvent event, TurnContext turnContext) {
-        if (event == null || event.getType() == null) {
-            return null;
-        }
-        UiEventType type = switch (event.getType()) {
-            case TEXT_DELTA -> UiEventType.ASSISTANT_TEXT_DELTA;
-            case THINKING_DELTA -> UiEventType.REASONING_DELTA;
-            case ERROR -> UiEventType.ERROR;
-            default -> null;
-        };
-        if (type == null) {
-            return null;
-        }
-        return UiEvent.builder()
-                .type(type)
-                .sessionId(turnContext.sessionId())
-                .turn(turnContext.turn())
-                .delta(event.getDelta())
-                .errorMessage(event.getReason())
-                .build();
     }
 
     private AssistantMessage abortedMessage() {

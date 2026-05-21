@@ -154,6 +154,8 @@ public class SessionFactory {
                 .sessionId(sessionId)
                 .initialMessages(reconstruction.messages())
                 .initialContextBaseline(reconstruction.initialContextBaseline())
+                .initialTimelineEvents(reconstruction.timelineEvents())
+                .initialEventSequence(reconstruction.lastEventSequence())
                 .lastTranscriptRecordId(reconstruction.lastRecordId())
                 .recordSessionMeta(false)
                 .skillsManager(skillsManager)

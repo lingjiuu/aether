@@ -1,10 +1,17 @@
 package io.github.lingjiuu.cli;
 
 import io.github.lingjiuu.event.EventSink;
-import io.github.lingjiuu.event.UiEvent;
-import io.github.lingjiuu.message.MessageContents;
+import io.github.lingjiuu.protocol.UiEvent;
+import io.github.lingjiuu.protocol.UiEventPayload;
+import io.github.lingjiuu.protocol.UiEventPayloads;
+import io.github.lingjiuu.protocol.UiItem;
+import io.github.lingjiuu.protocol.UiItemBodies;
+import io.github.lingjiuu.protocol.UiToolCall;
+import io.github.lingjiuu.protocol.UiToolResult;
 
 public class ConsoleRenderer implements EventSink {
+
+    private boolean assistantTextLineOpen;
 
     @Override
     public void onEvent(UiEvent event) {
@@ -12,55 +19,62 @@ public class ConsoleRenderer implements EventSink {
             return;
         }
 
+        if (event.getType() != io.github.lingjiuu.protocol.UiEventType.ASSISTANT_TEXT_DELTA) {
+            finishAssistantTextLine();
+        }
         switch (event.getType()) {
             case RUN_STARTED -> {
                 System.out.println("[SESSION] id=" + event.getSessionId());
                 System.out.println("[AGENT] run start");
             }
             case USER_MESSAGE -> {
-                System.out.println("[USER] " + event.getText());
-                System.out.println("[STATE] history+ user");
+                System.out.println("[USER] " + text(event));
             }
             case TURN_STARTED -> {
                 System.out.println();
                 System.out.println("[AGENT] turn " + event.getTurn() + " start");
             }
+            case ITEM_STARTED -> {
+            }
+            case ITEM_COMPLETED -> {
+            }
             case ASSISTANT_TEXT_DELTA -> {
-                if (event.getDelta() != null) {
-                    System.out.print(event.getDelta());
+                String delta = delta(event);
+                if (delta != null) {
+                    printAssistantDelta(delta);
                 }
             }
             case REASONING_DELTA -> {
             }
-            case TOKEN_USAGE -> {
-                if (event.getContextTokenUsage() != null) {
-                    String limit = event.getAutoCompactTokenLimit() == null
-                            ? "off"
-                            : event.getAutoCompactTokenLimit().toString();
-                    System.out.println("[TOKENS] context=" + event.getContextTokenUsage() + " auto_compact_at=" + limit);
-                }
+            case TOOL_CALL_ARGUMENTS_DELTA -> {
             }
-            case ASSISTANT_MESSAGE -> {
-                System.out.println();
-                if (event.getAssistantMessage() != null && event.getAssistantMessage().getStopReason() != null) {
-                    System.out.println("[LLM] stop_reason=" + event.getAssistantMessage().getStopReason());
+            case TOOL_CALL_ARGUMENTS_DONE -> {
+            }
+            case TOKEN_USAGE -> {
+                if (event.getPayload() instanceof UiEventPayloads.TokenUsage tokenUsagePayload
+                        && tokenUsagePayload.tokenUsage() != null
+                        && tokenUsagePayload.tokenUsage().getContextTokenUsage() != null) {
+                    String limit = tokenUsagePayload.tokenUsage().getAutoCompactTokenLimit() == null
+                            ? "off"
+                            : tokenUsagePayload.tokenUsage().getAutoCompactTokenLimit().toString();
+                    System.out.println("[TOKENS] context="
+                            + tokenUsagePayload.tokenUsage().getContextTokenUsage()
+                            + " auto_compact_at="
+                            + limit);
                 }
-                String thinking = event.getAssistantMessage() == null ? "" : MessageContents.thinking(event.getAssistantMessage());
-                if (!thinking.isBlank()) {
-                    System.out.println("[REASONING] summary=" + thinking);
-                }
-                System.out.println("[STATE] history+ assistant");
             }
             case TOOL_CALL -> {
-                if (event.getToolCall() != null) {
-                    System.out.println("[TOOL] call_id=" + event.getToolCall().getToolCallId());
-                    System.out.println("[TOOL] " + event.getToolCall().getToolName()
-                            + " " + event.getToolCall().getArgumentsJson());
+                UiToolCall toolCall = toolCall(event);
+                if (toolCall != null) {
+                    System.out.println("[TOOL] call_id=" + toolCall.getToolCallId());
+                    System.out.println("[TOOL] " + toolCall.getToolName()
+                            + " " + toolCall.getArgumentsJson());
                 }
             }
             case TOOL_EXECUTION_STARTED -> {
-                if (event.getToolCall() != null) {
-                    System.out.println("[TOOL] executing " + event.getToolCall().getToolName());
+                UiToolCall toolCall = toolCall(event);
+                if (toolCall != null) {
+                    System.out.println("[TOOL] executing " + toolCall.getToolName());
                 }
             }
             case TOOL_EXECUTION_UPDATE -> {
@@ -68,81 +82,188 @@ public class ConsoleRenderer implements EventSink {
             case TOOL_EXECUTION_FINISHED -> {
             }
             case TOOL_RESULT -> {
-                if (event.getToolResult() != null) {
-                    System.out.println("[TOOL] result=" + MessageContents.text(event.getToolResult()));
+                UiToolResult toolResult = toolResult(event);
+                if (toolResult != null) {
+                    System.out.println("[TOOL] result=" + toolResult.getText());
                 }
-                System.out.println("[STATE] history+ tool_result");
             }
             case APPROVAL_REQUESTED -> {
-                if (event.getApprovalRequest() != null) {
-                    System.out.println("[APPROVAL] requested for " + event.getApprovalRequest().toolName());
-                    System.out.println("[APPROVAL] risk=" + event.getApprovalRequest().riskLevel());
-                    if (event.getApprovalRequest().reason() != null
-                            && !event.getApprovalRequest().reason().isBlank()) {
-                        System.out.println("[APPROVAL] reason=" + event.getApprovalRequest().reason());
+                if (event.getPayload() instanceof UiEventPayloads.Approval approval
+                        && approval.request() != null) {
+                    System.out.println("[APPROVAL] requested for " + approval.request().getToolName());
+                    System.out.println("[APPROVAL] risk=" + approval.request().getRiskLevel());
+                    if (approval.request().getReason() != null
+                            && !approval.request().getReason().isBlank()) {
+                        System.out.println("[APPROVAL] reason=" + approval.request().getReason());
                     }
-                    System.out.println("[APPROVAL] args=" + event.getApprovalRequest().arguments());
+                    System.out.println("[APPROVAL] args=" + approval.request().getArguments());
                 }
             }
             case APPROVAL_RESOLVED -> {
-                if (event.getApprovalResponse() != null) {
+                if (event.getPayload() instanceof UiEventPayloads.Approval approval
+                        && approval.response() != null) {
                     System.out.println("[APPROVAL] "
-                            + (event.getApprovalResponse().approved() ? "approved" : "denied"));
-                    if (event.getApprovalResponse().reason() != null
-                            && !event.getApprovalResponse().reason().isBlank()) {
-                        System.out.println("[APPROVAL] reason=" + event.getApprovalResponse().reason());
+                            + (approval.response().isApproved() ? "approved" : "denied"));
+                    if (approval.response().getReason() != null
+                            && !approval.response().getReason().isBlank()) {
+                        System.out.println("[APPROVAL] reason=" + approval.response().getReason());
                     }
                 }
             }
             case CONTEXT_MESSAGE -> {
-                if (event.getText() != null && !event.getText().isBlank()) {
-                    System.out.println("[CONTEXT] " + event.getText());
+                String text = text(event);
+                if (text != null && !text.isBlank()) {
+                    System.out.println("[CONTEXT] " + text);
                 }
             }
             case FINAL_ANSWER -> {
                 System.out.println("[AGENT] final answer");
-                if (event.getText() != null && !event.getText().isBlank()) {
-                    System.out.println("[ASSISTANT] " + event.getText());
-                }
             }
             case TURN_ABORTED -> System.out.println("[AGENT] turn interrupted");
             case COMPACT_STARTED -> {
-                String trigger = event.getText() == null || event.getText().isBlank()
+                UiEventPayloads.Compact compact = compact(event);
+                String trigger = compact == null || compact.text() == null || compact.text().isBlank()
                         ? ""
-                        : " (" + event.getText() + ")";
+                        : " (" + compact.text() + ")";
                 System.out.println("[CONTEXT] compact start" + trigger);
-                if (event.getOriginalMessageCount() != null) {
-                    System.out.println("[CONTEXT] original messages=" + event.getOriginalMessageCount());
+                if (compact != null && compact.originalMessageCount() != null) {
+                    System.out.println("[CONTEXT] original messages=" + compact.originalMessageCount());
                 }
             }
             case COMPACT_FINISHED -> {
+                UiEventPayloads.Compact compact = compact(event);
                 System.out.println("[CONTEXT] compact finished");
-                if (event.getOriginalMessageCount() != null && event.getReplacementMessageCount() != null) {
+                if (compact != null
+                        && compact.originalMessageCount() != null
+                        && compact.replacementMessageCount() != null) {
                     System.out.println("[CONTEXT] messages "
-                            + event.getOriginalMessageCount()
+                            + compact.originalMessageCount()
                             + " -> "
-                            + event.getReplacementMessageCount());
+                            + compact.replacementMessageCount());
                 }
             }
             case COMPACT_SKIPPED -> {
+                UiEventPayloads.Compact compact = compact(event);
                 System.out.println("[CONTEXT] compact skipped");
-                if (event.getText() != null && !event.getText().isBlank()) {
-                    System.out.println("[CONTEXT] " + event.getText());
+                if (compact != null && compact.text() != null && !compact.text().isBlank()) {
+                    System.out.println("[CONTEXT] " + compact.text());
                 }
             }
             case RUN_FINISHED -> System.out.println("[AGENT] run end");
             case SESSION_RESET -> System.out.println("[SESSION] reset");
             case SKILLS_CHANGED -> {
-                String text = event.getText() == null || event.getText().isBlank()
+                String text = text(event);
+                text = text == null || text.isBlank()
                         ? "skills changed"
-                        : event.getText();
+                        : text;
                 System.out.println("[SKILLS] " + text);
             }
             case ERROR -> {
-                if (event.getErrorMessage() != null && !event.getErrorMessage().isBlank()) {
-                    System.out.println("[ERROR] " + event.getErrorMessage());
+                if (event.getPayload() instanceof UiEventPayloads.Error error
+                        && error.message() != null
+                        && !error.message().isBlank()) {
+                    System.out.println("[ERROR] " + error.message());
                 }
             }
         }
+    }
+
+    private void printAssistantDelta(String delta) {
+        if (delta.isEmpty()) {
+            return;
+        }
+        System.out.print(delta);
+        assistantTextLineOpen = !delta.endsWith("\n");
+    }
+
+    private void finishAssistantTextLine() {
+        if (assistantTextLineOpen) {
+            System.out.println();
+            assistantTextLineOpen = false;
+        }
+    }
+
+    private String text(UiEvent event) {
+        UiEventPayload payload = event.getPayload();
+        if (payload instanceof UiEventPayloads.Text text) {
+            return text.text();
+        }
+        if (payload instanceof UiEventPayloads.UserMessage userMessage) {
+            return itemText(userMessage.item());
+        }
+        if (payload instanceof UiEventPayloads.ContextMessage contextMessage) {
+            return itemText(contextMessage.item());
+        }
+        if (payload instanceof UiEventPayloads.ItemCompleted itemCompleted) {
+            return itemText(itemCompleted.item());
+        }
+        return null;
+    }
+
+    private String delta(UiEvent event) {
+        UiEventPayload payload = event.getPayload();
+        if (payload instanceof UiEventPayloads.TextDelta textDelta) {
+            return textDelta.delta();
+        }
+        if (payload instanceof UiEventPayloads.ToolArgumentsDelta toolDelta) {
+            return toolDelta.delta();
+        }
+        return null;
+    }
+
+    private UiToolCall toolCall(UiEvent event) {
+        UiEventPayload payload = event.getPayload();
+        if (payload instanceof UiEventPayloads.ToolCall toolCall) {
+            return toolCall.toolCall();
+        }
+        if (payload instanceof UiEventPayloads.ToolExecution toolExecution) {
+            return toolExecution.toolCall();
+        }
+        if (payload instanceof UiEventPayloads.ToolArgumentsDelta toolDelta) {
+            return toolDelta.toolCall();
+        }
+        if (payload instanceof UiEventPayloads.ToolArgumentsDone toolDone) {
+            return itemToolCall(toolDone.item());
+        }
+        if (payload instanceof UiEventPayloads.ItemCompleted itemCompleted) {
+            return itemToolCall(itemCompleted.item());
+        }
+        return null;
+    }
+
+    private UiToolResult toolResult(UiEvent event) {
+        UiEventPayload payload = event.getPayload();
+        if (payload instanceof UiEventPayloads.ToolResult toolResult) {
+            return itemToolResult(toolResult.item());
+        }
+        if (payload instanceof UiEventPayloads.ToolExecution toolExecution) {
+            return toolExecution.toolResult();
+        }
+        return null;
+    }
+
+    private UiEventPayloads.Compact compact(UiEvent event) {
+        return event.getPayload() instanceof UiEventPayloads.Compact compact ? compact : null;
+    }
+
+    private String itemText(UiItem item) {
+        if (item != null && item.getBody() instanceof UiItemBodies.Text text) {
+            return text.text();
+        }
+        return null;
+    }
+
+    private UiToolCall itemToolCall(UiItem item) {
+        if (item != null && item.getBody() instanceof UiItemBodies.ToolCall toolCall) {
+            return toolCall.toolCall();
+        }
+        return null;
+    }
+
+    private UiToolResult itemToolResult(UiItem item) {
+        if (item != null && item.getBody() instanceof UiItemBodies.ToolResult toolResult) {
+            return toolResult.toolResult();
+        }
+        return null;
     }
 }

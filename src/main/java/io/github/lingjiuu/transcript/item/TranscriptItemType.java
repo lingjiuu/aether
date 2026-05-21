@@ -4,5 +4,6 @@ public enum TranscriptItemType {
     SESSION_META,
     MESSAGE,
     COMPACTED,
-    TURN_CONTEXT
+    TURN_CONTEXT,
+    EVENT
 }

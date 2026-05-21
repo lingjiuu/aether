@@ -2,6 +2,7 @@ package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.context.InitialContextSnapshot;
 import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.skill.SkillsManager;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
@@ -21,6 +22,8 @@ public class SessionBuilder {
     private boolean recordSessionMeta;
     private InitialContextSnapshot initialContextBaseline;
     private SkillsManager skillsManager;
+    private List<UiEvent> initialTimelineEvents = List.of();
+    private long initialEventSequence;
 
     public SessionBuilder config(SessionConfig config) {
         this.config = config;
@@ -67,6 +70,16 @@ public class SessionBuilder {
         return this;
     }
 
+    public SessionBuilder initialTimelineEvents(List<UiEvent> initialTimelineEvents) {
+        this.initialTimelineEvents = initialTimelineEvents == null ? List.of() : List.copyOf(initialTimelineEvents);
+        return this;
+    }
+
+    public SessionBuilder initialEventSequence(long initialEventSequence) {
+        this.initialEventSequence = Math.max(0, initialEventSequence);
+        return this;
+    }
+
     public Session build() {
         if (config == null) {
             throw new IllegalStateException("session config must be provided.");
@@ -84,7 +97,9 @@ public class SessionBuilder {
                 sessionMeta,
                 recordSessionMeta,
                 initialContextBaseline,
-                skillsManager
+                skillsManager,
+                initialTimelineEvents,
+                initialEventSequence
         );
     }
 }

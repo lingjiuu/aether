@@ -2,7 +2,9 @@ package io.github.lingjiuu.transcript;
 
 import io.github.lingjiuu.context.InitialContextSnapshot;
 import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.transcript.item.CompactedTranscriptItem;
+import io.github.lingjiuu.transcript.item.EventTranscriptItem;
 import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
 import io.github.lingjiuu.transcript.item.TranscriptItem;
@@ -35,12 +37,15 @@ public class TranscriptRestorer {
         }
 
         ReconstructionState state = reconstructFromLatestCheckpoint(records);
+        List<UiEvent> timelineEvents = timelineEvents(records);
         String lastRecordId = records.isEmpty() ? null : records.getLast().getId();
         return new TranscriptReconstruction(
                 sessionId,
                 sessionMeta,
                 state.messages(),
                 state.initialContextBaseline(),
+                timelineEvents,
+                lastEventSequence(timelineEvents),
                 lastRecordId
         );
     }
@@ -102,6 +107,29 @@ public class TranscriptRestorer {
             return turnContextItem.getInitialContextBaseline();
         }
         return initialContextBaseline;
+    }
+
+    private List<UiEvent> timelineEvents(List<TranscriptRecord> records) {
+        List<UiEvent> events = new ArrayList<>();
+        for (TranscriptRecord record : records) {
+            if (record == null || record.getItem() == null) {
+                continue;
+            }
+            if (record.getItem() instanceof EventTranscriptItem eventItem && eventItem.getEvent() != null) {
+                events.add(eventItem.getEvent());
+            }
+        }
+        return List.copyOf(events);
+    }
+
+    private long lastEventSequence(List<UiEvent> events) {
+        long lastSequence = 0;
+        for (UiEvent event : events) {
+            if (event != null && event.getSequence() != null) {
+                lastSequence = Math.max(lastSequence, event.getSequence());
+            }
+        }
+        return lastSequence;
     }
 
     private record ReconstructionState(

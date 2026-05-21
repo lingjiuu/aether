@@ -6,8 +6,11 @@ import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.transcript.item.CompactedTranscriptItem;
+import io.github.lingjiuu.transcript.item.EventTranscriptItem;
 import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
 import io.github.lingjiuu.transcript.item.TurnContextItem;
+import io.github.lingjiuu.protocol.UiEvent;
+import io.github.lingjiuu.protocol.UiEventType;
 import junit.framework.TestCase;
 
 import java.nio.file.Files;
@@ -53,6 +56,24 @@ public class TranscriptRestorerTest extends TestCase {
         assertNull(reconstruction.initialContextBaseline());
     }
 
+    public void testRestoreReturnsTimelineEventsWithoutAffectingMessages() throws Exception {
+        String sessionId = UUID.randomUUID().toString();
+        TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-transcript-test"));
+
+        append(store, sessionId, eventItem(UiEventType.RUN_STARTED, 10), 1);
+        append(store, sessionId, messageItem("message"), 1);
+        append(store, sessionId, eventItem(UiEventType.RUN_FINISHED, 11), 1);
+
+        TranscriptReconstruction reconstruction = new TranscriptRestorer(store).restore(sessionId);
+
+        assertEquals(1, reconstruction.messages().size());
+        assertEquals("message", MessageContents.text(reconstruction.messages().getFirst()));
+        assertEquals(2, reconstruction.timelineEvents().size());
+        assertEquals(UiEventType.RUN_STARTED, reconstruction.timelineEvents().getFirst().getType());
+        assertEquals(UiEventType.RUN_FINISHED, reconstruction.timelineEvents().getLast().getType());
+        assertEquals(11, reconstruction.lastEventSequence());
+    }
+
     private MessageTranscriptItem messageItem(String text) {
         return MessageTranscriptItem.builder()
                 .message(userMessage(text))
@@ -86,6 +107,16 @@ public class TranscriptRestorerTest extends TestCase {
                 .replacementMessageCount(replacementMessages.size())
                 .preservedUserMessageCount(1)
                 .replacementMessages(List.copyOf(replacementMessages))
+                .build();
+    }
+
+    private EventTranscriptItem eventItem(UiEventType type, long sequence) {
+        return EventTranscriptItem.builder()
+                .event(UiEvent.builder()
+                        .type(type)
+                        .sequence(sequence)
+                        .timestampMs(System.currentTimeMillis())
+                        .build())
                 .build();
     }
 

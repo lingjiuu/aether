@@ -1,8 +1,10 @@
 package io.github.lingjiuu.transcript;
 
 import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.transcript.item.TurnContextItem;
 import io.github.lingjiuu.transcript.item.CompactedTranscriptItem;
+import io.github.lingjiuu.transcript.item.EventTranscriptItem;
 import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
 import io.github.lingjiuu.transcript.item.TranscriptItem;
@@ -51,6 +53,15 @@ public class TranscriptRecorder {
             return null;
         }
         return append(turnContextItem, turnContextItem.getTurn());
+    }
+
+    public synchronized TranscriptRecord recordEvent(UiEvent event) {
+        if (event == null) {
+            return null;
+        }
+        return append(EventTranscriptItem.builder()
+                .event(event)
+                .build(), event.getTurn() == null ? 0 : event.getTurn());
     }
 
     public synchronized TranscriptRecord recordCompaction(

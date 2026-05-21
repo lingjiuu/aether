@@ -16,6 +16,12 @@ public class AssistantStreamEvent {
 
     private Type type;
 
+    private String itemId;
+
+    private String toolCallId;
+
+    private String toolName;
+
     private Integer contentIndex;
 
     private String delta;

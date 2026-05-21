@@ -1,13 +1,16 @@
-package io.github.lingjiuu.event;
+package io.github.lingjiuu.protocol;
 
 public enum UiEventType {
     RUN_STARTED,
     USER_MESSAGE,
     TURN_STARTED,
+    ITEM_STARTED,
+    ITEM_COMPLETED,
     ASSISTANT_TEXT_DELTA,
     REASONING_DELTA,
+    TOOL_CALL_ARGUMENTS_DELTA,
+    TOOL_CALL_ARGUMENTS_DONE,
     TOKEN_USAGE,
-    ASSISTANT_MESSAGE,
     TOOL_CALL,
     TOOL_EXECUTION_STARTED,
     TOOL_EXECUTION_UPDATE,
