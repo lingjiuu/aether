@@ -21,6 +21,10 @@ public interface ToolDefinition {
         return ToolRiskLevel.UNKNOWN;
     }
 
+    default boolean supportsParallelToolCalls() {
+        return riskLevel() == ToolRiskLevel.READ_ONLY;
+    }
+
     default String promptSnippet() {
         return null;
     }

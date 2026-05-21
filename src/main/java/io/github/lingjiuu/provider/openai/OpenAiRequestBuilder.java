@@ -48,7 +48,8 @@ public class OpenAiRequestBuilder {
             builder.reasoning(toOpenAiReasoning(safeOptions.getReasoning()));
         }
 
-        if (request.getTools() != null) {
+        if (request.getTools() != null && !request.getTools().isEmpty()) {
+            builder.parallelToolCalls(true);
             for (ToolDefinition tool : request.getTools()) {
                 if (tool != null) {
                     builder.addTool(toolSchemaBuilder.build(tool));

@@ -248,9 +248,27 @@ public class ContextManager {
     }
 
     private boolean shouldFlushPendingToolResults(Message message) {
-        return message.role() == Message.Role.USER
-                || message.role() == Message.Role.CONTEXT
-                || message.role() == Message.Role.ASSISTANT;
+        if (message.role() == Message.Role.USER || message.role() == Message.Role.CONTEXT) {
+            return true;
+        }
+        if (message instanceof AssistantMessage assistantMessage) {
+            return !isPureToolCallAssistant(assistantMessage);
+        }
+        return false;
+    }
+
+    private boolean isPureToolCallAssistant(AssistantMessage assistantMessage) {
+        if (assistantMessage == null
+                || assistantMessage.messageContents() == null
+                || assistantMessage.messageContents().isEmpty()) {
+            return false;
+        }
+        for (MessageContent content : assistantMessage.messageContents()) {
+            if (!(content instanceof ToolCallContent)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void appendPendingToolResults(

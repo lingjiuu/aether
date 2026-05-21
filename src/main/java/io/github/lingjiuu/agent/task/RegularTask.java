@@ -5,23 +5,15 @@ import io.github.lingjiuu.agent.turn.TurnState;
 import io.github.lingjiuu.event.UiEvent;
 import io.github.lingjiuu.event.UiEventType;
 import io.github.lingjiuu.input.MaterializedInput;
+import io.github.lingjiuu.llm.AssistantStreamEvent;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
-import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
-import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.prompt.Prompt;
 import io.github.lingjiuu.prompt.PromptBuildInput;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.skill.SkillInjection;
-import io.github.lingjiuu.tool.ToolExecutionResult;
-import io.github.lingjiuu.tool.ToolRunResult;
-import io.github.lingjiuu.tool.permission.ApprovalId;
-import io.github.lingjiuu.tool.permission.ApprovalRequest;
-import io.github.lingjiuu.tool.permission.ApprovalResponse;
-import io.github.lingjiuu.tool.permission.PermissionDecision;
-import io.github.lingjiuu.tool.permission.PermissionMode;
 
 import java.util.List;
 
@@ -88,39 +80,43 @@ public class RegularTask implements SessionTask {
                     session.activeTools(),
                     turnSkills
             ));
-            AssistantMessage assistantMessage = session.sampleModel(
-                    context.modelSession(),
-                    prompt,
-                    turnContext,
-                    context.cancellationToken()
-            );
-            if (context.isCancelled() || assistantMessage.getStopReason() == AssistantMessage.StopReason.ABORTED) {
-                return;
-            }
-            if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ERROR) {
-                if (session.isContextWindowExceeded(assistantMessage)
-                        && contextWindowRecoveries < MAX_CONTEXT_WINDOW_RECOVERIES) {
-                    contextWindowRecoveries++;
-                    session.markContextWindowFull(turnContext);
-                    if (compactTask.runInlineAutoCompact(context, "context-window-exceeded")) {
-                        blockedAutoCompactAtOrBelow = -1;
-                        continue;
-                    }
+            try (ToolScope toolScope = ToolScope.open(session, context, turnContext)) {
+                AssistantMessage assistantMessage = session.sampleModelItems(
+                        context.modelSession(),
+                        prompt,
+                        turnContext,
+                        context.cancellationToken(),
+                        event -> handleStreamItem(session, turnContext, toolScope, event)
+                );
+                if (context.isCancelled() || assistantMessage.getStopReason() == AssistantMessage.StopReason.ABORTED) {
+                    return;
                 }
-                session.recordAssistantAndEmit(assistantMessage, turnContext);
-                session.emitError(turnContext, assistantMessage.getErrorMessage());
-                return;
-            }
-            session.recordAssistantAndEmit(assistantMessage, turnContext);
+                if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ERROR) {
+                    if (session.isContextWindowExceeded(assistantMessage)
+                            && contextWindowRecoveries < MAX_CONTEXT_WINDOW_RECOVERIES) {
+                        contextWindowRecoveries++;
+                        session.markContextWindowFull(turnContext);
+                        if (compactTask.runInlineAutoCompact(context, "context-window-exceeded")) {
+                            blockedAutoCompactAtOrBelow = -1;
+                            continue;
+                        }
+                    }
+                    session.recordAssistantAndEmit(assistantMessage, turnContext);
+                    session.emitError(turnContext, assistantMessage.getErrorMessage());
+                    return;
+                }
 
-            List<ToolCallContent> toolCalls = MessageContents.toolCalls(assistantMessage);
-            if (toolCalls.isEmpty()) {
-                session.emitFinalAnswer(assistantMessage, turnContext);
-                return;
-            }
+                if (toolScope.size() == 0) {
+                    session.emitFinalAnswer(assistantMessage, turnContext);
+                    return;
+                }
 
-            state.addToolCalls(toolCalls.size());
-            runToolCalls(session, context, turnContext, assistantMessage, toolCalls);
+                state.addToolCalls(toolScope.size());
+                recordToolOutcomes(session, turnContext, toolScope.drain());
+                if (context.isCancelled() || Thread.currentThread().isInterrupted()) {
+                    return;
+                }
+            }
             autoCompactState = runAutoCompactIfNeeded(
                     session,
                     context,
@@ -129,6 +125,61 @@ public class RegularTask implements SessionTask {
                     blockedAutoCompactAtOrBelow
             );
             blockedAutoCompactAtOrBelow = autoCompactState.blockedAtOrBelow();
+        }
+    }
+
+    private void handleStreamItem(
+            Session session,
+            TurnContext turnContext,
+            ToolScope toolScope,
+            AssistantStreamEvent event
+    ) {
+        if (event == null || event.getType() == null) {
+            return;
+        }
+
+        switch (event.getType()) {
+            case TEXT_END -> session.recordAssistantAndEmit(
+                    session.contextBuilder().assistantTextItem(
+                            event.getPartial(),
+                            event.getContent(),
+                            event.getProviderState()
+                    ),
+                    turnContext
+            );
+            case THINKING_END -> session.recordAssistantAndEmit(
+                    session.contextBuilder().assistantThinkingItem(
+                            event.getPartial(),
+                            event.getContent(),
+                            event.getProviderState()
+                    ),
+                    turnContext
+            );
+            case TOOLCALL_END -> {
+                AssistantMessage assistantItem = session.contextBuilder().assistantToolCallItem(
+                        event.getPartial(),
+                        event.getToolCall(),
+                        event.getProviderState()
+                );
+                session.recordAssistantAndEmit(assistantItem, turnContext);
+                toolScope.fork(assistantItem, event.getToolCall());
+            }
+            default -> {
+            }
+        }
+    }
+
+    private void recordToolOutcomes(
+            Session session,
+            TurnContext turnContext,
+            List<ToolOutcome> outcomes
+    ) {
+        for (ToolOutcome outcome : outcomes) {
+            if (outcome == null) {
+                continue;
+            }
+            ToolResultMessage result = session.toolResultMessage(outcome.toolCall(), outcome.executionResult());
+            session.recordToolResultAndEmit(outcome.toolCall(), result, turnContext);
         }
     }
 
@@ -192,96 +243,4 @@ public class RegularTask implements SessionTask {
         }
     }
 
-    private void runToolCalls(
-            Session session,
-            TaskContext context,
-            TurnContext turnContext,
-            AssistantMessage assistantMessage,
-            List<ToolCallContent> toolCalls
-    ) {
-        for (ToolCallContent toolCall : toolCalls) {
-            if (context.isCancelled()) {
-                return;
-            }
-            session.emit(UiEvent.builder()
-                    .type(UiEventType.TOOL_CALL)
-                    .sessionId(turnContext.sessionId())
-                    .turn(turnContext.turn())
-                    .toolCall(toolCall)
-                    .build());
-            session.emit(UiEvent.builder()
-                    .type(UiEventType.TOOL_EXECUTION_STARTED)
-                    .sessionId(turnContext.sessionId())
-                    .turn(turnContext.turn())
-                    .toolCall(toolCall)
-                    .build());
-
-            ToolRunResult prepared = session.toolRunner().prepare(
-                    assistantMessage,
-                    toolCall,
-                    session.activeToolNames(),
-                    context.cancellationToken(),
-                    null,
-                    partialResult -> session.emit(UiEvent.builder()
-                            .type(UiEventType.TOOL_EXECUTION_UPDATE)
-                            .sessionId(turnContext.sessionId())
-                            .turn(turnContext.turn())
-                            .toolCall(toolCall)
-                            .partialToolResult(partialResult)
-                            .build())
-            );
-            ToolExecutionResult executionResult = runPreparedToolCall(session, turnContext, prepared);
-            if (context.isCancelled()) {
-                return;
-            }
-            ToolResultMessage result = session.toolResultMessage(toolCall, executionResult);
-            session.recordToolResultAndEmit(toolCall, result, turnContext);
-        }
-    }
-
-    private ToolExecutionResult runPreparedToolCall(
-            Session session,
-            TurnContext turnContext,
-            ToolRunResult prepared
-    ) {
-        if (!prepared.ready()) {
-            return prepared.failureResult();
-        }
-
-        PermissionDecision decision = session.permissionManager().decide(prepared.invocation(), prepared.context());
-        if (decision == null || decision.allowed()) {
-            return session.toolRunner().run(prepared);
-        }
-
-        if (decision.mode() == PermissionMode.ASK) {
-            ApprovalResponse response = session.requestApproval(approvalRequest(prepared, decision), turnContext);
-            if (response != null && response.approved()) {
-                return session.toolRunner().run(prepared);
-            }
-            String reason = response == null || response.reason() == null || response.reason().isBlank()
-                    ? "Tool permission was not approved."
-                    : response.reason();
-            String message = "Tool permission denied: " + reason;
-            session.emitError(turnContext, message);
-            return ToolExecutionResult.errorText(message);
-        }
-
-        String reason = decision.reason() == null || decision.reason().isBlank()
-                ? "Tool permission was not granted."
-                : decision.reason();
-        String prefix = "Tool permission denied: ";
-        session.emitError(turnContext, prefix + reason);
-        return ToolExecutionResult.errorText(prefix + reason);
-    }
-
-    private ApprovalRequest approvalRequest(ToolRunResult prepared, PermissionDecision decision) {
-        return new ApprovalRequest(
-                ApprovalId.create(),
-                prepared.invocation().definition().name(),
-                prepared.context().getToolCallId(),
-                prepared.invocation().definition().riskLevel(),
-                prepared.context().getArguments(),
-                decision.reason()
-        );
-    }
 }

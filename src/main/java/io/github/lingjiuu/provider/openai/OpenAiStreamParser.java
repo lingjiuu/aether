@@ -273,11 +273,13 @@ public class OpenAiStreamParser {
                     partial.getContents().set(contentIndex, ThinkingContent.builder()
                             .thinking(thinking)
                             .build());
-                    addReplayItem(replayItems, replayItem(OpenAiReplayData.Type.REASONING, reasoningItem));
+                    OpenAiReplayData.ReplayItem replayItem = replayItem(OpenAiReplayData.Type.REASONING, reasoningItem);
+                    addReplayItem(replayItems, replayItem);
                     return AssistantStreamEvent.builder()
                             .type(AssistantStreamEvent.Type.THINKING_END)
                             .contentIndex(contentIndex)
                             .content(thinking)
+                            .providerState(itemProviderState(partial, replayItem))
                             .partial(copyMessage(partial))
                             .build();
                 }
@@ -291,11 +293,13 @@ public class OpenAiStreamParser {
                     partial.getContents().set(contentIndex, TextContent.builder()
                             .text(text)
                             .build());
-                    addReplayItem(replayItems, replayItem(OpenAiReplayData.Type.OUTPUT_MESSAGE, messageItem));
+                    OpenAiReplayData.ReplayItem replayItem = replayItem(OpenAiReplayData.Type.OUTPUT_MESSAGE, messageItem);
+                    addReplayItem(replayItems, replayItem);
                     return AssistantStreamEvent.builder()
                             .type(AssistantStreamEvent.Type.TEXT_END)
                             .contentIndex(contentIndex)
                             .content(text)
+                            .providerState(itemProviderState(partial, replayItem))
                             .partial(copyMessage(partial))
                             .build();
                 }
@@ -315,11 +319,13 @@ public class OpenAiStreamParser {
                             .build();
                     partial.getContents().set(contentIndex, toolCall);
                     partialToolArguments.remove(itemId);
-                    addReplayItem(replayItems, replayItem(OpenAiReplayData.Type.FUNCTION_CALL, functionCall));
+                    OpenAiReplayData.ReplayItem replayItem = replayItem(OpenAiReplayData.Type.FUNCTION_CALL, functionCall);
+                    addReplayItem(replayItems, replayItem);
                     return AssistantStreamEvent.builder()
                             .type(AssistantStreamEvent.Type.TOOLCALL_END)
                             .contentIndex(contentIndex)
                             .toolCall(copyToolCall(toolCall))
+                            .providerState(itemProviderState(partial, replayItem))
                             .partial(copyMessage(partial))
                             .build();
                 }
@@ -549,6 +555,19 @@ public class OpenAiStreamParser {
             if (replayItem != null) {
                 replayItems.add(replayItem);
             }
+        }
+
+        private OpenAiReplayData itemProviderState(
+                AssistantMessage partial,
+                OpenAiReplayData.ReplayItem replayItem
+        ) {
+            if (replayItem == null) {
+                return null;
+            }
+            return OpenAiReplayData.builder()
+                    .responseId(partial == null ? null : partial.getResponseId())
+                    .items(List.of(replayItem))
+                    .build();
         }
 
         private String sanitizeFunctionCallReplayJson(String json) throws Exception {

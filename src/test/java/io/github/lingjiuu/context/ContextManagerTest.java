@@ -62,6 +62,41 @@ public class ContextManagerTest extends TestCase {
         assertTrue(normalized.isEmpty());
     }
 
+    public void testNormalizeMessagesForModelAllowsConsecutiveToolCallItemsBeforeResults() {
+        ContextManager contextManager = new ContextManager();
+        AssistantMessage firstCall = AssistantMessage.builder()
+                .contents(List.of(ToolCallContent.builder()
+                        .toolCallId("call-1")
+                        .toolName("read")
+                        .argumentsJson("{\"path\":\"a.txt\"}")
+                        .build()))
+                .build();
+        AssistantMessage secondCall = AssistantMessage.builder()
+                .contents(List.of(ToolCallContent.builder()
+                        .toolCallId("call-2")
+                        .toolName("read")
+                        .argumentsJson("{\"path\":\"b.txt\"}")
+                        .build()))
+                .build();
+        ToolResultMessage firstResult = ToolResultMessage.builder()
+                .toolCallId("call-1")
+                .toolName("read")
+                .contents(List.of(TextContent.builder().text("a").build()))
+                .build();
+        ToolResultMessage secondResult = ToolResultMessage.builder()
+                .toolCallId("call-2")
+                .toolName("read")
+                .contents(List.of(TextContent.builder().text("b").build()))
+                .build();
+
+        List<Message> normalized = contextManager.normalizeMessagesForModel(
+                List.of(firstCall, secondCall, firstResult, secondResult),
+                List.of("text")
+        );
+
+        assertEquals(List.of(firstCall, secondCall, firstResult, secondResult), normalized);
+    }
+
     public void testNormalizeMessagesForModelStripsImagesWhenUnsupported() {
         ContextManager contextManager = new ContextManager();
         UserMessage user = UserMessage.builder()

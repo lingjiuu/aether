@@ -57,6 +57,7 @@ import io.github.lingjiuu.transcript.item.TurnContextItem;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Consumer;
 
 public class Session implements AutoCloseable {
 
@@ -536,6 +537,16 @@ public class Session implements AutoCloseable {
             TurnContext turnContext,
             ToolCancellationToken cancellationToken
     ) {
+        return sampleModelItems(modelSession, prompt, turnContext, cancellationToken, null);
+    }
+
+    public AssistantMessage sampleModelItems(
+            LlmClientSession modelSession,
+            Prompt prompt,
+            TurnContext turnContext,
+            ToolCancellationToken cancellationToken,
+            Consumer<AssistantStreamEvent> itemConsumer
+    ) {
         ToolCancellationToken token = cancellationToken == null ? ToolCancellationToken.none() : cancellationToken;
         if (token.isCancellationRequested()) {
             return abortedMessage();
@@ -548,6 +559,9 @@ public class Session implements AutoCloseable {
                 assistantMessage = stream.consume(event -> {
                     if (!token.isCancellationRequested()) {
                         emit(mapStreamEvent(event, turnContext));
+                        if (itemConsumer != null) {
+                            itemConsumer.accept(event);
+                        }
                     }
                 });
             } finally {

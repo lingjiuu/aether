@@ -1,7 +1,9 @@
 package io.github.lingjiuu.context;
 
+import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.MessageContents;
+import io.github.lingjiuu.message.content.ToolCallContent;
 import junit.framework.TestCase;
 
 import java.nio.file.Path;
@@ -46,6 +48,32 @@ public class ContextBuilderTest extends TestCase {
         InitialContextSnapshot current = snapshot("/tmp/aether", "2026-05-20", "UTC");
 
         assertTrue(builder.initialContextMessages(previous, current).isEmpty());
+    }
+
+    public void testAssistantToolCallItemBuildsSingleItemMessage() {
+        ContextBuilder builder = new ContextBuilder();
+        AssistantMessage partial = AssistantMessage.builder()
+                .responseId("resp-1")
+                .provider("openai")
+                .model("gpt-test")
+                .build();
+        ToolCallContent toolCall = ToolCallContent.builder()
+                .toolCallId("call-1")
+                .toolName("read")
+                .argumentsJson("{\"path\":\"README.md\"}")
+                .build();
+
+        AssistantMessage item = builder.assistantToolCallItem(partial, toolCall, null);
+
+        assertEquals("resp-1", item.getResponseId());
+        assertEquals("openai", item.getProvider());
+        assertEquals("gpt-test", item.getModel());
+        assertEquals(1, item.getContents().size());
+        assertTrue(item.getContents().getFirst() instanceof ToolCallContent);
+        ToolCallContent copied = (ToolCallContent) item.getContents().getFirst();
+        assertEquals("call-1", copied.getToolCallId());
+        assertEquals("read", copied.getToolName());
+        assertEquals("{\"path\":\"README.md\"}", copied.getArgumentsJson());
     }
 
     private InitialContextSnapshot snapshot(String cwd, String currentDate, String timezone) {
