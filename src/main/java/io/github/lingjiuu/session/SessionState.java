@@ -1,6 +1,6 @@
 package io.github.lingjiuu.session;
 
-import io.github.lingjiuu.context.EnvironmentContext;
+import io.github.lingjiuu.context.InitialContextSnapshot;
 import io.github.lingjiuu.llm.TokenUsage;
 import io.github.lingjiuu.llm.TokenUsageInfo;
 
@@ -10,7 +10,7 @@ public class SessionState {
     private final long createdAt;
     private volatile long updatedAt;
     private volatile SessionStatus status = SessionStatus.IDLE;
-    private EnvironmentContext referenceEnvironmentContext;
+    private InitialContextSnapshot initialContextBaseline;
     private TokenUsageInfo tokenUsageInfo;
     private int turn = 1;
 
@@ -47,12 +47,12 @@ public class SessionState {
         return turn++;
     }
 
-    public synchronized EnvironmentContext referenceEnvironmentContext() {
-        return referenceEnvironmentContext;
+    public synchronized InitialContextSnapshot initialContextBaseline() {
+        return initialContextBaseline;
     }
 
-    public synchronized void setReferenceEnvironmentContext(EnvironmentContext environmentContext) {
-        referenceEnvironmentContext = environmentContext;
+    public synchronized void setInitialContextBaseline(InitialContextSnapshot snapshot) {
+        initialContextBaseline = snapshot;
         touch();
     }
 

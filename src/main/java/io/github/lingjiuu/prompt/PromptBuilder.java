@@ -3,8 +3,8 @@ package io.github.lingjiuu.prompt;
 import io.github.lingjiuu.llm.LlmCallOptions;
 import io.github.lingjiuu.resource.ContextFile;
 import io.github.lingjiuu.resource.PromptResources;
-import io.github.lingjiuu.resource.Skill;
 import io.github.lingjiuu.session.SessionConfig;
+import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.tool.ToolDefinition;
 
 import java.nio.file.Path;
@@ -16,22 +16,26 @@ import java.util.Set;
 public class PromptBuilder {
 
     public Prompt build(PromptBuildInput input) {
-        if (input == null || input.config() == null || input.contextProjection() == null) {
+        if (input == null || input.config() == null || input.messages() == null) {
             throw new PromptBuildException("Prompt build input is incomplete.");
         }
         SessionConfig config = input.config();
         return new Prompt(
-                buildSystemPrompt(config, input.tools()),
+                buildSystemPrompt(config, input.tools(), input.skills()),
                 config.model(),
                 input.tools(),
-                input.contextProjection().messages(),
+                input.messages(),
                 LlmCallOptions.builder()
                         .reasoning(config.reasoning())
                         .build()
         );
     }
 
-    private String buildSystemPrompt(SessionConfig config, List<ToolDefinition> activeTools) {
+    private String buildSystemPrompt(
+            SessionConfig config,
+            List<ToolDefinition> activeTools,
+            List<Skill> skills
+    ) {
         PromptResources resources = config.promptResources();
         String basePrompt = trimToEmpty(config.systemPrompt());
         String appendPrompt = resources == null ? "" : trimToEmpty(resources.getAppendSystemPrompt());
@@ -42,8 +46,8 @@ public class PromptBuilder {
         appendToolInstructions(builder, tools);
         if (resources != null) {
             appendContextFiles(builder, resources.getContextFiles());
-            appendSkills(builder, resources.getSkills());
         }
+        appendSkills(builder, skills);
         return builder.toString();
     }
 
@@ -131,18 +135,23 @@ public class PromptBuilder {
         }
 
         StringBuilder section = new StringBuilder();
-        section.append("The following skills provide specialized instructions for specific tasks.\n");
-        section.append("Use the read tool to load a skill's file when the task matches its description.\n");
-        section.append("When a skill file references a relative path, resolve it against the skill directory.\n\n");
-        section.append("<available_skills>\n");
+        section.append("## Skills\n");
+        section.append("A skill is a set of local instructions to follow that is stored in a `SKILL.md` file. ");
+        section.append("Below is the list of skills available in this session.\n\n");
+        section.append("### Available skills\n");
         for (Skill skill : visibleSkills) {
-            section.append("  <skill>\n");
-            section.append("    <name>").append(escapeXml(normalizeOneLine(skill.getName()))).append("</name>\n");
-            section.append("    <description>").append(escapeXml(normalizeOneLine(skill.getDescription()))).append("</description>\n");
-            section.append("    <location>").append(escapeXml(normalizePath(skill.getLocation()))).append("</location>\n");
-            section.append("  </skill>\n");
+            section.append("- ")
+                    .append(normalizeOneLine(skill.getName()))
+                    .append(": ")
+                    .append(normalizeOneLine(skill.getDescription()))
+                    .append(" (file: ")
+                    .append(normalizePath(skill.getLocation()))
+                    .append(")\n");
         }
-        section.append("</available_skills>");
+        section.append("\n### How to use skills\n");
+        section.append("- If the user names a skill with `$SkillName`, selects one explicitly, or the task clearly matches a skill description, use that skill for this turn.\n");
+        section.append("- Skill bodies are injected into the conversation when explicitly selected or mentioned; otherwise open the listed `SKILL.md` with the read tool before following it.\n");
+        section.append("- When a skill references relative paths, resolve them relative to the directory containing its `SKILL.md`.");
         appendSection(builder, section.toString());
     }
 
@@ -173,18 +182,6 @@ public class PromptBuilder {
 
     private String normalizePath(Path path) {
         return path == null ? "" : path.toAbsolutePath().normalize().toString().replace('\\', '/');
-    }
-
-    private String escapeXml(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&apos;");
     }
 
     private void trimTrailingNewline(StringBuilder builder) {

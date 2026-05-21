@@ -1,4 +1,4 @@
-package io.github.lingjiuu.resource;
+package io.github.lingjiuu.skill;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

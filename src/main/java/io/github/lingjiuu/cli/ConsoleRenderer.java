@@ -132,6 +132,12 @@ public class ConsoleRenderer implements EventSink {
             }
             case RUN_FINISHED -> System.out.println("[AGENT] run end");
             case SESSION_RESET -> System.out.println("[SESSION] reset");
+            case SKILLS_CHANGED -> {
+                String text = event.getText() == null || event.getText().isBlank()
+                        ? "skills changed"
+                        : event.getText();
+                System.out.println("[SKILLS] " + text);
+            }
             case ERROR -> {
                 if (event.getErrorMessage() != null && !event.getErrorMessage().isBlank()) {
                     System.out.println("[ERROR] " + event.getErrorMessage());

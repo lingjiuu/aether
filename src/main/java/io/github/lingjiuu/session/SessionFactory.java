@@ -12,6 +12,7 @@ import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.provider.RequestAuth;
 import io.github.lingjiuu.resource.PromptResources;
 import io.github.lingjiuu.resource.ResourceLoader;
+import io.github.lingjiuu.skill.SkillsManager;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
 import io.github.lingjiuu.tool.tools.BashTool;
@@ -45,12 +46,18 @@ public class SessionFactory {
     private static final String DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant";
 
     private final SessionConfig config;
+    private final SkillsManager skillsManager;
 
     public SessionFactory(SessionConfig config) {
+        this(config, null);
+    }
+
+    public SessionFactory(SessionConfig config, SkillsManager skillsManager) {
         if (config == null) {
             throw new IllegalArgumentException("config must not be null");
         }
         this.config = config;
+        this.skillsManager = skillsManager == null ? SkillsManager.empty(config.cwd()) : skillsManager;
     }
 
     public static SessionFactory createDefault() {
@@ -96,6 +103,7 @@ public class SessionFactory {
                 ? AetherPaths.getAgentDir()
                 : agentDir.toAbsolutePath().normalize();
         PromptResources promptResources = new ResourceLoader(resolvedCwd, resolvedAgentDir).load();
+        SkillsManager skillsManager = new SkillsManager(resolvedCwd, resolvedAgentDir);
         String systemPrompt = promptResources.getSystemPrompt() == null || promptResources.getSystemPrompt().isBlank()
                 ? DEFAULT_SYSTEM_PROMPT
                 : promptResources.getSystemPrompt();
@@ -116,7 +124,7 @@ public class SessionFactory {
                         .toList()
         );
 
-        return new SessionFactory(config);
+        return new SessionFactory(config, skillsManager);
     }
 
     public Session openSession() {
@@ -126,6 +134,7 @@ public class SessionFactory {
                 .sessionId(sessionId)
                 .sessionMeta(buildSessionMeta(sessionId))
                 .recordSessionMeta(true)
+                .skillsManager(skillsManager)
                 .build();
     }
 
@@ -144,8 +153,10 @@ public class SessionFactory {
                 .toolRegistry(buildToolRegistry())
                 .sessionId(sessionId)
                 .initialMessages(reconstruction.messages())
+                .initialContextBaseline(reconstruction.initialContextBaseline())
                 .lastTranscriptRecordId(reconstruction.lastRecordId())
                 .recordSessionMeta(false)
+                .skillsManager(skillsManager)
                 .build();
     }
 

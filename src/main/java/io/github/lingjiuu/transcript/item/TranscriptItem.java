@@ -7,7 +7,8 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 @JsonSubTypes({
         @JsonSubTypes.Type(value = SessionMetaItem.class, name = "SESSION_META"),
         @JsonSubTypes.Type(value = MessageTranscriptItem.class, name = "MESSAGE"),
-        @JsonSubTypes.Type(value = CompactedTranscriptItem.class, name = "COMPACTED")
+        @JsonSubTypes.Type(value = CompactedTranscriptItem.class, name = "COMPACTED"),
+        @JsonSubTypes.Type(value = TurnContextItem.class, name = "TURN_CONTEXT")
 })
 public interface TranscriptItem {
 

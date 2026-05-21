@@ -1,6 +1,8 @@
 package io.github.lingjiuu.session;
 
+import io.github.lingjiuu.context.InitialContextSnapshot;
 import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.skill.SkillsManager;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
@@ -17,6 +19,8 @@ public class SessionBuilder {
     private String lastTranscriptRecordId;
     private SessionMetaItem sessionMeta;
     private boolean recordSessionMeta;
+    private InitialContextSnapshot initialContextBaseline;
+    private SkillsManager skillsManager;
 
     public SessionBuilder config(SessionConfig config) {
         this.config = config;
@@ -53,6 +57,16 @@ public class SessionBuilder {
         return this;
     }
 
+    public SessionBuilder initialContextBaseline(InitialContextSnapshot initialContextBaseline) {
+        this.initialContextBaseline = initialContextBaseline;
+        return this;
+    }
+
+    public SessionBuilder skillsManager(SkillsManager skillsManager) {
+        this.skillsManager = skillsManager;
+        return this;
+    }
+
     public Session build() {
         if (config == null) {
             throw new IllegalStateException("session config must be provided.");
@@ -61,6 +75,16 @@ public class SessionBuilder {
         for (ToolDefinition definition : config.toolDefinitions()) {
             registry.register(definition);
         }
-        return new Session(config, registry, sessionId, initialMessages, lastTranscriptRecordId, sessionMeta, recordSessionMeta);
+        return new Session(
+                config,
+                registry,
+                sessionId,
+                initialMessages,
+                lastTranscriptRecordId,
+                sessionMeta,
+                recordSessionMeta,
+                initialContextBaseline,
+                skillsManager
+        );
     }
 }

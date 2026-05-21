@@ -2,17 +2,19 @@ package io.github.lingjiuu.agent.task;
 
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.agent.turn.TurnState;
-import io.github.lingjiuu.context.ContextProjection;
 import io.github.lingjiuu.event.UiEvent;
 import io.github.lingjiuu.event.UiEventType;
 import io.github.lingjiuu.input.MaterializedInput;
 import io.github.lingjiuu.message.AssistantMessage;
+import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.prompt.Prompt;
 import io.github.lingjiuu.prompt.PromptBuildInput;
 import io.github.lingjiuu.session.Session;
+import io.github.lingjiuu.skill.Skill;
+import io.github.lingjiuu.skill.SkillInjection;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRunResult;
 import io.github.lingjiuu.tool.permission.ApprovalId;
@@ -59,8 +61,10 @@ public class RegularTask implements SessionTask {
             return;
         }
 
-        session.recordEnvironmentContextIfChanged(turnContext);
+        List<Skill> turnSkills = session.availableSkills();
+        session.recordInitialContextIfChanged(turnContext);
         recordMaterializedInput(session, context.materializedInput(), turnContext);
+        recordSkillInjections(session, context.materializedInput(), turnContext, turnSkills);
 
         while (!context.isCancelled()) {
             state.nextSampling();
@@ -76,11 +80,13 @@ public class RegularTask implements SessionTask {
                 return;
             }
 
-            ContextProjection projection = session.contextManager().normalizeMessagesForModel();
+            List<Message> messages = session.contextManager()
+                    .normalizeMessagesForModel(session.config().model().getInput());
             Prompt prompt = session.promptBuilder().build(new PromptBuildInput(
                     session.config(),
-                    projection,
-                    session.activeTools()
+                    messages,
+                    session.activeTools(),
+                    turnSkills
             ));
             AssistantMessage assistantMessage = session.sampleModel(
                     context.modelSession(),
@@ -168,6 +174,22 @@ public class RegularTask implements SessionTask {
         session.recordUserMessageAndEmit(materializedInput.userMessage(), turnContext);
         materializedInput.contextMessages()
                 .forEach(contextMessage -> session.recordContextMessageAndEmit(contextMessage, turnContext));
+    }
+
+    private void recordSkillInjections(
+            Session session,
+            MaterializedInput materializedInput,
+            TurnContext turnContext,
+            List<Skill> turnSkills
+    ) {
+        if (materializedInput == null) {
+            return;
+        }
+        List<SkillInjection> injections = session.skillsManager()
+                .resolveSkillInjections(materializedInput.turnInput(), turnSkills);
+        for (SkillInjection injection : injections) {
+            session.recordContextMessageAndEmit(session.contextBuilder().skillContextMessage(injection), turnContext);
+        }
     }
 
     private void runToolCalls(

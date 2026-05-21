@@ -10,7 +10,7 @@ import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.agent.turn.TurnId;
 import io.github.lingjiuu.context.ContextBuilder;
 import io.github.lingjiuu.context.ContextManager;
-import io.github.lingjiuu.context.EnvironmentContext;
+import io.github.lingjiuu.context.InitialContextSnapshot;
 import io.github.lingjiuu.event.EventManager;
 import io.github.lingjiuu.event.EventSink;
 import io.github.lingjiuu.event.EventSubscription;
@@ -36,6 +36,9 @@ import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.prompt.Prompt;
 import io.github.lingjiuu.prompt.PromptBuilder;
 import io.github.lingjiuu.recording.MessageRecorder;
+import io.github.lingjiuu.skill.Skill;
+import io.github.lingjiuu.skill.SkillsManager;
+import io.github.lingjiuu.skill.SkillsWatcher;
 import io.github.lingjiuu.tool.ToolCancellationToken;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolCancellationSource;
@@ -49,12 +52,13 @@ import io.github.lingjiuu.tool.permission.DenyAllApprovalHandler;
 import io.github.lingjiuu.tool.permission.PermissionManager;
 import io.github.lingjiuu.transcript.TranscriptRecorder;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
+import io.github.lingjiuu.transcript.item.TurnContextItem;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 
-public class Session {
+public class Session implements AutoCloseable {
 
     private final SessionConfig config;
     private final SessionState state;
@@ -65,6 +69,8 @@ public class Session {
     private final PromptBuilder promptBuilder = new PromptBuilder();
     private final ToolRegistry toolRegistry;
     private final ToolRunner toolRunner;
+    private final SkillsManager skillsManager;
+    private final SkillsWatcher skillsWatcher;
     private final PermissionManager permissionManager = new PermissionManager();
     private final TaskRunner taskRunner = new TaskRunner();
     private final InputMaterializer inputMaterializer;
@@ -78,7 +84,9 @@ public class Session {
             List<Message> initialMessages,
             String lastTranscriptRecordId,
             SessionMetaItem sessionMeta,
-            boolean recordSessionMeta
+            boolean recordSessionMeta,
+            InitialContextSnapshot initialContextBaseline,
+            SkillsManager skillsManager
     ) {
         if (config == null) {
             throw new IllegalArgumentException("config must not be null");
@@ -90,6 +98,7 @@ public class Session {
         this.state = new SessionState(sessionId);
         this.contextManager = new ContextManager(null, initialMessages);
         this.toolRegistry = toolRegistry;
+        this.skillsManager = skillsManager == null ? SkillsManager.empty(config.cwd()) : skillsManager;
         this.activeToolNames = config.activeToolNames();
         this.inputMaterializer = new InputMaterializer(config.cwd());
         TranscriptRecorder transcriptRecorder = config.transcriptStore() == null
@@ -103,6 +112,8 @@ public class Session {
             transcriptRecorder.recordSessionMeta(sessionMeta);
         }
         this.toolRunner = new ToolRunner(toolRegistry);
+        state.setInitialContextBaseline(initialContextBaseline);
+        this.skillsWatcher = startSkillsWatcher();
         recomputeTokenUsageFromHistory();
     }
 
@@ -151,7 +162,7 @@ public class Session {
         ensureIdle();
         recorder.clear();
         state.clearTokenUsage();
-        invalidateReferenceEnvironmentContext();
+        clearInitialContextBaseline();
         state.touch();
         eventManager.emit(UiEvent.builder()
                 .type(UiEventType.SESSION_RESET)
@@ -268,6 +279,18 @@ public class Session {
 
     public ToolRunner toolRunner() {
         return toolRunner;
+    }
+
+    public SkillsManager skillsManager() {
+        return skillsManager;
+    }
+
+    public List<Skill> availableSkills() {
+        return skillsManager.availableSkills();
+    }
+
+    public void reloadSkills() {
+        emitSkillsChanged(skillsManager.reload());
     }
 
     public PermissionManager permissionManager() {
@@ -469,25 +492,42 @@ public class Session {
         return response;
     }
 
-    public void recordEnvironmentContextIfChanged(TurnContext turnContext) {
-        EnvironmentContext current = contextBuilder.environmentContext(turnContext.cwd());
-        EnvironmentContext previous = state.referenceEnvironmentContext();
-        contextBuilder.environmentMessage(previous, current).ifPresent(message -> {
-            recordContextMessageAndEmit(message, turnContext);
-        });
-        state.setReferenceEnvironmentContext(current);
+    public void recordInitialContextIfChanged(TurnContext turnContext) {
+        InitialContextSnapshot previous = state.initialContextBaseline();
+        InitialContextSnapshot current = contextBuilder.initialContextSnapshot(config, turnContext);
+        contextBuilder.initialContextMessages(previous, current)
+                .forEach(message -> recordContextMessageAndEmit(message, turnContext));
+        state.setInitialContextBaseline(current);
+        recordTurnContextBaseline(turnContext, current);
     }
 
-    public void invalidateReferenceEnvironmentContext() {
-        state.setReferenceEnvironmentContext(null);
+    public List<ContextMessage> fullInitialContextMessages(TurnContext turnContext) {
+        InitialContextSnapshot current = contextBuilder.initialContextSnapshot(config, turnContext);
+        return contextBuilder.fullInitialContextMessages(current);
     }
 
-    public ContextMessage fullEnvironmentContextMessage(TurnContext turnContext) {
-        if (turnContext == null) {
-            return null;
+    public void clearInitialContextBaseline() {
+        state.setInitialContextBaseline(null);
+    }
+
+    public void markInitialContextBaseline(TurnContext turnContext) {
+        InitialContextSnapshot current = contextBuilder.initialContextSnapshot(config, turnContext);
+        state.setInitialContextBaseline(current);
+        recordTurnContextBaseline(turnContext, current);
+    }
+
+    private void recordTurnContextBaseline(
+            TurnContext turnContext,
+            InitialContextSnapshot initialContextBaseline
+    ) {
+        if (turnContext == null || initialContextBaseline == null) {
+            return;
         }
-        EnvironmentContext current = contextBuilder.environmentContext(turnContext.cwd());
-        return contextBuilder.environmentMessage(null, current).orElse(null);
+        recorder.recordTurnContext(TurnContextItem.builder()
+                .turnId(turnContext.turnId() == null ? null : turnContext.turnId().value())
+                .turn(turnContext.turn())
+                .initialContextBaseline(initialContextBaseline)
+                .build());
     }
 
     public AssistantMessage sampleModel(
@@ -546,6 +586,14 @@ public class Session {
 
     public SessionStatus status() {
         return state.status();
+    }
+
+    @Override
+    public void close() {
+        cancelRunningTask();
+        if (skillsWatcher != null) {
+            skillsWatcher.close();
+        }
     }
 
     private void runRegularTask(MaterializedInput materializedInput) {
@@ -653,6 +701,24 @@ public class Session {
 
     private void recordInterruptedTurn(TurnContext turnContext) {
         recordContextMessageAndEmit(contextBuilder.interruptedTurnMessage(), turnContext);
+    }
+
+    private SkillsWatcher startSkillsWatcher() {
+        try {
+            SkillsWatcher watcher = new SkillsWatcher(skillsManager, this::emitSkillsChanged);
+            watcher.start();
+            return watcher;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private void emitSkillsChanged(int availableSkillCount) {
+        eventManager.emit(UiEvent.builder()
+                .type(UiEventType.SKILLS_CHANGED)
+                .sessionId(sessionId())
+                .text("available skills=" + availableSkillCount)
+                .build());
     }
 
     private TaskContext taskContext(

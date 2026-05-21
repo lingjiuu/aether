@@ -6,6 +6,7 @@ import io.github.lingjiuu.message.UserMessage;
 import java.util.List;
 
 public record MaterializedInput(
+        TurnInput turnInput,
         UserMessage userMessage,
         List<ContextMessage> contextMessages
 ) {

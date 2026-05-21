@@ -7,6 +7,7 @@ public interface InputItem {
     enum Kind {
         TEXT,
         FILE,
-        LOCAL_IMAGE
+        LOCAL_IMAGE,
+        SKILL
     }
 }

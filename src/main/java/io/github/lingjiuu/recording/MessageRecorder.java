@@ -3,6 +3,7 @@ package io.github.lingjiuu.recording;
 import io.github.lingjiuu.context.ContextManager;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.transcript.TranscriptRecorder;
+import io.github.lingjiuu.transcript.item.TurnContextItem;
 
 import java.util.Collection;
 import java.util.List;
@@ -45,6 +46,17 @@ public class MessageRecorder {
 
     public synchronized void replaceActiveMessages(Collection<? extends Message> messages) {
         contextManager.replaceAll(messages);
+    }
+
+    public synchronized void recordTurnContext(TurnContextItem turnContextItem) {
+        if (turnContextItem == null || transcriptRecorder == null) {
+            return;
+        }
+        try {
+            transcriptRecorder.recordTurnContext(turnContextItem);
+        } catch (RuntimeException e) {
+            throw new MessageRecordException("Failed to record transcript turn context.", e);
+        }
     }
 
     public synchronized void recordCompaction(

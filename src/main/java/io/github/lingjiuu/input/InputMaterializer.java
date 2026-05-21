@@ -50,6 +50,7 @@ public class InputMaterializer {
         }
 
         return new MaterializedInput(
+                input,
                 UserMessage.builder()
                         .contents(userContents)
                         .build(),

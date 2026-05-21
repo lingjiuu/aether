@@ -124,7 +124,11 @@ public class CompactTask implements SessionTask {
                 originalMessages.size(),
                 preservedUserMessages.size()
         );
-        session.invalidateReferenceEnvironmentContext();
+        if (injectInitialContext) {
+            session.markInitialContextBaseline(turnContext);
+        } else {
+            session.clearInitialContextBaseline();
+        }
         session.recomputeTokenUsageFromHistory(turnContext);
         session.emit(UiEvent.builder()
                 .type(UiEventType.COMPACT_FINISHED)
@@ -146,7 +150,11 @@ public class CompactTask implements SessionTask {
         List<Message> compactInput = originalMessages;
         int retries = 0;
         while (true) {
-            Prompt prompt = promptBuilder.build(session.config(), compactInput);
+            List<Message> normalizedCompactInput = session.contextManager().normalizeMessagesForModel(
+                    compactInput,
+                    session.config().model().getInput()
+            );
+            Prompt prompt = promptBuilder.build(session.config(), normalizedCompactInput);
             AssistantMessage assistantMessage = session.sampleModel(
                     context.modelSession(),
                     prompt,
@@ -173,17 +181,17 @@ public class CompactTask implements SessionTask {
             boolean injectInitialContext
     ) {
         List<Message> replacement = new ArrayList<>();
-        ContextMessage initialContext = injectInitialContext
-                ? session.fullEnvironmentContextMessage(turnContext)
-                : null;
-        if (initialContext != null && preservedUserMessages != null && !preservedUserMessages.isEmpty()) {
+        List<ContextMessage> initialContextMessages = injectInitialContext
+                ? session.fullInitialContextMessages(turnContext)
+                : List.of();
+        if (!initialContextMessages.isEmpty()
+                && preservedUserMessages != null
+                && !preservedUserMessages.isEmpty()) {
             replacement.addAll(preservedUserMessages.subList(0, preservedUserMessages.size() - 1));
-            replacement.add(initialContext);
+            replacement.addAll(initialContextMessages);
             replacement.add(preservedUserMessages.getLast());
         } else {
-            if (initialContext != null) {
-                replacement.add(initialContext);
-            }
+            replacement.addAll(initialContextMessages);
             if (preservedUserMessages != null) {
                 replacement.addAll(preservedUserMessages);
             }

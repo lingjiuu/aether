@@ -50,6 +50,7 @@ public class ContextMessage implements Message {
     public enum ContextKind {
         ENVIRONMENT,
         RESOURCE,
+        SKILL,
         INFORMATIONAL
     }
 }

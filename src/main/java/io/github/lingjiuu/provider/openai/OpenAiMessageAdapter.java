@@ -26,9 +26,7 @@ import io.github.lingjiuu.message.content.ThinkingContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 public class OpenAiMessageAdapter {
 
@@ -47,7 +45,6 @@ public class OpenAiMessageAdapter {
             return inputItems;
         }
 
-        RequestState state = new RequestState();
         int assistantTextIndex = 0;
         int reasoningIndex = 0;
         for (Message message : messages) {
@@ -55,35 +52,21 @@ public class OpenAiMessageAdapter {
                 continue;
             }
             switch (message.role()) {
-                case USER -> {
-                    flushMissingToolResults(inputItems, state);
-                    appendUserMessage(inputItems, (UserMessage) message);
-                    state.previousAssistantHadReplayData = false;
-                }
+                case USER -> appendUserMessage(inputItems, (UserMessage) message);
                 case ASSISTANT -> {
-                    flushMissingToolResults(inputItems, state);
                     AssistantIndexes indexes = appendAssistantMessage(
                             inputItems,
                             (AssistantMessage) message,
-                            state,
                             assistantTextIndex,
                             reasoningIndex
                     );
                     assistantTextIndex = indexes.textIndex();
                     reasoningIndex = indexes.reasoningIndex();
                 }
-                case TOOLRESULT -> {
-                    appendToolResult(inputItems, (ToolResultMessage) message, state);
-                    state.previousAssistantHadReplayData = false;
-                }
-                case CONTEXT -> {
-                    flushMissingToolResults(inputItems, state);
-                    appendContextMessage(inputItems, message);
-                    state.previousAssistantHadReplayData = false;
-                }
+                case TOOLRESULT -> appendToolResult(inputItems, (ToolResultMessage) message);
+                case CONTEXT -> appendContextMessage(inputItems, message);
             }
         }
-        flushMissingToolResults(inputItems, state);
         return inputItems;
     }
 
@@ -99,7 +82,6 @@ public class OpenAiMessageAdapter {
     private AssistantIndexes appendAssistantMessage(
             List<ResponseInputItem> inputItems,
             AssistantMessage assistantMessage,
-            RequestState state,
             int textIndex,
             int reasoningIndex
     ) {
@@ -107,7 +89,6 @@ public class OpenAiMessageAdapter {
                 && replayData.getItems() != null
                 && !replayData.getItems().isEmpty()) {
             appendReplayItems(inputItems, replayData);
-            state.previousAssistantHadReplayData = true;
             return new AssistantIndexes(textIndex, reasoningIndex);
         }
 
@@ -129,13 +110,6 @@ public class OpenAiMessageAdapter {
                 }
             } else if (content instanceof ToolCallContent toolCallContent) {
                 String toolCallId = safeText(toolCallContent.getToolCallId());
-                if (!toolCallId.isBlank() && state.seenToolCallIds.contains(toolCallId)) {
-                    continue;
-                }
-                if (!toolCallId.isBlank()) {
-                    state.seenToolCallIds.add(toolCallId);
-                    state.pendingToolCallIds.add(toolCallId);
-                }
                 inputItems.add(ResponseInputItem.ofFunctionCall(
                         ResponseFunctionToolCall.builder()
                                 .callId(toolCallId)
@@ -153,7 +127,6 @@ public class OpenAiMessageAdapter {
                     nextTextIndex++
             )));
         }
-        state.previousAssistantHadReplayData = false;
         return new AssistantIndexes(nextTextIndex, nextReasoningIndex);
     }
 
@@ -179,24 +152,11 @@ public class OpenAiMessageAdapter {
         }
     }
 
-    private void appendToolResult(
-            List<ResponseInputItem> inputItems,
-            ToolResultMessage toolResultMessage,
-            RequestState state
-    ) {
-        if (state.previousAssistantHadReplayData) {
-            inputItems.add(ResponseInputItem.ofFunctionCallOutput(toFunctionCallOutput(toolResultMessage)));
-            return;
-        }
-
+    private void appendToolResult(List<ResponseInputItem> inputItems, ToolResultMessage toolResultMessage) {
         String toolCallId = safeText(toolResultMessage.getToolCallId());
-        if (toolCallId.isBlank()
-                || !state.pendingToolCallIds.contains(toolCallId)
-                || state.seenToolResultIds.contains(toolCallId)) {
+        if (toolCallId.isBlank()) {
             return;
         }
-        state.pendingToolCallIds.remove(toolCallId);
-        state.seenToolResultIds.add(toolCallId);
         inputItems.add(ResponseInputItem.ofFunctionCallOutput(toFunctionCallOutput(toolResultMessage)));
     }
 
@@ -207,22 +167,6 @@ public class OpenAiMessageAdapter {
             return;
         }
         appendUserText(inputItems, MessageContents.text(message));
-    }
-
-    private void flushMissingToolResults(List<ResponseInputItem> inputItems, RequestState state) {
-        if (state.pendingToolCallIds.isEmpty()) {
-            return;
-        }
-        for (String toolCallId : List.copyOf(state.pendingToolCallIds)) {
-            inputItems.add(ResponseInputItem.ofFunctionCallOutput(
-                    ResponseInputItem.FunctionCallOutput.builder()
-                            .callId(toolCallId)
-                            .output("Tool execution did not return a result.")
-                            .status(ResponseInputItem.FunctionCallOutput.Status.COMPLETED)
-                            .build()
-            ));
-        }
-        state.pendingToolCallIds.clear();
     }
 
     private void appendUserText(List<ResponseInputItem> inputItems, String text) {
@@ -393,12 +337,5 @@ public class OpenAiMessageAdapter {
     }
 
     private record AssistantIndexes(int textIndex, int reasoningIndex) {
-    }
-
-    private static final class RequestState {
-        private final Set<String> seenToolCallIds = new LinkedHashSet<>();
-        private final Set<String> pendingToolCallIds = new LinkedHashSet<>();
-        private final Set<String> seenToolResultIds = new LinkedHashSet<>();
-        private boolean previousAssistantHadReplayData;
     }
 }

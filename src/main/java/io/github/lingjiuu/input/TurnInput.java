@@ -43,6 +43,11 @@ public record TurnInput(List<InputItem> items) {
             return this;
         }
 
+        public Builder skill(String name, Path path) {
+            items.add(new SkillInput(name, path));
+            return this;
+        }
+
         public Builder item(InputItem item) {
             if (item != null) {
                 items.add(item);

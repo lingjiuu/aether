@@ -6,6 +6,9 @@ import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.compact.CompactPromptBuilder;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
+import io.github.lingjiuu.agent.turn.TurnContext;
+import io.github.lingjiuu.session.SessionConfig;
+import io.github.lingjiuu.skill.SkillInjection;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 
 import java.nio.file.Path;
@@ -58,6 +61,34 @@ public class ContextBuilder {
         return EnvironmentContext.from(cwd);
     }
 
+    public InitialContextSnapshot initialContextSnapshot(
+            SessionConfig config,
+            TurnContext turnContext
+    ) {
+        Path cwd = turnContext != null && turnContext.cwd() != null
+                ? turnContext.cwd()
+                : config == null ? null : config.cwd();
+        return new InitialContextSnapshot(environmentContext(cwd));
+    }
+
+    public List<ContextMessage> initialContextMessages(
+            InitialContextSnapshot previous,
+            InitialContextSnapshot current
+    ) {
+        if (current == null) {
+            return List.of();
+        }
+        Optional<ContextMessage> environmentMessage = environmentMessage(
+                previous == null ? null : previous.environment(),
+                current.environment()
+        );
+        return environmentMessage.map(List::of).orElseGet(List::of);
+    }
+
+    public List<ContextMessage> fullInitialContextMessages(InitialContextSnapshot current) {
+        return initialContextMessages(null, current);
+    }
+
     public Optional<ContextMessage> environmentMessage(
             EnvironmentContext previous,
             EnvironmentContext current
@@ -82,6 +113,24 @@ public class ContextBuilder {
                         .text(text.toString())
                         .build()))
                 .build());
+    }
+
+    public ContextMessage skillContextMessage(SkillInjection injection) {
+        if (injection == null) {
+            throw new IllegalArgumentException("skill injection must not be null");
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("<skill>\n");
+        text.append("<name>").append(injection.name()).append("</name>\n");
+        text.append("<path>").append(injection.path()).append("</path>\n");
+        text.append(injection.contents() == null ? "" : injection.contents().trim()).append('\n');
+        text.append("</skill>");
+        return ContextMessage.builder()
+                .kind(ContextMessage.ContextKind.SKILL)
+                .contents(List.of(TextContent.builder()
+                        .text(text.toString())
+                        .build()))
+                .build();
     }
 
     public ContextMessage interruptedTurnMessage() {

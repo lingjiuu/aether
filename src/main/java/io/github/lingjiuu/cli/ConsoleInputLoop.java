@@ -45,10 +45,12 @@ public class ConsoleInputLoop {
                 line = scanner.nextLine();
             } catch (NoSuchElementException e) {
                 System.out.println();
+                closeCurrentSession();
                 return;
             }
 
             if (line == null) {
+                closeCurrentSession();
                 return;
             }
             String input = line.trim();
@@ -80,6 +82,7 @@ public class ConsoleInputLoop {
         switch (command) {
             case "/exit", "/quit" -> {
                 System.out.println("[SESSION] bye");
+                closeCurrentSession();
                 running = false;
                 return true;
             }
@@ -101,8 +104,12 @@ public class ConsoleInputLoop {
                 return true;
             }
             case "/new" -> {
-                session = configure(sessionFactory.openSession());
+                switchSession(sessionFactory.openSession());
                 System.out.println("[SESSION] new id=" + session.sessionId());
+                return true;
+            }
+            case "/skills" -> {
+                skills(argument);
                 return true;
             }
             case "/help" -> {
@@ -127,11 +134,38 @@ public class ConsoleInputLoop {
             return;
         }
         try {
-            session = configure(sessionFactory.resumeSession(sessionId));
+            switchSession(sessionFactory.resumeSession(sessionId));
             System.out.println("[SESSION] resumed id=" + session.sessionId());
             System.out.println("[SESSION] messages=" + session.messages().size());
         } catch (RuntimeException e) {
             System.out.println("[ERROR] " + e.getMessage());
+        }
+    }
+
+    private void skills(String argument) {
+        if ("reload".equals(argument)) {
+            session.reloadSkills();
+        }
+        var skills = session.availableSkills();
+        if (skills.isEmpty()) {
+            System.out.println("[SKILLS] none");
+            return;
+        }
+        for (var skill : skills) {
+            System.out.println("[SKILLS] " + skill.getName()
+                    + " - " + skill.getDescription()
+                    + " (" + skill.getLocation() + ")");
+        }
+    }
+
+    private void switchSession(Session nextSession) {
+        closeCurrentSession();
+        session = configure(nextSession);
+    }
+
+    private void closeCurrentSession() {
+        if (session != null) {
+            session.close();
         }
     }
 
@@ -148,6 +182,6 @@ public class ConsoleInputLoop {
     }
 
     private void printHelp() {
-        System.out.println("Commands: /session, /resume <id>, /new, /compact, /continue, /exit");
+        System.out.println("Commands: /session, /resume <id>, /new, /compact, /continue, /skills, /skills reload, /exit");
     }
 }

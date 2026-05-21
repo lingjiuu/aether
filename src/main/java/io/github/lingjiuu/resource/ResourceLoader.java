@@ -40,7 +40,6 @@ public class ResourceLoader {
                 .systemPrompt(readFirstExisting(resourceFileCandidates("SYSTEM.md")))
                 .appendSystemPrompt(readFirstExisting(resourceFileCandidates("APPEND_SYSTEM.md")))
                 .contextFiles(loadContextFiles())
-                .skills(loadSkills())
                 .build();
     }
 
@@ -104,97 +103,6 @@ public class ResourceLoader {
             }
             return;
         }
-    }
-
-    private List<Skill> loadSkills() {
-        Map<Path, Skill> skillsByPath = new LinkedHashMap<>();
-        addSkillsFromDir(skillsByPath, agentDir.resolve("skills"));
-        for (String dirName : PROJECT_RESOURCE_DIR_NAMES) {
-            addSkillsFromDir(skillsByPath, cwd.resolve(dirName).resolve("skills"));
-        }
-        return List.copyOf(skillsByPath.values());
-    }
-
-    private void addSkillsFromDir(Map<Path, Skill> skillsByPath, Path skillsDir) {
-        if (!Files.isDirectory(skillsDir)) {
-            return;
-        }
-        try (var paths = Files.walk(skillsDir)) {
-            paths.filter(path -> Files.isRegularFile(path) && "SKILL.md".equals(path.getFileName().toString()))
-                    .sorted()
-                    .forEach(path -> loadSkill(path).ifPresent(skill -> {
-                        try {
-                            skillsByPath.putIfAbsent(canonicalKey(path), skill);
-                        } catch (IOException ignored) {
-                        }
-                    }));
-        } catch (IOException ignored) {
-        }
-    }
-
-    private java.util.Optional<Skill> loadSkill(Path path) {
-        try {
-            String content = Files.readString(path, StandardCharsets.UTF_8);
-            Map<String, String> frontmatter = parseFrontmatter(content);
-            String name = blankToNull(frontmatter.get("name"));
-            if (name == null && path.getParent() != null && path.getParent().getFileName() != null) {
-                name = path.getParent().getFileName().toString();
-            }
-            String description = blankToNull(frontmatter.get("description"));
-            if (name == null || description == null) {
-                return java.util.Optional.empty();
-            }
-            boolean disabled = "true".equalsIgnoreCase(blankToNull(frontmatter.get("disable-model-invocation")));
-            return java.util.Optional.of(Skill.builder()
-                    .name(name)
-                    .description(description)
-                    .location(path.toAbsolutePath().normalize())
-                    .disableModelInvocation(disabled)
-                    .build());
-        } catch (IOException e) {
-            return java.util.Optional.empty();
-        }
-    }
-
-    private Map<String, String> parseFrontmatter(String content) {
-        String normalized = content == null ? "" : content.replace("\r\n", "\n").replace("\r", "\n");
-        if (!normalized.startsWith("---\n")) {
-            return Map.of();
-        }
-        int endIndex = normalized.indexOf("\n---", 4);
-        if (endIndex < 0) {
-            return Map.of();
-        }
-        String yaml = normalized.substring(4, endIndex);
-        Map<String, String> values = new LinkedHashMap<>();
-        for (String line : yaml.split("\n")) {
-            int colon = line.indexOf(':');
-            if (colon <= 0) {
-                continue;
-            }
-            String key = line.substring(0, colon).trim();
-            String value = stripSimpleQuotes(line.substring(colon + 1).trim());
-            if (!key.isBlank()) {
-                values.put(key, value);
-            }
-        }
-        return values;
-    }
-
-    private String stripSimpleQuotes(String value) {
-        if (value == null || value.length() < 2) {
-            return value;
-        }
-        char first = value.charAt(0);
-        char last = value.charAt(value.length() - 1);
-        if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
-            return value.substring(1, value.length() - 1);
-        }
-        return value;
-    }
-
-    private String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private Path canonicalKey(Path path) throws IOException {

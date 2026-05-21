@@ -5,7 +5,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @Getter
@@ -19,10 +18,7 @@ public class PromptResources {
     private String appendSystemPrompt;
 
     @Builder.Default
-    private List<ContextFile> contextFiles = new ArrayList<>();
-
-    @Builder.Default
-    private List<Skill> skills = new ArrayList<>();
+    private List<ContextFile> contextFiles = List.of();
 
     public static PromptResources empty() {
         return PromptResources.builder().build();
