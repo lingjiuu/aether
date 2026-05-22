@@ -59,6 +59,103 @@ public class ProtocolJsonTest extends TestCase {
                 """, event);
     }
 
+    public void testAssistantItemCompletedWireFormat() throws Exception {
+        UiEvent event = UiEvent.builder()
+                .type(UiEventType.ITEM_COMPLETED)
+                .sequence(8L)
+                .timestampMs(1001L)
+                .sessionId("session-1")
+                .commandId("cmd-1")
+                .turnId("turn-1")
+                .turn(1)
+                .payload(new UiEventPayloads.ItemCompleted(UiItem.builder()
+                        .itemId("msg-1")
+                        .kind(UiItemKind.ASSISTANT_TEXT)
+                        .contentIndex(0)
+                        .body(new UiItemBodies.Text("hello"))
+                        .build()))
+                .build();
+
+        assertJsonEquals("""
+                {
+                  "type": "ITEM_COMPLETED",
+                  "sequence": 8,
+                  "timestampMs": 1001,
+                  "sessionId": "session-1",
+                  "commandId": "cmd-1",
+                  "turnId": "turn-1",
+                  "turn": 1,
+                  "payload": {
+                    "payloadType": "itemCompleted",
+                    "item": {
+                      "itemId": "msg-1",
+                      "kind": "ASSISTANT_TEXT",
+                      "contentIndex": 0,
+                      "body": {
+                        "bodyType": "text",
+                        "text": "hello"
+                      }
+                    }
+                  }
+                }
+                """, event);
+    }
+
+    public void testToolCallItemCompletedWireFormat() throws Exception {
+        UiToolCall toolCall = UiToolCall.builder()
+                .itemId("tool-1")
+                .contentIndex(1)
+                .toolCallId("call-1")
+                .toolName("ls")
+                .argumentsJson("{\"path\":\".\"}")
+                .build();
+        UiEvent event = UiEvent.builder()
+                .type(UiEventType.ITEM_COMPLETED)
+                .sequence(9L)
+                .timestampMs(1002L)
+                .sessionId("session-1")
+                .commandId("cmd-1")
+                .turnId("turn-1")
+                .turn(1)
+                .payload(new UiEventPayloads.ItemCompleted(UiItem.builder()
+                        .itemId("tool-1")
+                        .kind(UiItemKind.TOOL_CALL)
+                        .contentIndex(1)
+                        .body(new UiItemBodies.ToolCall(toolCall))
+                        .build()))
+                .build();
+
+        assertJsonEquals("""
+                {
+                  "type": "ITEM_COMPLETED",
+                  "sequence": 9,
+                  "timestampMs": 1002,
+                  "sessionId": "session-1",
+                  "commandId": "cmd-1",
+                  "turnId": "turn-1",
+                  "turn": 1,
+                  "payload": {
+                    "payloadType": "itemCompleted",
+                    "item": {
+                      "itemId": "tool-1",
+                      "kind": "TOOL_CALL",
+                      "contentIndex": 1,
+                      "body": {
+                        "bodyType": "toolCall",
+                        "toolCall": {
+                          "itemId": "tool-1",
+                          "contentIndex": 1,
+                          "toolCallId": "call-1",
+                          "toolName": "ls",
+                          "argumentsJson": "{\\\"path\\\":\\\".\\\"}"
+                        }
+                      }
+                    }
+                  }
+                }
+                """, event);
+    }
+
     public void testToolArgumentsDeltaWireFormat() throws Exception {
         UiEvent event = UiEvent.builder()
                 .type(UiEventType.TOOL_CALL_ARGUMENTS_DELTA)
@@ -251,6 +348,46 @@ public class ProtocolJsonTest extends TestCase {
                   ]
                 }
                 """, history);
+    }
+
+    public void testEventPageWireFormat() throws Exception {
+        UiEventPage page = new UiEventPage(
+                "session-1",
+                7,
+                List.of(UiEvent.builder()
+                        .type(UiEventType.TURN_COMPLETED)
+                        .sequence(9L)
+                        .timestampMs(1002L)
+                        .sessionId("session-1")
+                        .turnId("turn-1")
+                        .turn(1)
+                        .build()),
+                9,
+                true,
+                false
+        );
+
+        assertJsonEquals("""
+                {
+                  "sessionId": "session-1",
+                  "afterSequence": 7,
+                  "events": [
+                    {
+                      "type": "TURN_COMPLETED",
+                      "sequence": 9,
+                      "timestampMs": 1002,
+                      "sessionId": "session-1",
+                      "commandId": null,
+                      "turnId": "turn-1",
+                      "turn": 1,
+                      "payload": null
+                    }
+                  ],
+                  "nextAfterSequence": 9,
+                  "hasMore": true,
+                  "replayRequired": false
+                }
+                """, page);
     }
 
     private void assertJsonEquals(String expectedJson, Object value) throws Exception {

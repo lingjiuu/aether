@@ -113,6 +113,35 @@ public class EventManagerTest extends TestCase {
         }
     }
 
+    public void testOnlyDurableEventsArePersisted() throws Exception {
+        String sessionId = UUID.randomUUID().toString();
+        TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-event-test"));
+        EventManager events = new EventManager(new TranscriptRecorder(store, sessionId), List.of(), 0);
+        List<UiEvent> received = new CopyOnWriteArrayList<>();
+        try {
+            events.subscribe(received::add);
+            events.emit(UiEvent.builder().type(UiEventType.TURN_STARTED).sessionId(sessionId).turn(1).build());
+            events.emit(UiEvent.builder().type(UiEventType.ASSISTANT_TEXT_DELTA).sessionId(sessionId).turn(1).build());
+            events.emit(UiEvent.builder().type(UiEventType.ITEM_COMPLETED).sessionId(sessionId).turn(1).build());
+            events.emit(UiEvent.builder().type(UiEventType.TOOL_EXECUTION_UPDATE).sessionId(sessionId).turn(1).build());
+            events.emit(UiEvent.builder().type(UiEventType.TOOL_RESULT).sessionId(sessionId).turn(1).build());
+            events.flush();
+
+            assertEquals(5, received.size());
+
+            var records = store.read(sessionId);
+            assertEquals(3, records.size());
+            assertEquals(UiEventType.TURN_STARTED, persistedEvent(records, 0).getType());
+            assertEquals(Long.valueOf(1), persistedEvent(records, 0).getSequence());
+            assertEquals(UiEventType.ITEM_COMPLETED, persistedEvent(records, 1).getType());
+            assertEquals(Long.valueOf(3), persistedEvent(records, 1).getSequence());
+            assertEquals(UiEventType.TOOL_RESULT, persistedEvent(records, 2).getType());
+            assertEquals(Long.valueOf(5), persistedEvent(records, 2).getSequence());
+        } finally {
+            events.close();
+        }
+    }
+
     public void testReplayTimelineDoesNotRestampOrPersistEvents() throws Exception {
         String sessionId = UUID.randomUUID().toString();
         TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-event-test"));
@@ -135,5 +164,10 @@ public class EventManagerTest extends TestCase {
         } finally {
             events.close();
         }
+    }
+
+    private UiEvent persistedEvent(List<io.github.lingjiuu.transcript.TranscriptRecord> records, int index) {
+        assertTrue(records.get(index).getItem() instanceof EventTranscriptItem);
+        return ((EventTranscriptItem) records.get(index).getItem()).getEvent();
     }
 }

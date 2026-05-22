@@ -122,7 +122,7 @@ public class EventManager implements AutoCloseable {
     }
 
     private void persist(UiEvent event) {
-        if (transcriptRecorder == null) {
+        if (transcriptRecorder == null || !shouldPersist(event)) {
             return;
         }
         try {
@@ -130,6 +130,39 @@ public class EventManager implements AutoCloseable {
         } catch (RuntimeException e) {
             LOGGER.log(Level.WARNING, "Failed to persist UI event " + event.getType(), e);
         }
+    }
+
+    static boolean shouldPersist(UiEvent event) {
+        if (event == null || event.getType() == null) {
+            return false;
+        }
+        return switch (event.getType()) {
+            case TURN_STARTED,
+                    TURN_COMPLETED,
+                    TURN_ABORTED,
+                    USER_MESSAGE,
+                    CONTEXT_MESSAGE,
+                    ITEM_COMPLETED,
+                    TOOL_RESULT,
+                    TOKEN_USAGE,
+                    COMPACT_FINISHED,
+                    COMPACT_SKIPPED,
+                    SESSION_RESET,
+                    SKILLS_CHANGED,
+                    ERROR -> true;
+            case ITEM_STARTED,
+                    ASSISTANT_TEXT_DELTA,
+                    REASONING_DELTA,
+                    TOOL_CALL_ARGUMENTS_DELTA,
+                    TOOL_CALL_ARGUMENTS_DONE,
+                    TOOL_CALL,
+                    TOOL_EXECUTION_STARTED,
+                    TOOL_EXECUTION_UPDATE,
+                    TOOL_EXECUTION_FINISHED,
+                    APPROVAL_REQUESTED,
+                    APPROVAL_RESOLVED,
+                    COMPACT_STARTED -> false;
+        };
     }
 
     private long maxSequence(List<UiEvent> events) {

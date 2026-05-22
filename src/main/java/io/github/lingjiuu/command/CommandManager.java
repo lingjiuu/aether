@@ -5,9 +5,12 @@ import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiCommandPayloads;
 import io.github.lingjiuu.protocol.UiCommandType;
+import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.tool.permission.ApprovalHandler;
+import io.github.lingjiuu.transcript.TranscriptRecord;
+import io.github.lingjiuu.transcript.item.SessionMetaItem;
 import io.github.lingjiuu.ui.approval.ApprovalCoordinator;
 import io.github.lingjiuu.ui.history.UiHistoryState;
 
@@ -41,6 +44,7 @@ public class CommandManager implements AutoCloseable {
             return switch (command.getType()) {
                 case SUBMIT_USER_INPUT -> submit(command, commandId);
                 case NEW_SESSION -> newSession(commandId);
+                case CLOSE_SESSION -> closeSession(commandId);
                 case RESUME_SESSION -> resume(command, commandId);
                 case COMPACT -> compact(commandId);
                 case CONTINUE -> continueSession(commandId);
@@ -61,6 +65,17 @@ public class CommandManager implements AutoCloseable {
         return session == null ? null : session.sessionId();
     }
 
+    public synchronized java.util.List<UiSessionSummary> listSessions() {
+        if (sessionFactory.config().transcriptStore() == null) {
+            return java.util.List.of();
+        }
+        return sessionFactory.config().transcriptStore()
+                .listSessionIds()
+                .stream()
+                .map(this::sessionSummary)
+                .toList();
+    }
+
     @Override
     public synchronized void close() {
         closeCurrentSession();
@@ -79,6 +94,11 @@ public class CommandManager implements AutoCloseable {
     private UiCommandAck newSession(String commandId) {
         switchSession(sessionFactory.openSession());
         return UiCommandAck.accepted(commandId, sessionId(), history(), "new session");
+    }
+
+    private UiCommandAck closeSession(String commandId) {
+        switchSession(sessionFactory.openSession());
+        return UiCommandAck.accepted(commandId, sessionId(), history(), "session closed");
     }
 
     private UiCommandAck resume(UiCommand command, String commandId) {
@@ -158,5 +178,42 @@ public class CommandManager implements AutoCloseable {
             session.close();
             session = null;
         }
+    }
+
+    private UiSessionSummary sessionSummary(String sessionId) {
+        java.util.List<TranscriptRecord> records;
+        try {
+            records = sessionFactory.config().transcriptStore().read(sessionId);
+        } catch (RuntimeException e) {
+            return new UiSessionSummary(
+                    sessionId,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    0
+            );
+        }
+        SessionMetaItem meta = null;
+        long updatedAt = 0;
+        for (TranscriptRecord record : records) {
+            if (record == null) {
+                continue;
+            }
+            updatedAt = Math.max(updatedAt, record.getTimestamp());
+            if (meta == null && record.getItem() instanceof SessionMetaItem sessionMeta) {
+                meta = sessionMeta;
+            }
+        }
+        return new UiSessionSummary(
+                sessionId,
+                meta == null ? null : meta.getCreatedAt(),
+                updatedAt == 0 ? null : updatedAt,
+                meta == null ? null : meta.getCwd(),
+                meta == null ? null : meta.getModelProvider(),
+                meta == null ? null : meta.getModelId(),
+                records.size()
+        );
     }
 }

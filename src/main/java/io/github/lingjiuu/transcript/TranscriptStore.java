@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 public class TranscriptStore {
@@ -74,10 +75,35 @@ public class TranscriptStore {
         return Files.exists(pathForSession(sessionId));
     }
 
+    public synchronized List<String> listSessionIds() {
+        if (!Files.exists(transcriptsDir)) {
+            return List.of();
+        }
+        try (var paths = Files.list(transcriptsDir)) {
+            return paths
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".jsonl"))
+                    .sorted(Comparator.comparing(this::lastModifiedTime).reversed())
+                    .map(path -> path.getFileName().toString())
+                    .map(name -> name.substring(0, name.length() - ".jsonl".length()))
+                    .toList();
+        } catch (Exception e) {
+            throw new TranscriptException("Failed to list transcript sessions.", e);
+        }
+    }
+
     private String safeSessionFileName(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
             throw new IllegalArgumentException("sessionId must not be blank");
         }
         return sessionId.replaceAll("[^A-Za-z0-9._-]", "_") + ".jsonl";
+    }
+
+    private long lastModifiedTime(Path path) {
+        try {
+            return Files.getLastModifiedTime(path).toMillis();
+        } catch (Exception e) {
+            return 0;
+        }
     }
 }

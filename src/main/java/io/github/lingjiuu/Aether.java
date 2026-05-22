@@ -5,8 +5,10 @@ import io.github.lingjiuu.event.EventSink;
 import io.github.lingjiuu.event.EventSubscription;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
+import io.github.lingjiuu.protocol.UiEventPage;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiHistory;
+import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.skill.Skill;
@@ -58,6 +60,31 @@ public class Aether implements AutoCloseable {
 
     public List<UiEvent> eventsAfter(long sequence) {
         return currentSession().eventsAfter(sequence);
+    }
+
+    public UiEventPage eventPage(long afterSequence, int limit) {
+        List<UiEvent> all = currentSession().eventsAfter(afterSequence);
+        int safeLimit = limit <= 0 ? 200 : limit;
+        boolean hasMore = all.size() > safeLimit;
+        List<UiEvent> page = hasMore ? all.subList(0, safeLimit) : all;
+        long nextAfterSequence = afterSequence;
+        for (UiEvent event : page) {
+            if (event != null && event.getSequence() != null) {
+                nextAfterSequence = Math.max(nextAfterSequence, event.getSequence());
+            }
+        }
+        return new UiEventPage(
+                sessionId(),
+                afterSequence,
+                page,
+                nextAfterSequence,
+                hasMore,
+                false
+        );
+    }
+
+    public List<UiSessionSummary> listSessions() {
+        return commands.listSessions();
     }
 
     public String sessionId() {
