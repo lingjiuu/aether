@@ -11,6 +11,12 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class UiToolResult {
 
+    private String itemId;
+
+    private String sourceItemId;
+
+    private Integer contentIndex;
+
     private String toolCallId;
 
     private String toolName;
@@ -18,4 +24,12 @@ public class UiToolResult {
     private String text;
 
     private boolean error;
+
+    private String status;
+
+    private Long durationMs;
+
+    private Object details;
+
+    private Boolean truncated;
 }

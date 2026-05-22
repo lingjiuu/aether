@@ -1,7 +1,6 @@
 package io.github.lingjiuu.protocol;
 
 public enum UiEventType {
-    RUN_STARTED,
     USER_MESSAGE,
     TURN_STARTED,
     ITEM_STARTED,
@@ -19,12 +18,11 @@ public enum UiEventType {
     APPROVAL_REQUESTED,
     APPROVAL_RESOLVED,
     CONTEXT_MESSAGE,
-    FINAL_ANSWER,
+    TURN_COMPLETED,
     TURN_ABORTED,
     COMPACT_STARTED,
     COMPACT_FINISHED,
     COMPACT_SKIPPED,
-    RUN_FINISHED,
     SESSION_RESET,
     SKILLS_CHANGED,
     ERROR

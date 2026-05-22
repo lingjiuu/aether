@@ -19,6 +19,10 @@ public class UiEvent {
 
     private String sessionId;
 
+    private String commandId;
+
+    private String turnId;
+
     private Integer turn;
 
     private UiEventPayload payload;

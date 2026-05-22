@@ -1,5 +1,6 @@
 package io.github.lingjiuu.agent.task;
 
+import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.agent.turn.TurnState;
 import io.github.lingjiuu.protocol.UiItemKind;
@@ -31,7 +32,6 @@ public class RegularTask implements SessionTask {
         Session session = context.session();
         TurnContext turnContext = context.turnContext();
         TurnState state = new TurnState();
-        session.events().turnStarted(turnContext);
 
         CompactTask compactTask = new CompactTask();
         long blockedAutoCompactAtOrBelow = -1;
@@ -99,12 +99,11 @@ public class RegularTask implements SessionTask {
                         }
                     }
                     session.recordAssistant(assistantMessage, turnContext);
-                    session.events().error(turnContext, assistantMessage.getErrorMessage());
+                    session.events().emit(UiEvents.error(turnContext, assistantMessage.getErrorMessage()));
                     return;
                 }
 
                 if (toolScope.size() == 0) {
-                    session.events().finalAnswer(assistantMessage, turnContext);
                     return;
                 }
 
@@ -139,46 +138,46 @@ public class RegularTask implements SessionTask {
         }
 
         switch (event.getType()) {
-            case TEXT_START -> session.events().itemStarted(
+            case TEXT_START -> session.events().emit(UiEvents.itemStarted(
                     turnContext,
                     UiItemKind.ASSISTANT_TEXT,
                     event.getItemId(),
                     event.getContentIndex(),
                     null
-            );
-            case THINKING_START -> session.events().itemStarted(
+            ));
+            case THINKING_START -> session.events().emit(UiEvents.itemStarted(
                     turnContext,
                     UiItemKind.REASONING,
                     event.getItemId(),
                     event.getContentIndex(),
                     null
-            );
-            case TOOLCALL_START -> session.events().itemStarted(
+            ));
+            case TOOLCALL_START -> session.events().emit(UiEvents.itemStarted(
                     turnContext,
                     UiItemKind.TOOL_CALL,
                     event.getItemId(),
                     event.getContentIndex(),
                     event.getToolCall()
-            );
-            case TEXT_DELTA -> session.events().assistantTextDelta(
+            ));
+            case TEXT_DELTA -> session.events().emit(UiEvents.assistantTextDelta(
                     turnContext,
                     event.getItemId(),
                     event.getContentIndex(),
                     event.getDelta()
-            );
-            case THINKING_DELTA -> session.events().reasoningDelta(
+            ));
+            case THINKING_DELTA -> session.events().emit(UiEvents.reasoningDelta(
                     turnContext,
                     event.getItemId(),
                     event.getContentIndex(),
                     event.getDelta()
-            );
-            case TOOLCALL_DELTA -> session.events().toolArgumentsDelta(
+            ));
+            case TOOLCALL_DELTA -> session.events().emit(UiEvents.toolArgumentsDelta(
                     turnContext,
                     event.getItemId(),
                     event.getContentIndex(),
                     event.getToolCall(),
                     event.getDelta()
-            );
+            ));
             case TEXT_END -> {
                 AssistantMessage assistantItem = session.contextBuilder().assistantTextItem(
                         event.getPartial(),
@@ -189,14 +188,14 @@ public class RegularTask implements SessionTask {
                         assistantItem,
                         turnContext
                 );
-                session.events().itemCompleted(
+                session.events().emit(UiEvents.itemCompleted(
                         turnContext,
                         UiItemKind.ASSISTANT_TEXT,
                         event.getItemId(),
                         event.getContentIndex(),
                         null,
                         event.getContent()
-                );
+                ));
             }
             case THINKING_END -> {
                 AssistantMessage assistantItem = session.contextBuilder().assistantThinkingItem(
@@ -208,14 +207,14 @@ public class RegularTask implements SessionTask {
                         assistantItem,
                         turnContext
                 );
-                session.events().itemCompleted(
+                session.events().emit(UiEvents.itemCompleted(
                         turnContext,
                         UiItemKind.REASONING,
                         event.getItemId(),
                         event.getContentIndex(),
                         null,
                         event.getContent()
-                );
+                ));
             }
             case TOOLCALL_END -> {
                 AssistantMessage assistantItem = session.contextBuilder().assistantToolCallItem(
@@ -224,26 +223,30 @@ public class RegularTask implements SessionTask {
                         event.getProviderState()
                 );
                 session.recordAssistant(assistantItem, turnContext);
-                session.events().toolArgumentsDone(
+                session.events().emit(UiEvents.toolArgumentsDone(
                         turnContext,
                         event.getItemId(),
                         event.getContentIndex(),
                         event.getToolCall()
-                );
-                session.events().itemCompleted(
+                ));
+                session.events().emit(UiEvents.itemCompleted(
                         turnContext,
                         UiItemKind.TOOL_CALL,
                         event.getItemId(),
                         event.getContentIndex(),
                         event.getToolCall(),
                         event.getToolCall() == null ? null : event.getToolCall().getArgumentsJson()
-                );
-                toolScope.fork(assistantItem, event.getToolCall());
+                ));
+                toolScope.fork(assistantItem, new ToolCallRef(
+                        event.getItemId(),
+                        event.getContentIndex(),
+                        event.getToolCall()
+                ));
             }
-            case ERROR -> session.events().error(
+            case ERROR -> session.events().emit(UiEvents.error(
                     turnContext,
                     streamErrorMessage(event)
-            );
+            ));
             default -> {
             }
         }
@@ -273,8 +276,17 @@ public class RegularTask implements SessionTask {
             if (outcome == null) {
                 continue;
             }
-            ToolResultMessage result = session.toolResultMessage(outcome.toolCall(), outcome.executionResult());
-            session.recordToolResult(outcome.toolCall(), result, turnContext);
+            ToolCallRef toolCallRef = outcome.toolCallRef();
+            ToolResultMessage result = session.toolResultMessage(toolCallRef.toolCall(), outcome.executionResult());
+            session.recordToolResult(
+                    toolCallRef.itemId(),
+                    toolCallRef.contentIndex(),
+                    toolCallRef.toolCall(),
+                    result,
+                    turnContext,
+                    outcome.status(),
+                    outcome.durationMs()
+            );
         }
     }
 

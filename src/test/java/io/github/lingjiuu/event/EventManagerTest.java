@@ -36,9 +36,9 @@ public class EventManagerTest extends TestCase {
                 threadNames.add(Thread.currentThread().getName());
             });
 
-            events.emit(UiEvent.builder().type(UiEventType.RUN_STARTED).build());
             events.emit(UiEvent.builder().type(UiEventType.TURN_STARTED).build());
-            events.emit(UiEvent.builder().type(UiEventType.RUN_FINISHED).build());
+            events.emit(UiEvent.builder().type(UiEventType.TURN_COMPLETED).build());
+            events.emit(UiEvent.builder().type(UiEventType.TOOL_EXECUTION_UPDATE).build());
             events.flush();
 
             assertEquals(3, received.size());
@@ -88,25 +88,50 @@ public class EventManagerTest extends TestCase {
         TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-event-test"));
         EventManager events = new EventManager(new TranscriptRecorder(store, sessionId), List.of(), 0);
         try {
-            events.runStarted(sessionId, 1);
-            events.turnStarted(new io.github.lingjiuu.agent.turn.TurnContext(
+            var turnContext = new io.github.lingjiuu.agent.turn.TurnContext(
                     io.github.lingjiuu.agent.turn.TurnId.create(),
                     sessionId,
                     1,
                     java.nio.file.Path.of(".")
-            ));
+            );
+            events.emit(UiEvents.turnStarted(turnContext));
+            events.emit(UiEvents.turnCompleted(turnContext));
             events.flush();
 
             var records = store.read(sessionId);
             assertEquals(2, records.size());
             assertTrue(records.get(0).getItem() instanceof EventTranscriptItem);
             UiEvent first = ((EventTranscriptItem) records.get(0).getItem()).getEvent();
-            assertEquals(UiEventType.RUN_STARTED, first.getType());
+            assertEquals(UiEventType.TURN_STARTED, first.getType());
             assertEquals(Long.valueOf(1), first.getSequence());
             assertNotNull(first.getTimestampMs());
             assertTrue(records.get(1).getItem() instanceof EventTranscriptItem);
             UiEvent second = ((EventTranscriptItem) records.get(1).getItem()).getEvent();
             assertEquals(Long.valueOf(2), second.getSequence());
+        } finally {
+            events.close();
+        }
+    }
+
+    public void testReplayTimelineDoesNotRestampOrPersistEvents() throws Exception {
+        String sessionId = UUID.randomUUID().toString();
+        TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-event-test"));
+        UiEvent restored = UiEvent.builder()
+                .type(UiEventType.TURN_COMPLETED)
+                .sessionId(sessionId)
+                .turn(1)
+                .sequence(42L)
+                .timestampMs(100L)
+                .build();
+        EventManager events = new EventManager(new TranscriptRecorder(store, sessionId), List.of(restored), 42);
+        List<UiEvent> received = new CopyOnWriteArrayList<>();
+        try {
+            events.replayTimeline(received::add);
+
+            assertEquals(1, received.size());
+            assertEquals(Long.valueOf(42), received.getFirst().getSequence());
+            assertEquals(Long.valueOf(100), received.getFirst().getTimestampMs());
+            assertEquals(0, store.read(sessionId).size());
         } finally {
             events.close();
         }

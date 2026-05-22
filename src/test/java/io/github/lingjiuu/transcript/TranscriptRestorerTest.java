@@ -60,17 +60,17 @@ public class TranscriptRestorerTest extends TestCase {
         String sessionId = UUID.randomUUID().toString();
         TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-transcript-test"));
 
-        append(store, sessionId, eventItem(UiEventType.RUN_STARTED, 10), 1);
+        append(store, sessionId, eventItem(UiEventType.TURN_COMPLETED, 11), 1);
         append(store, sessionId, messageItem("message"), 1);
-        append(store, sessionId, eventItem(UiEventType.RUN_FINISHED, 11), 1);
+        append(store, sessionId, eventItem(UiEventType.TURN_STARTED, 10), 1);
 
         TranscriptReconstruction reconstruction = new TranscriptRestorer(store).restore(sessionId);
 
         assertEquals(1, reconstruction.messages().size());
         assertEquals("message", MessageContents.text(reconstruction.messages().getFirst()));
         assertEquals(2, reconstruction.timelineEvents().size());
-        assertEquals(UiEventType.RUN_STARTED, reconstruction.timelineEvents().getFirst().getType());
-        assertEquals(UiEventType.RUN_FINISHED, reconstruction.timelineEvents().getLast().getType());
+        assertEquals(UiEventType.TURN_STARTED, reconstruction.timelineEvents().getFirst().getType());
+        assertEquals(UiEventType.TURN_COMPLETED, reconstruction.timelineEvents().getLast().getType());
         assertEquals(11, reconstruction.lastEventSequence());
     }
 

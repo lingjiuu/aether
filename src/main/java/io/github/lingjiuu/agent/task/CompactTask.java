@@ -1,5 +1,6 @@
 package io.github.lingjiuu.agent.task;
 
+import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.compact.CompactPromptBuilder;
 import io.github.lingjiuu.message.AssistantMessage;
@@ -60,15 +61,15 @@ public class CompactTask implements SessionTask {
         Session session = context.session();
         TurnContext turnContext = context.turnContext();
         List<Message> originalMessages = session.contextManager().snapshot();
-        session.events().compactStarted(turnContext, trigger, originalMessages.size());
+        session.events().emit(UiEvents.compactStarted(turnContext, trigger, originalMessages.size()));
 
         if (originalMessages.isEmpty()) {
-            session.events().compactSkipped(
+            session.events().emit(UiEvents.compactSkipped(
                     turnContext,
                     "No context to compact.",
                     originalMessages.size(),
                     originalMessages.size()
-            );
+            ));
             return false;
         }
 
@@ -80,12 +81,12 @@ public class CompactTask implements SessionTask {
             return false;
         }
         if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ERROR) {
-            session.events().compactSkipped(
+            session.events().emit(UiEvents.compactSkipped(
                     turnContext,
                     assistantMessage.getErrorMessage(),
                     originalMessages.size(),
                     originalMessages.size()
-            );
+            ));
             return false;
         }
 
@@ -118,7 +119,7 @@ public class CompactTask implements SessionTask {
             session.clearInitialContextBaseline();
         }
         session.recomputeTokenUsageFromHistory(turnContext);
-        session.events().compactFinished(turnContext, summary, originalMessages.size(), replacementMessages.size());
+        session.events().emit(UiEvents.compactFinished(turnContext, summary, originalMessages.size(), replacementMessages.size()));
         return true;
     }
 

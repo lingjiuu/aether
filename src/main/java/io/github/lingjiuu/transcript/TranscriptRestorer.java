@@ -11,6 +11,7 @@ import io.github.lingjiuu.transcript.item.TranscriptItem;
 import io.github.lingjiuu.transcript.item.TurnContextItem;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 public class TranscriptRestorer {
@@ -119,6 +120,7 @@ public class TranscriptRestorer {
                 events.add(eventItem.getEvent());
             }
         }
+        events.sort(Comparator.comparingLong(this::eventSequence));
         return List.copyOf(events);
     }
 
@@ -130,6 +132,13 @@ public class TranscriptRestorer {
             }
         }
         return lastSequence;
+    }
+
+    private long eventSequence(UiEvent event) {
+        if (event == null || event.getSequence() == null) {
+            return Long.MAX_VALUE;
+        }
+        return event.getSequence();
     }
 
     private record ReconstructionState(

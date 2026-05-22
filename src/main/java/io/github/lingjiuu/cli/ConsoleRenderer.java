@@ -6,8 +6,11 @@ import io.github.lingjiuu.protocol.UiEventPayload;
 import io.github.lingjiuu.protocol.UiEventPayloads;
 import io.github.lingjiuu.protocol.UiItem;
 import io.github.lingjiuu.protocol.UiItemBodies;
+import io.github.lingjiuu.protocol.UiHistory;
+import io.github.lingjiuu.protocol.UiHistoryItem;
 import io.github.lingjiuu.protocol.UiToolCall;
 import io.github.lingjiuu.protocol.UiToolResult;
+import io.github.lingjiuu.protocol.UiTurn;
 
 public class ConsoleRenderer implements EventSink {
 
@@ -23,10 +26,6 @@ public class ConsoleRenderer implements EventSink {
             finishAssistantTextLine();
         }
         switch (event.getType()) {
-            case RUN_STARTED -> {
-                System.out.println("[SESSION] id=" + event.getSessionId());
-                System.out.println("[AGENT] run start");
-            }
             case USER_MESSAGE -> {
                 System.out.println("[USER] " + text(event));
             }
@@ -116,9 +115,7 @@ public class ConsoleRenderer implements EventSink {
                     System.out.println("[CONTEXT] " + text);
                 }
             }
-            case FINAL_ANSWER -> {
-                System.out.println("[AGENT] final answer");
-            }
+            case TURN_COMPLETED -> System.out.println("[AGENT] turn complete");
             case TURN_ABORTED -> System.out.println("[AGENT] turn interrupted");
             case COMPACT_STARTED -> {
                 UiEventPayloads.Compact compact = compact(event);
@@ -149,7 +146,6 @@ public class ConsoleRenderer implements EventSink {
                     System.out.println("[CONTEXT] " + compact.text());
                 }
             }
-            case RUN_FINISHED -> System.out.println("[AGENT] run end");
             case SESSION_RESET -> System.out.println("[SESSION] reset");
             case SKILLS_CHANGED -> {
                 String text = text(event);
@@ -164,6 +160,19 @@ public class ConsoleRenderer implements EventSink {
                         && !error.message().isBlank()) {
                     System.out.println("[ERROR] " + error.message());
                 }
+            }
+        }
+    }
+
+    public void renderHistory(UiHistory history) {
+        if (history == null || history.turns() == null || history.turns().isEmpty()) {
+            return;
+        }
+        for (UiTurn turn : history.turns()) {
+            System.out.println();
+            System.out.println("[AGENT] turn " + turn.turn() + " " + turn.status().toLowerCase());
+            for (UiHistoryItem item : turn.items()) {
+                renderHistoryItem(item);
             }
         }
     }
@@ -265,5 +274,39 @@ public class ConsoleRenderer implements EventSink {
             return toolResult.toolResult();
         }
         return null;
+    }
+
+    private void renderHistoryItem(UiHistoryItem item) {
+        if (item == null || item.kind() == null) {
+            return;
+        }
+        switch (item.kind()) {
+            case USER_MESSAGE -> printIfNotBlank("[USER] ", item.text());
+            case CONTEXT_MESSAGE -> printIfNotBlank("[CONTEXT] ", item.text());
+            case ASSISTANT_TEXT -> printIfNotBlank("", item.text());
+            case REASONING -> {
+            }
+            case TOOL_CALL -> {
+                if (item.toolCall() != null) {
+                    System.out.println("[TOOL] call_id=" + item.toolCall().getToolCallId());
+                    System.out.println("[TOOL] " + item.toolCall().getToolName()
+                            + " " + item.toolCall().getArgumentsJson());
+                }
+                if (item.toolResult() != null) {
+                    System.out.println("[TOOL] result=" + item.toolResult().getText());
+                }
+            }
+            case TOOL_RESULT -> {
+                if (item.toolResult() != null) {
+                    System.out.println("[TOOL] result=" + item.toolResult().getText());
+                }
+            }
+        }
+    }
+
+    private void printIfNotBlank(String prefix, String text) {
+        if (text != null && !text.isBlank()) {
+            System.out.println(prefix + text);
+        }
     }
 }

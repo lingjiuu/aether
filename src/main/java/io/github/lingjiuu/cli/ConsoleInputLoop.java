@@ -1,18 +1,20 @@
 package io.github.lingjiuu.cli;
 
-import io.github.lingjiuu.session.Session;
+import io.github.lingjiuu.protocol.UiCommand;
+import io.github.lingjiuu.protocol.UiCommandAck;
+import io.github.lingjiuu.protocol.UiCommandType;
 import io.github.lingjiuu.session.SessionFactory;
+import io.github.lingjiuu.ui.UiRuntime;
 
 import java.util.NoSuchElementException;
 import java.util.Scanner;
 
 public class ConsoleInputLoop {
 
-    private final SessionFactory sessionFactory;
     private final ConsoleRenderer renderer;
     private final ConsoleApprovalHandler approvalHandler;
     private final Scanner scanner;
-    private Session session;
+    private final UiRuntime uiRuntime;
     private boolean running = true;
 
     public ConsoleInputLoop(SessionFactory sessionFactory) {
@@ -29,11 +31,10 @@ public class ConsoleInputLoop {
             throw new IllegalArgumentException("sessionFactory must not be null");
         }
         Scanner resolvedScanner = scanner == null ? new Scanner(System.in) : scanner;
-        this.sessionFactory = sessionFactory;
         this.scanner = resolvedScanner;
         this.renderer = renderer == null ? new ConsoleRenderer() : renderer;
         this.approvalHandler = approvalHandler == null ? new ConsoleApprovalHandler(resolvedScanner) : approvalHandler;
-        this.session = configure(sessionFactory.openSession());
+        this.uiRuntime = new UiRuntime(sessionFactory, this.renderer, this.approvalHandler);
     }
 
     public void run() {
@@ -45,12 +46,12 @@ public class ConsoleInputLoop {
                 line = scanner.nextLine();
             } catch (NoSuchElementException e) {
                 System.out.println();
-                closeCurrentSession();
+                uiRuntime.close();
                 return;
             }
 
             if (line == null) {
-                closeCurrentSession();
+                uiRuntime.close();
                 return;
             }
             String input = line.trim();
@@ -60,7 +61,7 @@ public class ConsoleInputLoop {
             if (handleCommand(input)) {
                 continue;
             }
-            session.prompt(input);
+            submitAndWait(UiCommand.submitUserInput(input));
         }
     }
 
@@ -68,7 +69,11 @@ public class ConsoleInputLoop {
         if (input == null || input.isBlank()) {
             return;
         }
-        session.prompt(input.trim());
+        UiCommandAck ack = uiRuntime.submit(UiCommand.submitUserInput(input.trim()));
+        handleAck(ack);
+        if (ack != null && ack.accepted()) {
+            uiRuntime.waitForIdle();
+        }
     }
 
     private boolean handleCommand(String input) {
@@ -82,21 +87,21 @@ public class ConsoleInputLoop {
         switch (command) {
             case "/exit", "/quit" -> {
                 System.out.println("[SESSION] bye");
-                closeCurrentSession();
+                uiRuntime.close();
                 running = false;
                 return true;
             }
             case "/session" -> {
-                System.out.println("[SESSION] id=" + session.sessionId());
-                System.out.println("[SESSION] messages=" + session.messages().size());
+                System.out.println("[SESSION] id=" + uiRuntime.sessionId());
+                System.out.println("[SESSION] messages=" + uiRuntime.messageCount());
                 return true;
             }
             case "/compact" -> {
-                session.compact();
+                submitAndWait(UiCommand.simple(UiCommandType.COMPACT));
                 return true;
             }
             case "/continue" -> {
-                session.continueSession();
+                submitAndWait(UiCommand.simple(UiCommandType.CONTINUE));
                 return true;
             }
             case "/resume" -> {
@@ -104,8 +109,8 @@ public class ConsoleInputLoop {
                 return true;
             }
             case "/new" -> {
-                switchSession(sessionFactory.openSession());
-                System.out.println("[SESSION] new id=" + session.sessionId());
+                handleAck(uiRuntime.submit(UiCommand.simple(UiCommandType.NEW_SESSION)));
+                System.out.println("[SESSION] new id=" + uiRuntime.sessionId());
                 return true;
             }
             case "/skills" -> {
@@ -129,24 +134,20 @@ public class ConsoleInputLoop {
             System.out.println("[ERROR] usage: /resume <session-id>");
             return;
         }
-        if (!sessionFactory.config().transcriptStore().exists(sessionId)) {
-            System.out.println("[ERROR] transcript not found for session: " + sessionId);
-            return;
-        }
-        try {
-            switchSession(sessionFactory.resumeSession(sessionId));
-            System.out.println("[SESSION] resumed id=" + session.sessionId());
-            System.out.println("[SESSION] messages=" + session.messages().size());
-        } catch (RuntimeException e) {
-            System.out.println("[ERROR] " + e.getMessage());
+        UiCommandAck ack = uiRuntime.submit(UiCommand.resumeSession(sessionId));
+        handleAck(ack);
+        if (ack != null && ack.accepted()) {
+            renderHistory(ack);
+            System.out.println("[SESSION] resumed id=" + uiRuntime.sessionId());
+            System.out.println("[SESSION] messages=" + uiRuntime.messageCount());
         }
     }
 
     private void skills(String argument) {
         if ("reload".equals(argument)) {
-            session.reloadSkills();
+            handleAck(uiRuntime.submit(UiCommand.simple(UiCommandType.RELOAD_SKILLS)));
         }
-        var skills = session.availableSkills();
+        var skills = uiRuntime.availableSkills();
         if (skills.isEmpty()) {
             System.out.println("[SKILLS] none");
             return;
@@ -158,26 +159,30 @@ public class ConsoleInputLoop {
         }
     }
 
-    private void switchSession(Session nextSession) {
-        closeCurrentSession();
-        session = configure(nextSession);
-    }
-
-    private void closeCurrentSession() {
-        if (session != null) {
-            session.close();
+    private void handleAck(UiCommandAck ack) {
+        if (ack != null && !ack.accepted()) {
+            System.out.println("[ERROR] " + ack.message());
         }
     }
 
-    private Session configure(Session session) {
-        session.subscribe(renderer);
-        session.setApprovalHandler(approvalHandler);
-        return session;
+    private void submitAndWait(UiCommand command) {
+        UiCommandAck ack = uiRuntime.submit(command);
+        handleAck(ack);
+        if (ack != null && ack.accepted()) {
+            uiRuntime.waitForIdle();
+        }
+    }
+
+    private void renderHistory(UiCommandAck ack) {
+        if (ack == null || ack.history() == null) {
+            return;
+        }
+        renderer.renderHistory(ack.history());
     }
 
     private void printBanner() {
         System.out.println("Aether demo CLI");
-        System.out.println("[SESSION] id=" + session.sessionId());
+        System.out.println("[SESSION] id=" + uiRuntime.sessionId());
         printHelp();
     }
 

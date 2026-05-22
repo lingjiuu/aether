@@ -1,5 +1,6 @@
 package io.github.lingjiuu.session;
 
+import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.agent.task.CompactTask;
 import io.github.lingjiuu.agent.task.RegularTask;
 import io.github.lingjiuu.agent.task.RunningTask;
@@ -129,23 +130,35 @@ public class Session implements AutoCloseable {
     }
 
     public void submitAsync(TurnInput input) {
+        submitAsync(input, null);
+    }
+
+    public void submitAsync(TurnInput input, String commandId) {
         MaterializedInput materializedInput = inputMaterializer.materialize(input);
         synchronized (this) {
             ensureIdle();
             state.touch();
         }
-        runRegularTask(materializedInput);
+        runRegularTask(materializedInput, commandId);
     }
 
     public void continueSession() {
+        runContinueAsync();
+        waitForIdle();
+    }
+
+    public void runContinueAsync() {
+        runContinueAsync(null);
+    }
+
+    public void runContinueAsync(String commandId) {
         synchronized (this) {
             ensureIdle();
             if (!canContinue()) {
                 throw new IllegalStateException("Current session cannot continue without a new user or tool result message.");
             }
         }
-        runRegularTask(null);
-        waitForIdle();
+        runRegularTask(null, commandId);
     }
 
     public void compact() {
@@ -154,10 +167,14 @@ public class Session implements AutoCloseable {
     }
 
     public void compactAsync() {
+        compactAsync(null);
+    }
+
+    public void compactAsync(String commandId) {
         synchronized (this) {
             ensureIdle();
         }
-        runSessionTask(new CompactTask());
+        runSessionTask(new CompactTask(), null, commandId);
     }
 
     public synchronized void reset() {
@@ -167,7 +184,7 @@ public class Session implements AutoCloseable {
         state.clearTokenUsage();
         clearInitialContextBaseline();
         state.touch();
-        eventManager.sessionReset(sessionId());
+        eventManager.emit(UiEvents.sessionReset(sessionId()));
     }
 
     public synchronized void registerTool(ToolDefinition definition) {
@@ -261,6 +278,14 @@ public class Session implements AutoCloseable {
 
     public EventSubscription subscribe(EventSink sink) {
         return eventManager.subscribe(sink);
+    }
+
+    public void replayTimeline(EventSink sink) {
+        eventManager.replayTimeline(sink);
+    }
+
+    public List<UiEvent> eventsAfter(long sequence) {
+        return eventManager.eventsAfter(sequence);
     }
 
     public EventManager events() {
@@ -359,14 +384,14 @@ public class Session implements AutoCloseable {
     public void markContextWindowFull(TurnContext turnContext) {
         state.setTokenUsageFull(modelContextWindowTokens());
         if (turnContext != null) {
-            eventManager.tokenUsage(turnContext, tokenUsageInfo(), currentContextTokenUsage(), autoCompactTokenLimit());
+            eventManager.emit(UiEvents.tokenUsage(turnContext, tokenUsageInfo(), currentContextTokenUsage(), autoCompactTokenLimit()));
         }
     }
 
     public void recomputeTokenUsageFromHistory(TurnContext turnContext) {
         recomputeTokenUsageFromHistory();
         if (turnContext != null) {
-            eventManager.tokenUsage(turnContext, tokenUsageInfo(), currentContextTokenUsage(), autoCompactTokenLimit());
+            eventManager.emit(UiEvents.tokenUsage(turnContext, tokenUsageInfo(), currentContextTokenUsage(), autoCompactTokenLimit()));
         }
     }
 
@@ -375,7 +400,7 @@ public class Session implements AutoCloseable {
             return;
         }
         recorder.record(userMessage, turnContext.turn());
-        eventManager.userMessage(userMessage, turnContext);
+        eventManager.emit(UiEvents.userMessage(userMessage, turnContext));
     }
 
     public void recordContextMessage(ContextMessage contextMessage, TurnContext turnContext) {
@@ -383,7 +408,7 @@ public class Session implements AutoCloseable {
             return;
         }
         recorder.record(contextMessage, turnContext.turn());
-        eventManager.contextMessage(contextMessage, turnContext);
+        eventManager.emit(UiEvents.contextMessage(contextMessage, turnContext));
     }
 
     public void recordAssistant(AssistantMessage assistantMessage, TurnContext turnContext) {
@@ -398,12 +423,24 @@ public class Session implements AutoCloseable {
             ToolResultMessage toolResult,
             TurnContext turnContext
     ) {
+        recordToolResult(null, null, toolCall, toolResult, turnContext, null, null);
+    }
+
+    public void recordToolResult(
+            String sourceItemId,
+            Integer contentIndex,
+            ToolCallContent toolCall,
+            ToolResultMessage toolResult,
+            TurnContext turnContext,
+            String status,
+            Long durationMs
+    ) {
         if (toolResult == null) {
             return;
         }
         recorder.record(toolResult, turnContext.turn());
-        eventManager.toolExecutionFinished(toolCall, toolResult, turnContext);
-        eventManager.toolResult(toolCall, toolResult, turnContext);
+        eventManager.emit(UiEvents.toolExecutionFinished(sourceItemId, contentIndex, toolCall, toolResult, status, durationMs, turnContext));
+        eventManager.emit(UiEvents.toolResult(sourceItemId, contentIndex, toolCall, toolResult, status, durationMs, turnContext));
     }
 
     public ToolResultMessage toolResultMessage(ToolCallContent toolCall, ToolExecutionResult result) {
@@ -414,14 +451,14 @@ public class Session implements AutoCloseable {
         if (request == null) {
             return null;
         }
-        eventManager.approvalRequested(request, turnContext);
+        eventManager.emit(UiEvents.approvalRequested(request, turnContext));
 
         ApprovalResponse response = approvalHandler.requestApproval(request);
         if (response == null || !request.id().equals(response.id())) {
             response = ApprovalResponse.deny(request.id(), "Approval response did not match the request.");
         }
 
-        eventManager.approvalResolved(request, response, turnContext);
+        eventManager.emit(UiEvents.approvalResolved(request, response, turnContext));
         return response;
     }
 
@@ -547,14 +584,18 @@ public class Session implements AutoCloseable {
     }
 
     private void runRegularTask(MaterializedInput materializedInput) {
-        runSessionTask(new RegularTask(), materializedInput);
+        runRegularTask(materializedInput, null);
+    }
+
+    private void runRegularTask(MaterializedInput materializedInput, String commandId) {
+        runSessionTask(new RegularTask(), materializedInput, commandId);
     }
 
     private void runSessionTask(SessionTask task) {
-        runSessionTask(task, null);
+        runSessionTask(task, null, null);
     }
 
-    private void runSessionTask(SessionTask task, MaterializedInput materializedInput) {
+    private void runSessionTask(SessionTask task, MaterializedInput materializedInput, String commandId) {
         ToolCancellationSource cancellationSource = new ToolCancellationSource();
         int turn;
         synchronized (this) {
@@ -562,9 +603,9 @@ public class Session implements AutoCloseable {
             state.markRunning();
             turn = state.nextTurn();
         }
-        TurnContext turnContext = new TurnContext(TurnId.create(), sessionId(), turn, config.cwd());
+        TurnContext turnContext = new TurnContext(TurnId.create(), sessionId(), turn, config.cwd(), commandId);
 
-        eventManager.runStarted(sessionId(), turn);
+        eventManager.emit(UiEvents.turnStarted(turnContext));
         try {
             RunningTask runningTask = taskRunner.start(
                     cancellationSource,
@@ -575,8 +616,8 @@ public class Session implements AutoCloseable {
                 throw new IllegalStateException("Failed to start session task.");
             }
         } catch (RuntimeException e) {
-            eventManager.error(sessionId(), turn, e.getMessage());
-            eventManager.runFinished(sessionId(), turn);
+            eventManager.emit(UiEvents.error(sessionId(), turn, e.getMessage()));
+            eventManager.emit(UiEvents.turnAborted(turnContext));
             synchronized (this) {
                 state.markIdle();
                 notifyAll();
@@ -596,7 +637,7 @@ public class Session implements AutoCloseable {
             task.run(context);
         } catch (RuntimeException e) {
             if (!cancellationSource.token().isCancellationRequested()) {
-                eventManager.error(turnContext, e.getMessage());
+                eventManager.emit(UiEvents.error(turnContext, e.getMessage()));
             }
         } finally {
             boolean cancelled = cancellationSource.token().isCancellationRequested();
@@ -604,16 +645,13 @@ public class Session implements AutoCloseable {
                 try {
                     recordInterruptedTurn(turnContext);
                 } catch (RuntimeException e) {
-                    eventManager.error(turnContext, "Failed to record interrupted turn: " + e.getMessage());
+                    eventManager.emit(UiEvents.error(turnContext, "Failed to record interrupted turn: " + e.getMessage()));
                 }
             }
             if (cancelled) {
-                eventManager.turnAborted(turnContext);
+                eventManager.emit(UiEvents.turnAborted(turnContext));
             } else {
-                eventManager.runFinished(sessionId(), turnContext.turn());
-            }
-            if (cancelled) {
-                eventManager.runFinished(sessionId(), turnContext.turn());
+                eventManager.emit(UiEvents.turnCompleted(turnContext));
             }
             synchronized (this) {
                 state.markIdle();
@@ -637,7 +675,7 @@ public class Session implements AutoCloseable {
     }
 
     private void emitSkillsChanged(int availableSkillCount) {
-        eventManager.skillsChanged(sessionId(), availableSkillCount);
+        eventManager.emit(UiEvents.skillsChanged(sessionId(), availableSkillCount));
     }
 
     private TaskContext taskContext(
@@ -665,7 +703,7 @@ public class Session implements AutoCloseable {
         }
         state.updateTokenUsage(usage, modelContextWindowTokens());
         if (turnContext != null) {
-            eventManager.tokenUsage(turnContext, tokenUsageInfo(), currentContextTokenUsage(), autoCompactTokenLimit());
+            eventManager.emit(UiEvents.tokenUsage(turnContext, tokenUsageInfo(), currentContextTokenUsage(), autoCompactTokenLimit()));
         }
     }
 

@@ -1,17 +1,6 @@
 package io.github.lingjiuu.event;
 
-import io.github.lingjiuu.agent.turn.TurnContext;
-import io.github.lingjiuu.llm.TokenUsageInfo;
-import io.github.lingjiuu.message.AssistantMessage;
-import io.github.lingjiuu.message.ContextMessage;
-import io.github.lingjiuu.message.ToolResultMessage;
-import io.github.lingjiuu.message.UserMessage;
-import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.protocol.UiEvent;
-import io.github.lingjiuu.protocol.UiItemKind;
-import io.github.lingjiuu.tool.ToolExecutionResult;
-import io.github.lingjiuu.tool.permission.ApprovalRequest;
-import io.github.lingjiuu.tool.permission.ApprovalResponse;
 import io.github.lingjiuu.transcript.TranscriptRecorder;
 
 import java.util.List;
@@ -28,7 +17,6 @@ public class EventManager implements AutoCloseable {
 
     private static final Logger LOGGER = Logger.getLogger(EventManager.class.getName());
 
-    private final UiEventBuilder eventBuilder = new UiEventBuilder();
     private final List<EventSink> sinks = new CopyOnWriteArrayList<>();
     private final List<UiEvent> timeline;
     private final TranscriptRecorder transcriptRecorder;
@@ -66,167 +54,25 @@ public class EventManager implements AutoCloseable {
         return List.copyOf(timeline);
     }
 
-    public void runStarted(String sessionId, int turn) {
-        emit(eventBuilder.runStarted(sessionId, turn));
+    public List<UiEvent> eventsAfter(long sequence) {
+        return timeline.stream()
+                .filter(event -> event != null
+                        && event.getSequence() != null
+                        && event.getSequence() > sequence)
+                .toList();
     }
 
-    public void runFinished(String sessionId, int turn) {
-        emit(eventBuilder.runFinished(sessionId, turn));
-    }
-
-    public void turnStarted(TurnContext turnContext) {
-        emit(eventBuilder.turnStarted(turnContext));
-    }
-
-    public void turnAborted(TurnContext turnContext) {
-        emit(eventBuilder.turnAborted(turnContext));
-    }
-
-    public void sessionReset(String sessionId) {
-        emit(eventBuilder.sessionReset(sessionId));
-    }
-
-    public void skillsChanged(String sessionId, int availableSkillCount) {
-        emit(eventBuilder.skillsChanged(sessionId, availableSkillCount));
-    }
-
-    public void userMessage(UserMessage userMessage, TurnContext turnContext) {
-        emit(eventBuilder.userMessage(userMessage, turnContext));
-    }
-
-    public void contextMessage(ContextMessage contextMessage, TurnContext turnContext) {
-        emit(eventBuilder.contextMessage(contextMessage, turnContext));
-    }
-
-    public void itemStarted(
-            TurnContext turnContext,
-            UiItemKind itemKind,
-            String itemId,
-            Integer contentIndex,
-            ToolCallContent toolCall
-    ) {
-        emit(eventBuilder.itemStarted(turnContext, itemKind, itemId, contentIndex, toolCall));
-    }
-
-    public void itemCompleted(
-            TurnContext turnContext,
-            UiItemKind itemKind,
-            String itemId,
-            Integer contentIndex,
-            ToolCallContent toolCall,
-            String text
-    ) {
-        emit(eventBuilder.itemCompleted(turnContext, itemKind, itemId, contentIndex, toolCall, text));
-    }
-
-    public void assistantTextDelta(TurnContext turnContext, String itemId, Integer contentIndex, String delta) {
-        emit(eventBuilder.assistantTextDelta(turnContext, itemId, contentIndex, delta));
-    }
-
-    public void reasoningDelta(TurnContext turnContext, String itemId, Integer contentIndex, String delta) {
-        emit(eventBuilder.reasoningDelta(turnContext, itemId, contentIndex, delta));
-    }
-
-    public void toolArgumentsDelta(
-            TurnContext turnContext,
-            String itemId,
-            Integer contentIndex,
-            ToolCallContent toolCall,
-            String delta
-    ) {
-        emit(eventBuilder.toolArgumentsDelta(turnContext, itemId, contentIndex, toolCall, delta));
-    }
-
-    public void toolArgumentsDone(
-            TurnContext turnContext,
-            String itemId,
-            Integer contentIndex,
-            ToolCallContent toolCall
-    ) {
-        emit(eventBuilder.toolArgumentsDone(turnContext, itemId, contentIndex, toolCall));
-    }
-
-    public void toolCall(ToolCallContent toolCall, TurnContext turnContext) {
-        emit(eventBuilder.toolCall(toolCall, turnContext));
-    }
-
-    public void toolExecutionStarted(ToolCallContent toolCall, TurnContext turnContext) {
-        emit(eventBuilder.toolExecutionStarted(toolCall, turnContext));
-    }
-
-    public void toolExecutionUpdate(
-            ToolCallContent toolCall,
-            ToolExecutionResult partialResult,
-            TurnContext turnContext
-    ) {
-        emit(eventBuilder.toolExecutionUpdate(toolCall, partialResult, turnContext));
-    }
-
-    public void toolExecutionFinished(
-            ToolCallContent toolCall,
-            ToolResultMessage toolResult,
-            TurnContext turnContext
-    ) {
-        emit(eventBuilder.toolExecutionFinished(toolCall, toolResult, turnContext));
-    }
-
-    public void toolResult(
-            ToolCallContent toolCall,
-            ToolResultMessage toolResult,
-            TurnContext turnContext
-    ) {
-        emit(eventBuilder.toolResult(toolCall, toolResult, turnContext));
-    }
-
-    public void finalAnswer(AssistantMessage assistantMessage, TurnContext turnContext) {
-        emit(eventBuilder.finalAnswer(assistantMessage, turnContext));
-    }
-
-    public void error(TurnContext turnContext, String message) {
-        emit(eventBuilder.error(turnContext, message));
-    }
-
-    public void error(String sessionId, int turn, String message) {
-        emit(eventBuilder.error(sessionId, turn, message));
-    }
-
-    public void approvalRequested(ApprovalRequest request, TurnContext turnContext) {
-        emit(eventBuilder.approvalRequested(request, turnContext));
-    }
-
-    public void approvalResolved(ApprovalRequest request, ApprovalResponse response, TurnContext turnContext) {
-        emit(eventBuilder.approvalResolved(request, response, turnContext));
-    }
-
-    public void tokenUsage(
-            TurnContext turnContext,
-            TokenUsageInfo tokenUsageInfo,
-            long contextTokenUsage,
-            Long autoCompactTokenLimit
-    ) {
-        emit(eventBuilder.tokenUsage(turnContext, tokenUsageInfo, contextTokenUsage, autoCompactTokenLimit));
-    }
-
-    public void compactStarted(TurnContext turnContext, String trigger, int originalMessageCount) {
-        emit(eventBuilder.compactStarted(turnContext, trigger, originalMessageCount));
-    }
-
-    public void compactSkipped(
-            TurnContext turnContext,
-            String text,
-            int originalMessageCount,
-            int replacementMessageCount
-    ) {
-        emit(eventBuilder.compactSkipped(turnContext, text, originalMessageCount, replacementMessageCount));
-    }
-
-    public void compactFinished(
-            TurnContext turnContext,
-            String summary,
-            int originalMessageCount,
-            int replacementMessageCount
-    ) {
-        emit(eventBuilder.compactFinished(turnContext, summary, originalMessageCount, replacementMessageCount));
+    public void replayTimeline(EventSink sink) {
+        if (sink == null) {
+            return;
+        }
+        for (UiEvent event : timelineEvents()) {
+            try {
+                sink.onEvent(event);
+            } catch (RuntimeException e) {
+                LOGGER.log(Level.WARNING, "Failed to replay UI event to sink " + sink, e);
+            }
+        }
     }
 
     public void emit(UiEvent event) {

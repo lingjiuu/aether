@@ -26,6 +26,7 @@ import io.github.lingjiuu.protocol.UiEventType;
 import io.github.lingjiuu.protocol.UiItemBodies;
 import io.github.lingjiuu.protocol.UiItemKind;
 import io.github.lingjiuu.protocol.UiToolCall;
+import io.github.lingjiuu.protocol.UiToolResult;
 import junit.framework.TestCase;
 
 import java.nio.file.Path;
@@ -57,6 +58,8 @@ public class UiEventProtocolTest extends TestCase {
         UiEventPayloads.ToolArgumentsDelta deltaPayload =
                 (UiEventPayloads.ToolArgumentsDelta) delta.getPayload();
         assertEquals("item-tool", deltaPayload.itemId());
+        assertEquals("item-tool", deltaPayload.toolCall().getItemId());
+        assertEquals(Integer.valueOf(0), deltaPayload.toolCall().getContentIndex());
         assertEquals("call-echo", deltaPayload.toolCall().getToolCallId());
         assertEquals("echo", deltaPayload.toolCall().getToolName());
         assertEquals("{\"value\"", deltaPayload.delta());
@@ -71,8 +74,30 @@ public class UiEventProtocolTest extends TestCase {
         assertEquals(UiItemKind.TOOL_CALL, donePayload.item().getKind());
         assertTrue(donePayload.item().getBody() instanceof UiItemBodies.ToolCall);
         UiToolCall doneToolCall = ((UiItemBodies.ToolCall) donePayload.item().getBody()).toolCall();
+        assertEquals("item-tool", doneToolCall.getItemId());
+        assertEquals(Integer.valueOf(0), doneToolCall.getContentIndex());
         assertEquals("call-echo", doneToolCall.getToolCallId());
         assertEquals("{\"value\":\"ok\"}", doneToolCall.getArgumentsJson());
+
+        UiEvent executionStarted = first(events, UiEventType.TOOL_EXECUTION_STARTED);
+        assertNotNull(executionStarted);
+        assertTrue(executionStarted.getPayload() instanceof UiEventPayloads.ToolExecution);
+        UiEventPayloads.ToolExecution startedPayload =
+                (UiEventPayloads.ToolExecution) executionStarted.getPayload();
+        assertEquals("item-tool", startedPayload.toolCall().getItemId());
+        assertEquals("RUNNING", startedPayload.toolResult().getStatus());
+
+        UiEvent toolResult = first(events, UiEventType.TOOL_RESULT);
+        assertNotNull(toolResult);
+        assertTrue(toolResult.getPayload() instanceof UiEventPayloads.ToolResult);
+        UiEventPayloads.ToolResult resultPayload =
+                (UiEventPayloads.ToolResult) toolResult.getPayload();
+        assertTrue(resultPayload.item().getBody() instanceof UiItemBodies.ToolResult);
+        UiToolResult result = ((UiItemBodies.ToolResult) resultPayload.item().getBody()).toolResult();
+        assertEquals("item-tool", result.getSourceItemId());
+        assertEquals(Integer.valueOf(0), result.getContentIndex());
+        assertEquals("COMPLETED", result.getStatus());
+        assertNotNull(result.getDurationMs());
 
         assertTrue(indexOf(events, UiEventType.ITEM_STARTED, UiItemKind.TOOL_CALL)
                 < indexOf(events, UiEventType.TOOL_CALL_ARGUMENTS_DELTA, UiItemKind.TOOL_CALL));
@@ -82,6 +107,7 @@ public class UiEventProtocolTest extends TestCase {
                 < indexOf(events, UiEventType.ITEM_COMPLETED, UiItemKind.TOOL_CALL));
         assertTrue(indexOf(events, UiEventType.ITEM_COMPLETED, UiItemKind.TOOL_CALL)
                 < indexOf(events, UiEventType.TOOL_EXECUTION_STARTED, null));
+        assertNotNull(first(events, UiEventType.TURN_COMPLETED));
         assertMonotonicSequences(events);
     }
 

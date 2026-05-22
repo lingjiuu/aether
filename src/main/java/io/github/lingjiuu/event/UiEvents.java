@@ -3,7 +3,6 @@ package io.github.lingjiuu.event;
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.llm.TokenUsage;
 import io.github.lingjiuu.llm.TokenUsageInfo;
-import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
@@ -27,37 +26,35 @@ import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.permission.ApprovalRequest;
 import io.github.lingjiuu.tool.permission.ApprovalResponse;
 
-final class UiEventBuilder {
+import java.util.Map;
 
-    UiEvent runStarted(String sessionId, int turn) {
-        return event(UiEventType.RUN_STARTED, sessionId, turn).build();
-    }
+public final class UiEvents {
 
-    UiEvent runFinished(String sessionId, int turn) {
-        return event(UiEventType.RUN_FINISHED, sessionId, turn).build();
-    }
-
-    UiEvent turnStarted(TurnContext turnContext) {
+    public static UiEvent turnStarted(TurnContext turnContext) {
         return event(UiEventType.TURN_STARTED, turnContext).build();
     }
 
-    UiEvent turnAborted(TurnContext turnContext) {
+    public static UiEvent turnAborted(TurnContext turnContext) {
         return event(UiEventType.TURN_ABORTED, turnContext).build();
     }
 
-    UiEvent sessionReset(String sessionId) {
+    public static UiEvent turnCompleted(TurnContext turnContext) {
+        return event(UiEventType.TURN_COMPLETED, turnContext).build();
+    }
+
+    public static UiEvent sessionReset(String sessionId) {
         return event(UiEventType.SESSION_RESET, sessionId, null)
                 .payload(new UiEventPayloads.Text("session reset"))
                 .build();
     }
 
-    UiEvent skillsChanged(String sessionId, int availableSkillCount) {
+    public static UiEvent skillsChanged(String sessionId, int availableSkillCount) {
         return event(UiEventType.SKILLS_CHANGED, sessionId, null)
                 .payload(new UiEventPayloads.Text("skills changed: " + availableSkillCount))
                 .build();
     }
 
-    UiEvent userMessage(UserMessage userMessage, TurnContext turnContext) {
+    public static UiEvent userMessage(UserMessage userMessage, TurnContext turnContext) {
         if (userMessage == null) {
             return null;
         }
@@ -67,7 +64,7 @@ final class UiEventBuilder {
                 .build();
     }
 
-    UiEvent contextMessage(ContextMessage contextMessage, TurnContext turnContext) {
+    public static UiEvent contextMessage(ContextMessage contextMessage, TurnContext turnContext) {
         if (contextMessage == null) {
             return null;
         }
@@ -77,7 +74,7 @@ final class UiEventBuilder {
                 .build();
     }
 
-    UiEvent itemStarted(
+    public static UiEvent itemStarted(
             TurnContext turnContext,
             UiItemKind itemKind,
             String itemId,
@@ -89,12 +86,12 @@ final class UiEventBuilder {
                         itemKind,
                         itemId,
                         contentIndex,
-                        uiToolCall(toolCall)
+                        uiToolCall(itemId, contentIndex, toolCall)
                 ))
                 .build();
     }
 
-    UiEvent itemCompleted(
+    public static UiEvent itemCompleted(
             TurnContext turnContext,
             UiItemKind itemKind,
             String itemId,
@@ -103,22 +100,22 @@ final class UiEventBuilder {
             String text
     ) {
         UiItem item = itemKind == UiItemKind.TOOL_CALL
-                ? toolCallItem(itemId, contentIndex, uiToolCall(toolCall))
+                ? toolCallItem(itemId, contentIndex, uiToolCall(itemId, contentIndex, toolCall))
                 : textItem(itemId, itemKind, contentIndex, text);
         return event(UiEventType.ITEM_COMPLETED, turnContext)
                 .payload(new UiEventPayloads.ItemCompleted(item))
                 .build();
     }
 
-    UiEvent assistantTextDelta(TurnContext turnContext, String itemId, Integer contentIndex, String delta) {
+    public static UiEvent assistantTextDelta(TurnContext turnContext, String itemId, Integer contentIndex, String delta) {
         return textDelta(turnContext, UiEventType.ASSISTANT_TEXT_DELTA, UiItemKind.ASSISTANT_TEXT, itemId, contentIndex, delta);
     }
 
-    UiEvent reasoningDelta(TurnContext turnContext, String itemId, Integer contentIndex, String delta) {
+    public static UiEvent reasoningDelta(TurnContext turnContext, String itemId, Integer contentIndex, String delta) {
         return textDelta(turnContext, UiEventType.REASONING_DELTA, UiItemKind.REASONING, itemId, contentIndex, delta);
     }
 
-    UiEvent toolArgumentsDelta(
+    public static UiEvent toolArgumentsDelta(
             TurnContext turnContext,
             String itemId,
             Integer contentIndex,
@@ -129,13 +126,13 @@ final class UiEventBuilder {
                 .payload(new UiEventPayloads.ToolArgumentsDelta(
                         itemId,
                         contentIndex,
-                        uiToolCall(toolCall),
+                        uiToolCall(itemId, contentIndex, toolCall),
                         delta
                 ))
                 .build();
     }
 
-    UiEvent toolArgumentsDone(
+    public static UiEvent toolArgumentsDone(
             TurnContext turnContext,
             String itemId,
             Integer contentIndex,
@@ -145,39 +142,53 @@ final class UiEventBuilder {
                 .payload(new UiEventPayloads.ToolArgumentsDone(toolCallItem(
                         itemId,
                         contentIndex,
-                        uiToolCall(toolCall)
+                        uiToolCall(itemId, contentIndex, toolCall)
                 )))
                 .build();
     }
 
-    UiEvent toolCall(ToolCallContent toolCall, TurnContext turnContext) {
+    public static UiEvent toolCall(String itemId, Integer contentIndex, ToolCallContent toolCall, TurnContext turnContext) {
         return event(UiEventType.TOOL_CALL, turnContext)
-                .payload(new UiEventPayloads.ToolCall(uiToolCall(toolCall)))
+                .payload(new UiEventPayloads.ToolCall(uiToolCall(itemId, contentIndex, toolCall)))
                 .build();
     }
 
-    UiEvent toolExecutionStarted(ToolCallContent toolCall, TurnContext turnContext) {
+    public static UiEvent toolExecutionStarted(
+            String itemId,
+            Integer contentIndex,
+            ToolCallContent toolCall,
+            TurnContext turnContext
+    ) {
         return event(UiEventType.TOOL_EXECUTION_STARTED, turnContext)
-                .payload(new UiEventPayloads.ToolExecution(uiToolCall(toolCall), null))
+                .payload(new UiEventPayloads.ToolExecution(
+                        uiToolCall(itemId, contentIndex, toolCall),
+                        uiToolResult(itemId, itemId, contentIndex, toolCall, null, "RUNNING", null)
+                ))
                 .build();
     }
 
-    UiEvent toolExecutionUpdate(
+    public static UiEvent toolExecutionUpdate(
+            String itemId,
+            Integer contentIndex,
             ToolCallContent toolCall,
             ToolExecutionResult partialResult,
             TurnContext turnContext
     ) {
         return event(UiEventType.TOOL_EXECUTION_UPDATE, turnContext)
                 .payload(new UiEventPayloads.ToolExecution(
-                        uiToolCall(toolCall),
-                        uiToolResult(toolCall, partialResult)
+                        uiToolCall(itemId, contentIndex, toolCall),
+                        uiToolResult(itemId, itemId, contentIndex, toolCall, partialResult, "RUNNING", null)
                 ))
                 .build();
     }
 
-    UiEvent toolExecutionFinished(
+    public static UiEvent toolExecutionFinished(
+            String sourceItemId,
+            Integer contentIndex,
             ToolCallContent toolCall,
             ToolResultMessage toolResult,
+            String status,
+            Long durationMs,
             TurnContext turnContext
     ) {
         if (toolResult == null) {
@@ -185,63 +196,60 @@ final class UiEventBuilder {
         }
         return event(UiEventType.TOOL_EXECUTION_FINISHED, turnContext)
                 .payload(new UiEventPayloads.ToolExecution(
-                        uiToolCall(toolCall),
-                        uiToolResult(toolResult)
+                        uiToolCall(sourceItemId, contentIndex, toolCall),
+                        uiToolResult(toolResult, sourceItemId, contentIndex, status, durationMs)
                 ))
                 .build();
     }
 
-    UiEvent toolResult(
+    public static UiEvent toolResult(
+            String sourceItemId,
+            Integer contentIndex,
             ToolCallContent toolCall,
             ToolResultMessage toolResult,
+            String status,
+            Long durationMs,
             TurnContext turnContext
     ) {
         if (toolResult == null) {
             return null;
         }
         return event(UiEventType.TOOL_RESULT, turnContext)
-                .payload(new UiEventPayloads.ToolResult(toolResultItem(toolResult)))
-                .build();
-    }
-
-    UiEvent finalAnswer(AssistantMessage assistantMessage, TurnContext turnContext) {
-        String text = assistantMessage == null ? "" : MessageContents.text(assistantMessage);
-        String itemId = assistantMessage == null ? null : assistantMessage.id();
-        return event(UiEventType.FINAL_ANSWER, turnContext)
-                .payload(new UiEventPayloads.ItemCompleted(textItem(
-                        itemId,
-                        UiItemKind.ASSISTANT_TEXT,
-                        null,
-                        text
+                .payload(new UiEventPayloads.ToolResult(toolResultItem(
+                        toolResult,
+                        sourceItemId,
+                        contentIndex,
+                        status,
+                        durationMs
                 )))
                 .build();
     }
 
-    UiEvent error(TurnContext turnContext, String message) {
+    public static UiEvent error(TurnContext turnContext, String message) {
         return event(UiEventType.ERROR, turnContext)
                 .payload(new UiEventPayloads.Error(message))
                 .build();
     }
 
-    UiEvent error(String sessionId, int turn, String message) {
+    public static UiEvent error(String sessionId, int turn, String message) {
         return event(UiEventType.ERROR, sessionId, turn)
                 .payload(new UiEventPayloads.Error(message))
                 .build();
     }
 
-    UiEvent approvalRequested(ApprovalRequest request, TurnContext turnContext) {
+    public static UiEvent approvalRequested(ApprovalRequest request, TurnContext turnContext) {
         return event(UiEventType.APPROVAL_REQUESTED, turnContext)
                 .payload(new UiEventPayloads.Approval(uiApprovalRequest(request), null))
                 .build();
     }
 
-    UiEvent approvalResolved(ApprovalRequest request, ApprovalResponse response, TurnContext turnContext) {
+    public static UiEvent approvalResolved(ApprovalRequest request, ApprovalResponse response, TurnContext turnContext) {
         return event(UiEventType.APPROVAL_RESOLVED, turnContext)
                 .payload(new UiEventPayloads.Approval(uiApprovalRequest(request), uiApprovalResponse(response)))
                 .build();
     }
 
-    UiEvent tokenUsage(
+    public static UiEvent tokenUsage(
             TurnContext turnContext,
             TokenUsageInfo tokenUsageInfo,
             long contextTokenUsage,
@@ -256,7 +264,7 @@ final class UiEventBuilder {
                 .build();
     }
 
-    UiEvent compactStarted(TurnContext turnContext, String trigger, int originalMessageCount) {
+    public static UiEvent compactStarted(TurnContext turnContext, String trigger, int originalMessageCount) {
         return compactEvent(
                 UiEventType.COMPACT_STARTED,
                 turnContext,
@@ -266,7 +274,7 @@ final class UiEventBuilder {
         );
     }
 
-    UiEvent compactSkipped(
+    public static UiEvent compactSkipped(
             TurnContext turnContext,
             String text,
             int originalMessageCount,
@@ -281,7 +289,7 @@ final class UiEventBuilder {
         );
     }
 
-    UiEvent compactFinished(
+    public static UiEvent compactFinished(
             TurnContext turnContext,
             String summary,
             int originalMessageCount,
@@ -296,7 +304,7 @@ final class UiEventBuilder {
         );
     }
 
-    private UiEvent textDelta(
+    private static UiEvent textDelta(
             TurnContext turnContext,
             UiEventType eventType,
             UiItemKind itemKind,
@@ -309,7 +317,7 @@ final class UiEventBuilder {
                 .build();
     }
 
-    private UiEvent compactEvent(
+    private static UiEvent compactEvent(
             UiEventType type,
             TurnContext turnContext,
             String text,
@@ -321,18 +329,20 @@ final class UiEventBuilder {
                 .build();
     }
 
-    private UiEvent.UiEventBuilder event(UiEventType type, TurnContext turnContext) {
-        return event(type, turnContext.sessionId(), turnContext.turn());
+    private static UiEvent.UiEventBuilder event(UiEventType type, TurnContext turnContext) {
+        return event(type, turnContext.sessionId(), turnContext.turn())
+                .commandId(turnContext.commandId())
+                .turnId(turnContext.turnId() == null ? null : turnContext.turnId().value());
     }
 
-    private UiEvent.UiEventBuilder event(UiEventType type, String sessionId, Integer turn) {
+    private static UiEvent.UiEventBuilder event(UiEventType type, String sessionId, Integer turn) {
         return UiEvent.builder()
                 .type(type)
                 .sessionId(sessionId)
                 .turn(turn);
     }
 
-    private UiItem textItem(String itemId, UiItemKind kind, Integer contentIndex, String text) {
+    private static UiItem textItem(String itemId, UiItemKind kind, Integer contentIndex, String text) {
         return UiItem.builder()
                 .itemId(itemId)
                 .kind(kind)
@@ -341,7 +351,7 @@ final class UiEventBuilder {
                 .build();
     }
 
-    private UiItem toolCallItem(String itemId, Integer contentIndex, UiToolCall toolCall) {
+    private static UiItem toolCallItem(String itemId, Integer contentIndex, UiToolCall toolCall) {
         return UiItem.builder()
                 .itemId(itemId)
                 .kind(UiItemKind.TOOL_CALL)
@@ -350,50 +360,107 @@ final class UiEventBuilder {
                 .build();
     }
 
-    private UiItem toolResultItem(ToolResultMessage toolResult) {
+    private static UiItem toolResultItem(
+            ToolResultMessage toolResult,
+            String sourceItemId,
+            Integer contentIndex,
+            String status,
+            Long durationMs
+    ) {
         return UiItem.builder()
                 .itemId(toolResult.id())
                 .kind(UiItemKind.TOOL_RESULT)
-                .body(new UiItemBodies.ToolResult(uiToolResult(toolResult)))
+                .contentIndex(contentIndex)
+                .body(new UiItemBodies.ToolResult(uiToolResult(
+                        toolResult,
+                        sourceItemId,
+                        contentIndex,
+                        status,
+                        durationMs
+                )))
                 .build();
     }
 
-    private UiToolCall uiToolCall(ToolCallContent toolCall) {
+    private static UiToolCall uiToolCall(String itemId, Integer contentIndex, ToolCallContent toolCall) {
         if (toolCall == null) {
             return null;
         }
         return UiToolCall.builder()
+                .itemId(itemId)
+                .contentIndex(contentIndex)
                 .toolCallId(toolCall.getToolCallId())
                 .toolName(toolCall.getToolName())
                 .argumentsJson(toolCall.getArgumentsJson())
                 .build();
     }
 
-    private UiToolResult uiToolResult(ToolResultMessage message) {
+    private static UiToolResult uiToolResult(
+            ToolResultMessage message,
+            String sourceItemId,
+            Integer contentIndex,
+            String status,
+            Long durationMs
+    ) {
         if (message == null) {
             return null;
         }
         return UiToolResult.builder()
+                .itemId(message.id())
+                .sourceItemId(sourceItemId)
+                .contentIndex(contentIndex)
                 .toolCallId(message.getToolCallId())
                 .toolName(message.getToolName())
                 .text(MessageContents.text(message))
                 .error(message.isError())
+                .status(status == null ? (message.isError() ? "FAILED" : "COMPLETED") : status)
+                .durationMs(durationMs)
+                .details(message.getDetails())
+                .truncated(truncated(message.getDetails()))
                 .build();
     }
 
-    private UiToolResult uiToolResult(ToolCallContent toolCall, ToolExecutionResult result) {
+    private static UiToolResult uiToolResult(
+            String itemId,
+            String sourceItemId,
+            Integer contentIndex,
+            ToolCallContent toolCall,
+            ToolExecutionResult result,
+            String status,
+            Long durationMs
+    ) {
         if (result == null) {
-            return null;
+            return UiToolResult.builder()
+                    .sourceItemId(sourceItemId)
+                    .contentIndex(contentIndex)
+                    .toolCallId(toolCall == null ? null : toolCall.getToolCallId())
+                    .toolName(toolCall == null ? null : toolCall.getToolName())
+                    .status(status)
+                    .durationMs(durationMs)
+                    .build();
         }
         return UiToolResult.builder()
+                .itemId(itemId)
+                .sourceItemId(sourceItemId)
+                .contentIndex(contentIndex)
                 .toolCallId(toolCall == null ? null : toolCall.getToolCallId())
                 .toolName(toolCall == null ? null : toolCall.getToolName())
                 .text(toolExecutionText(result))
                 .error(result.isError())
+                .status(status == null ? (result.isError() ? "FAILED" : "COMPLETED") : status)
+                .durationMs(durationMs)
+                .details(result.getDetails())
+                .truncated(truncated(result.getDetails()))
                 .build();
     }
 
-    private String toolExecutionText(ToolExecutionResult result) {
+    private static Boolean truncated(Object details) {
+        if (details instanceof Map<?, ?> map && map.get("truncated") instanceof Boolean truncated) {
+            return truncated;
+        }
+        return null;
+    }
+
+    private static String toolExecutionText(ToolExecutionResult result) {
         StringBuilder text = new StringBuilder();
         for (MessageContent content : result.getContents()) {
             if (content instanceof TextContent textContent
@@ -408,7 +475,7 @@ final class UiEventBuilder {
         return text.toString().trim();
     }
 
-    private UiApprovalRequest uiApprovalRequest(ApprovalRequest request) {
+    private static UiApprovalRequest uiApprovalRequest(ApprovalRequest request) {
         if (request == null) {
             return null;
         }
@@ -422,7 +489,7 @@ final class UiEventBuilder {
                 .build();
     }
 
-    private UiApprovalResponse uiApprovalResponse(ApprovalResponse response) {
+    private static UiApprovalResponse uiApprovalResponse(ApprovalResponse response) {
         if (response == null) {
             return null;
         }
@@ -433,7 +500,7 @@ final class UiEventBuilder {
                 .build();
     }
 
-    private UiTokenUsage uiTokenUsage(
+    private static UiTokenUsage uiTokenUsage(
             TokenUsageInfo tokenUsageInfo,
             long contextTokenUsage,
             Long autoCompactTokenLimit
@@ -447,7 +514,7 @@ final class UiEventBuilder {
                 .build();
     }
 
-    private UiTokenCount uiTokenCount(TokenUsage usage) {
+    private static UiTokenCount uiTokenCount(TokenUsage usage) {
         TokenUsage normalized = usage == null ? TokenUsage.empty() : usage;
         return UiTokenCount.builder()
                 .inputTokens(normalized.inputTokens())

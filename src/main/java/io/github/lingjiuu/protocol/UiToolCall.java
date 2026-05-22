@@ -11,6 +11,10 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class UiToolCall {
 
+    private String itemId;
+
+    private Integer contentIndex;
+
     private String toolCallId;
 
     private String toolName;
