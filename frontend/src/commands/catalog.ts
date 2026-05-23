@@ -7,7 +7,6 @@ const slashCommands: SlashCommandInfo[] = [
   { usage: '/resume <session-id>' },
   { usage: '/sessions' },
   { usage: '/compact' },
-  { usage: '/continue' },
   { usage: '/cancel' },
   { usage: '/skills' },
   { usage: '/reload-skills' },

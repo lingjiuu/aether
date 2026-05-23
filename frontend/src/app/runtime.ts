@@ -63,9 +63,6 @@ export async function handleInput(
     case 'compact':
       await client.compact();
       break;
-    case 'continue':
-      await client.continueTurn();
-      break;
     case 'cancel':
       await client.cancelTurn();
       break;
@@ -92,7 +89,7 @@ export async function handleInput(
     case 'help':
       dispatch({
         type: 'notice',
-        message: '/new /resume <id> /sessions /compact /continue /cancel /skills /reload-skills /name <text> /approve /deny /quit',
+        message: '/new /resume <id> /sessions /compact /cancel /skills /reload-skills /name <text> /approve /deny /quit',
       });
       break;
     case 'quit':

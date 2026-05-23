@@ -69,10 +69,6 @@ export class AetherClient {
     return this.transport.request('turn/cancel');
   }
 
-  continueTurn(): Promise<UiCommandAck> {
-    return this.transport.request('turn/continue');
-  }
-
   compact(): Promise<UiCommandAck> {
     return this.transport.request('compact/run');
   }

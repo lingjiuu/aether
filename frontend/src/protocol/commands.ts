@@ -4,7 +4,6 @@ export type SlashCommand =
   | { kind: 'resume'; sessionId: string }
   | { kind: 'sessions' }
   | { kind: 'compact' }
-  | { kind: 'continue' }
   | { kind: 'cancel' }
   | { kind: 'skills' }
   | { kind: 'reloadSkills' }
@@ -36,8 +35,6 @@ export function parseCommand(input: string): SlashCommand {
       return { kind: 'sessions' };
     case 'compact':
       return { kind: 'compact' };
-    case 'continue':
-      return { kind: 'continue' };
     case 'cancel':
       return { kind: 'cancel' };
     case 'skills':

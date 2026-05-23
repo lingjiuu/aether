@@ -13,6 +13,11 @@ describe('parseCommand', () => {
     expect(parseCommand('/deny')).toEqual({ kind: 'deny' });
   });
 
+  it('does not expose continue as a user command', () => {
+    expect(parseCommand('/continue')).toEqual({ kind: 'unknown', name: 'continue' });
+    expect(getSlashCommandSuggestions('/cont')).toEqual([]);
+  });
+
   it('provides insert text for slash suggestions without argument placeholders', () => {
     const [resume] = getSlashCommandSuggestions('/res');
     expect(resume?.usage).toBe('/resume <session-id>');
