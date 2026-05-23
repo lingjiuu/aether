@@ -121,6 +121,18 @@ public class StdioAetherServerTest extends TestCase {
         assertEquals(0, page.get("result").get("events").size());
     }
 
+    public void testSessionNewRequiresExplicitCwd() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-stdio-new-session-test");
+        String output = runServer(tempDir, """
+                {"id":"1","method":"session/new"}
+                """);
+
+        JsonNode response = objectMapper.readTree(output);
+        assertEquals("1", response.get("id").asText());
+        assertEquals(-32602, response.get("error").get("code").asInt());
+        assertTrue(response.get("error").get("message").asText().contains("params.cwd"));
+    }
+
     public void testUnknownMethodReturnsJsonRpcError() throws Exception {
         Path tempDir = Files.createTempDirectory("aether-stdio-error-test");
         String output = runServer(tempDir, "{\"id\":4,\"method\":\"wat\"}\n");

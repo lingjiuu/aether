@@ -35,6 +35,14 @@ public class UiCommand {
                 .build();
     }
 
+    public static UiCommand newSession(String cwd) {
+        return UiCommand.builder()
+                .commandId(newCommandId())
+                .type(UiCommandType.NEW_SESSION)
+                .payload(new UiCommandPayloads.NewSession(cwd))
+                .build();
+    }
+
     public static UiCommand setSessionName(String name) {
         return UiCommand.builder()
                 .commandId(newCommandId())

@@ -5,4 +5,5 @@ export const tokens = {
   warning: 'yellow',
   error: 'red',
   border: 'gray',
+  userMessageBackground: '#30323a',
 } as const;

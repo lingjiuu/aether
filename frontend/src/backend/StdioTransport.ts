@@ -17,6 +17,7 @@ export type StdioTransportOptions = {
   command: string;
   args: string[];
   cwd: string;
+  sessionCwd: string;
   env?: NodeJS.ProcessEnv;
 };
 
@@ -33,9 +34,16 @@ export class StdioTransport {
     if (this.child) {
       return;
     }
+    if (!this.options.sessionCwd.trim()) {
+      throw new Error('Aether session cwd is required.');
+    }
     this.child = spawn(this.options.command, this.options.args, {
       cwd: this.options.cwd,
-      env: { ...process.env, ...this.options.env },
+      env: {
+        ...process.env,
+        ...this.options.env,
+        AETHER_SESSION_CWD: this.options.sessionCwd,
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 

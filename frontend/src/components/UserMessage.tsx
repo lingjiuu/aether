@@ -4,11 +4,11 @@ import { tokens } from '../theme/tokens.js';
 
 export function UserMessage({ text }: { text: string }) {
   return (
-    <Box marginTop={1}>
-      <Text color={tokens.accent} bold>
-        {'> '}
+    <Box marginTop={1} backgroundColor={tokens.userMessageBackground} paddingRight={1}>
+      <Text color={tokens.dim} bold>
+        {'❯ '}
       </Text>
-      <Text>{text}</Text>
+      <Text bold>{text}</Text>
     </Box>
   );
 }

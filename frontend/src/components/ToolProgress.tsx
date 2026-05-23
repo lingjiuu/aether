@@ -9,7 +9,7 @@ export function ToolProgress({ update }: { update?: UiToolUpdate }) {
   if (!lines.length) {
     return (
       <MessageResponse height={1}>
-        <Text dimColor>Running…</Text>
+        <Text dimColor>Running...</Text>
       </MessageResponse>
     );
   }

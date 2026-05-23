@@ -8,6 +8,9 @@ public final class UiCommandPayloads {
     public record SubmitUserInput(String text) implements UiCommandPayload {
     }
 
+    public record NewSession(String cwd) implements UiCommandPayload {
+    }
+
     public record SetSessionName(String name) implements UiCommandPayload {
     }
 

@@ -15,6 +15,19 @@ export function formatDuration(durationMs?: number | null): string {
   return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
+export function formatElapsedTime(startedAtMs?: number | null, endedAtMs?: number | null): string {
+  if (startedAtMs == null || endedAtMs == null || endedAtMs < startedAtMs) {
+    return '';
+  }
+  const seconds = Math.max(1, Math.round((endedAtMs - startedAtMs) / 1000));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
+}
+
 export function formatJsonPreview(json?: string | null, width = 120): string {
   if (!json) {
     return '';

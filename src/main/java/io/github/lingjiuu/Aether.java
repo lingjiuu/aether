@@ -17,6 +17,7 @@ import io.github.lingjiuu.protocol.UiTokenCount;
 import io.github.lingjiuu.protocol.UiTokenUsage;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionFactory;
+import io.github.lingjiuu.session.SessionOptions;
 import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.tool.permission.ApprovalHandler;
 
@@ -42,10 +43,19 @@ public class Aether implements AutoCloseable {
             EventSink eventSink,
             ApprovalHandler approvalHandler
     ) {
+        this(sessionFactory, SessionOptions.defaults(), eventSink, approvalHandler);
+    }
+
+    public Aether(
+            SessionFactory sessionFactory,
+            SessionOptions defaultSessionOptions,
+            EventSink eventSink,
+            ApprovalHandler approvalHandler
+    ) {
         if (eventSink != null) {
             sinks.add(eventSink);
         }
-        commands = new CommandManager(sessionFactory, this::dispatch, approvalHandler);
+        commands = new CommandManager(sessionFactory, defaultSessionOptions, this::dispatch, approvalHandler);
     }
 
     public UiCommandAck submit(UiCommand command) {

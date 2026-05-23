@@ -24,6 +24,10 @@ export type AppState = {
   sessions: UiSessionSummary[];
   tokenUsage?: UiTokenUsage;
   notices: string[];
+  composer: {
+    value: string;
+    commandPaletteOpen: boolean;
+  };
   lastSequence: number;
 };
 
@@ -34,6 +38,7 @@ export type AppAction =
   | { type: 'history'; history: UiHistory }
   | { type: 'event'; event: UiEvent }
   | { type: 'sessions'; sessions: UiSessionSummary[] }
+  | { type: 'composerChanged'; value: string }
   | { type: 'notice'; message: string };
 
 export const initialState: AppState = {
@@ -47,6 +52,10 @@ export const initialState: AppState = {
   turnOrder: [],
   sessions: [],
   notices: [],
+  composer: {
+    value: '',
+    commandPaletteOpen: false,
+  },
   lastSequence: 0,
 };
 
@@ -81,6 +90,14 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return applyEvent(state, action.event);
     case 'sessions':
       return { ...state, sessions: action.sessions };
+    case 'composerChanged':
+      return {
+        ...state,
+        composer: {
+          value: action.value,
+          commandPaletteOpen: action.value.trimStart().startsWith('/'),
+        },
+      };
     case 'notice':
       return { ...state, notices: [...state.notices.slice(-4), action.message] };
   }
@@ -96,6 +113,8 @@ function applyHistory(state: AppState, history: UiHistory): AppState {
       commandId: sourceTurn.commandId,
       turn: sourceTurn.turn,
       status: sourceTurn.status ?? 'COMPLETED',
+      startedAtMs: undefined,
+      endedAtMs: undefined,
       items: (sourceTurn.items ?? []).map(historyItemToTimelineItem),
     };
     turnOrder.push(turnId);
@@ -151,11 +170,24 @@ function applyEvent(state: AppState, event: UiEvent): AppState {
 function applyTimelineEvent(state: AppState, event: UiEvent): AppState {
   switch (event.type) {
     case 'TURN_STARTED':
-      return updateTurn(state, event, turn => ({ ...turn, status: 'RUNNING' }));
+      return updateTurn(state, event, turn => ({
+        ...turn,
+        status: 'RUNNING',
+        startedAtMs: turn.startedAtMs ?? event.timestampMs,
+        endedAtMs: undefined,
+      }));
     case 'TURN_COMPLETED':
-      return updateTurn(state, event, turn => ({ ...turn, status: 'COMPLETED' }));
+      return updateTurn(state, event, turn => ({
+        ...turn,
+        status: 'COMPLETED',
+        endedAtMs: event.timestampMs ?? turn.endedAtMs,
+      }));
     case 'TURN_ABORTED':
-      return updateTurn(state, event, turn => ({ ...turn, status: 'ABORTED' }));
+      return updateTurn(state, event, turn => ({
+        ...turn,
+        status: 'ABORTED',
+        endedAtMs: event.timestampMs ?? turn.endedAtMs,
+      }));
     case 'USER_MESSAGE': {
       const item = payload(event, 'userMessage')?.item;
       return item ? upsertItem(state, event, itemToTimelineItem(item, 'COMPLETED')) : state;
@@ -357,6 +389,8 @@ function ensureTurn(state: AppState, event: UiEvent): [AppState, TimelineTurn] {
     commandId: event.commandId,
     turn: event.turn,
     status: 'RUNNING',
+    startedAtMs: event.timestampMs,
+    endedAtMs: undefined,
     items: [],
   };
   return [

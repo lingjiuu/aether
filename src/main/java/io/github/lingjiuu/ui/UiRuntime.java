@@ -11,6 +11,7 @@ import io.github.lingjiuu.protocol.UiHistory;
 import io.github.lingjiuu.protocol.UiSessionState;
 import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.session.SessionFactory;
+import io.github.lingjiuu.session.SessionOptions;
 import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.tool.permission.ApprovalHandler;
 
@@ -25,7 +26,16 @@ public class UiRuntime implements AutoCloseable {
             EventSink eventSink,
             ApprovalHandler approvalHandler
     ) {
-        aether = new Aether(sessionFactory, eventSink, approvalHandler);
+        this(sessionFactory, SessionOptions.defaults(), eventSink, approvalHandler);
+    }
+
+    public UiRuntime(
+            SessionFactory sessionFactory,
+            SessionOptions defaultSessionOptions,
+            EventSink eventSink,
+            ApprovalHandler approvalHandler
+    ) {
+        aether = new Aether(sessionFactory, defaultSessionOptions, eventSink, approvalHandler);
     }
 
     public UiCommandAck submit(UiCommand command) {

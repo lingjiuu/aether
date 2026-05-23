@@ -47,17 +47,30 @@ public class SessionFactory {
 
     private final SessionConfig config;
     private final SkillsManager skillsManager;
+    private final Path agentDir;
+    private final boolean workspaceConfigurable;
 
     public SessionFactory(SessionConfig config) {
         this(config, null);
     }
 
     public SessionFactory(SessionConfig config, SkillsManager skillsManager) {
+        this(config, skillsManager, null, false);
+    }
+
+    private SessionFactory(
+            SessionConfig config,
+            SkillsManager skillsManager,
+            Path agentDir,
+            boolean workspaceConfigurable
+    ) {
         if (config == null) {
             throw new IllegalArgumentException("config must not be null");
         }
         this.config = config;
         this.skillsManager = skillsManager == null ? SkillsManager.empty(config.cwd()) : skillsManager;
+        this.agentDir = agentDir == null ? null : agentDir.toAbsolutePath().normalize();
+        this.workspaceConfigurable = workspaceConfigurable;
     }
 
     public static SessionFactory createDefault() {
@@ -81,7 +94,6 @@ public class SessionFactory {
                 provider,
                 modelId,
                 configPath,
-                Path.of(System.getProperty("user.dir")),
                 AetherPaths.getAgentDir()
         );
     }
@@ -90,17 +102,58 @@ public class SessionFactory {
             String provider,
             String modelId,
             Path configPath,
-            Path cwd,
             Path agentDir
+    ) {
+        return createDefault(
+                provider,
+                modelId,
+                configPath,
+                agentDir,
+                new TranscriptStore(AetherPaths.getTranscriptsDir())
+        );
+    }
+
+    static SessionFactory createDefault(
+            String provider,
+            String modelId,
+            Path configPath,
+            Path agentDir,
+            TranscriptStore transcriptStore
     ) {
         AetherConfig aetherConfig = new AetherConfigLoader().load(configPath);
         ModelSelection modelSelection = resolveModelSelection(aetherConfig, provider, modelId);
         LlmClient llmClient = new LlmClient();
+        Path defaultCwd = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();
+        Path resolvedAgentDir = agentDir == null
+                ? AetherPaths.getAgentDir()
+                : agentDir.toAbsolutePath().normalize();
+        SessionBundle bundle = buildWorkspaceBundle(
+                llmClient,
+                modelSelection.model(),
+                modelSelection.auth(),
+                modelSelection.reasoning(),
+                transcriptStore,
+                defaultCwd,
+                resolvedAgentDir
+        );
+
+        return new SessionFactory(bundle.config(), bundle.skillsManager(), resolvedAgentDir, true);
+    }
+
+    private static SessionBundle buildWorkspaceBundle(
+            LlmClient llmClient,
+            LlmModel model,
+            RequestAuth requestAuth,
+            ReasoningOptions reasoning,
+            TranscriptStore transcriptStore,
+            Path cwd,
+            Path agentDir
+    ) {
         Path resolvedCwd = cwd == null
                 ? Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize()
                 : cwd.toAbsolutePath().normalize();
         Path resolvedAgentDir = agentDir == null
-                ? AetherPaths.getAgentDir()
+                ? AetherPaths.getAgentDir().toAbsolutePath().normalize()
                 : agentDir.toAbsolutePath().normalize();
         PromptResources promptResources = new ResourceLoader(resolvedCwd, resolvedAgentDir).load();
         SkillsManager skillsManager = new SkillsManager(resolvedCwd, resolvedAgentDir);
@@ -113,10 +166,10 @@ public class SessionFactory {
                 llmClient,
                 systemPrompt,
                 resolvedCwd,
-                modelSelection.model(),
-                modelSelection.auth(),
-                modelSelection.reasoning(),
-                new TranscriptStore(AetherPaths.getTranscriptsDir()),
+                model,
+                requestAuth,
+                reasoning,
+                transcriptStore,
                 toolDefinitions,
                 promptResources,
                 toolDefinitions.stream()
@@ -124,17 +177,22 @@ public class SessionFactory {
                         .toList()
         );
 
-        return new SessionFactory(config, skillsManager);
+        return new SessionBundle(config, skillsManager);
     }
 
     public Session openSession() {
+        return openSession(SessionOptions.defaults());
+    }
+
+    public Session openSession(SessionOptions options) {
+        SessionBundle bundle = sessionBundle(options);
         String sessionId = UUID.randomUUID().toString();
         return new SessionBuilder()
-                .config(config)
+                .config(bundle.config())
                 .sessionId(sessionId)
-                .sessionMeta(buildSessionMeta(sessionId))
+                .sessionMeta(buildSessionMeta(sessionId, bundle.config()))
                 .recordSessionMeta(true)
-                .skillsManager(skillsManager)
+                .skillsManager(bundle.skillsManager())
                 .build();
     }
 
@@ -147,10 +205,11 @@ public class SessionFactory {
         }
 
         TranscriptReconstruction reconstruction = new TranscriptRestorer(config.transcriptStore()).restore(sessionId);
-        validateResumeMetadata(reconstruction);
+        SessionBundle bundle = sessionBundle(resumeOptions(reconstruction));
+        validateResumeMetadata(reconstruction, bundle.config());
         return new SessionBuilder()
-                .config(config)
-                .toolRegistry(buildToolRegistry())
+                .config(bundle.config())
+                .toolRegistry(buildToolRegistry(bundle.config()))
                 .sessionId(sessionId)
                 .sessionName(reconstruction.sessionName())
                 .initialMessages(reconstruction.messages())
@@ -159,7 +218,7 @@ public class SessionFactory {
                 .initialEventSequence(reconstruction.lastEventSequence())
                 .lastTranscriptRecordId(reconstruction.lastRecordId())
                 .recordSessionMeta(false)
-                .skillsManager(skillsManager)
+                .skillsManager(bundle.skillsManager())
                 .build();
     }
 
@@ -167,7 +226,31 @@ public class SessionFactory {
         return config;
     }
 
-    private ToolRegistry buildToolRegistry() {
+    private SessionBundle sessionBundle(SessionOptions options) {
+        if (!workspaceConfigurable) {
+            return new SessionBundle(config, skillsManager);
+        }
+        Path cwd = options == null || options.cwd() == null ? config.cwd() : options.cwd();
+        return buildWorkspaceBundle(
+                config.llmClient(),
+                config.model(),
+                config.requestAuth(),
+                config.reasoning(),
+                config.transcriptStore(),
+                cwd,
+                agentDir
+        );
+    }
+
+    private SessionOptions resumeOptions(TranscriptReconstruction reconstruction) {
+        SessionMetaItem meta = reconstruction == null ? null : reconstruction.sessionMeta();
+        if (meta == null || meta.getCwd() == null || meta.getCwd().isBlank()) {
+            return SessionOptions.defaults();
+        }
+        return SessionOptions.cwd(Path.of(meta.getCwd()));
+    }
+
+    private ToolRegistry buildToolRegistry(SessionConfig config) {
         ToolRegistry toolRegistry = new ToolRegistry();
         for (ToolDefinition definition : config.toolDefinitions()) {
             toolRegistry.register(definition);
@@ -341,7 +424,7 @@ public class SessionFactory {
         return value == null || value.isBlank();
     }
 
-    private SessionMetaItem buildSessionMeta(String sessionId) {
+    private SessionMetaItem buildSessionMeta(String sessionId, SessionConfig config) {
         LlmModel model = config.model();
         List<String> activeTools = config.activeToolNames() == null ? List.of() : config.activeToolNames();
         String systemPromptHash = sha256(config.systemPrompt());
@@ -357,12 +440,12 @@ public class SessionFactory {
                 .modelAutoCompactTokenLimit(model == null ? null : model.getAutoCompactTokenLimit())
                 .systemPromptHash(systemPromptHash)
                 .activeToolNames(activeTools)
-                .configFingerprint(configFingerprint(systemPromptHash, activeTools))
+                .configFingerprint(configFingerprint(config, systemPromptHash, activeTools))
                 .aetherVersion(aetherVersion())
                 .build();
     }
 
-    private String configFingerprint(String systemPromptHash, List<String> activeToolNames) {
+    private String configFingerprint(SessionConfig config, String systemPromptHash, List<String> activeToolNames) {
         LlmModel model = config.model();
         StringJoiner joiner = new StringJoiner("\n");
         joiner.add("cwd=" + nullToEmpty(config.cwd() == null ? null : config.cwd().toString()));
@@ -377,13 +460,13 @@ public class SessionFactory {
         return sha256(joiner.toString());
     }
 
-    private void validateResumeMetadata(TranscriptReconstruction reconstruction) {
+    private void validateResumeMetadata(TranscriptReconstruction reconstruction, SessionConfig config) {
         SessionMetaItem actual = reconstruction.sessionMeta();
         if (actual == null) {
             throw new IllegalStateException("Cannot resume session " + reconstruction.sessionId() + " because transcript has no session metadata.");
         }
 
-        SessionMetaItem expected = buildSessionMeta(reconstruction.sessionId());
+        SessionMetaItem expected = buildSessionMeta(reconstruction.sessionId(), config);
         List<String> differences = new ArrayList<>();
         compare(differences, "sessionId", actual.getSessionId(), expected.getSessionId());
         compare(differences, "cwd", actual.getCwd(), expected.getCwd());
@@ -427,5 +510,8 @@ public class SessionFactory {
 
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private record SessionBundle(SessionConfig config, SkillsManager skillsManager) {
     }
 }

@@ -4,6 +4,7 @@ import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiCommandType;
 import io.github.lingjiuu.session.SessionFactory;
+import io.github.lingjiuu.session.SessionOptions;
 import io.github.lingjiuu.ui.UiRuntime;
 
 import java.util.NoSuchElementException;
@@ -18,11 +19,16 @@ public class ConsoleInputLoop {
     private boolean running = true;
 
     public ConsoleInputLoop(SessionFactory sessionFactory) {
-        this(sessionFactory, new Scanner(System.in), new ConsoleRenderer(), null);
+        this(sessionFactory, SessionOptions.defaults());
+    }
+
+    public ConsoleInputLoop(SessionFactory sessionFactory, SessionOptions defaultSessionOptions) {
+        this(sessionFactory, defaultSessionOptions, new Scanner(System.in), new ConsoleRenderer(), null);
     }
 
     ConsoleInputLoop(
             SessionFactory sessionFactory,
+            SessionOptions defaultSessionOptions,
             Scanner scanner,
             ConsoleRenderer renderer,
             ConsoleApprovalHandler approvalHandler
@@ -34,7 +40,7 @@ public class ConsoleInputLoop {
         this.scanner = resolvedScanner;
         this.renderer = renderer == null ? new ConsoleRenderer() : renderer;
         this.approvalHandler = approvalHandler == null ? new ConsoleApprovalHandler(resolvedScanner) : approvalHandler;
-        this.uiRuntime = new UiRuntime(sessionFactory, this.renderer, this.approvalHandler);
+        this.uiRuntime = new UiRuntime(sessionFactory, defaultSessionOptions, this.renderer, this.approvalHandler);
     }
 
     public void run() {

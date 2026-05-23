@@ -1,7 +1,12 @@
 import React, { useCallback, useEffect } from 'react';
-import { useApp } from 'ink';
+import { Box, useApp, useStdout } from 'ink';
 import type { AetherClient } from '../backend/AetherClient.js';
-import { Layout } from '../components/Layout.js';
+import { Composer } from '../components/Composer.js';
+import { Footer } from '../components/Footer.js';
+import { OverlayStack } from '../components/OverlayStack.js';
+import { Transcript } from '../components/Transcript.js';
+import { WelcomeCard } from '../components/WelcomeCard.js';
+import { selectTurns } from '../state/selectors.js';
 import { AppStateProvider, useAppDispatch, useAppState } from '../state/store.js';
 import { boot, handleInput } from './runtime.js';
 
@@ -17,6 +22,7 @@ function AppRuntime({ client }: { client: AetherClient }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const { exit } = useApp();
+  const { stdout } = useStdout();
 
   useEffect(() => {
     let active = true;
@@ -47,5 +53,21 @@ function AppRuntime({ client }: { client: AetherClient }) {
     [client, dispatch, exit, state],
   );
 
-  return <Layout onSubmit={onSubmit} />;
+  const hasTurns = selectTurns(state).length > 0;
+
+  return (
+    <Box flexDirection="column" height={stdout.rows}>
+      <Box flexDirection="column" flexGrow={1} overflowY="hidden">
+        {!hasTurns ? <WelcomeCard state={state} /> : null}
+        <Transcript />
+        <OverlayStack />
+      </Box>
+      <Composer
+        state={state}
+        onSubmit={onSubmit}
+          onChange={value => dispatch({ type: 'composerChanged', value })}
+      />
+      <Footer state={state} />
+    </Box>
+  );
 }

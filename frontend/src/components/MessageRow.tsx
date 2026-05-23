@@ -14,7 +14,10 @@ export function MessageRow({ item }: { item: TimelineItem }) {
       return <AssistantText text={item.text} />;
     case 'REASONING':
       return item.text ? (
-        <Box marginTop={1}>
+        <Box marginTop={1} flexDirection="row">
+          <Box flexShrink={0} minWidth={2}>
+            <Text color={tokens.dim}>✻</Text>
+          </Box>
           <Text color={tokens.dim}>{item.text}</Text>
         </Box>
       ) : null;

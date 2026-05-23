@@ -9,11 +9,6 @@ export function selectIsRunning(state: AppState): boolean {
 }
 
 export function selectStatusText(state: AppState): string {
-  const parts = [
-    state.session.name || state.session.sessionId || 'aether',
-    state.session.model,
-    state.session.cwd,
-    state.session.connectionStatus,
-  ].filter(Boolean);
+  const parts = [state.session.sessionId, state.session.cwd, state.session.connectionStatus].filter(Boolean);
   return parts.join(' | ');
 }

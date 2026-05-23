@@ -10,6 +10,7 @@ import io.github.lingjiuu.protocol.UiCommandType;
 import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionFactory;
+import io.github.lingjiuu.session.SessionOptions;
 import io.github.lingjiuu.tool.permission.ApprovalHandler;
 import io.github.lingjiuu.transcript.TranscriptRecord;
 import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
@@ -18,6 +19,7 @@ import io.github.lingjiuu.transcript.item.SessionNameItem;
 import io.github.lingjiuu.ui.approval.ApprovalCoordinator;
 import io.github.lingjiuu.ui.history.UiHistoryState;
 
+import java.nio.file.Path;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,6 +29,7 @@ import java.util.concurrent.RejectedExecutionException;
 public class CommandManager implements AutoCloseable {
 
     private final SessionFactory sessionFactory;
+    private final SessionOptions defaultSessionOptions;
     private final EventSink eventSink;
     private final ApprovalCoordinator approvalCoordinator;
     private final ExecutorService dispatcher = Executors.newSingleThreadExecutor(runnable -> {
@@ -41,13 +44,23 @@ public class CommandManager implements AutoCloseable {
             EventSink eventSink,
             ApprovalHandler approvalHandler
     ) {
+        this(sessionFactory, SessionOptions.defaults(), eventSink, approvalHandler);
+    }
+
+    public CommandManager(
+            SessionFactory sessionFactory,
+            SessionOptions defaultSessionOptions,
+            EventSink eventSink,
+            ApprovalHandler approvalHandler
+    ) {
         if (sessionFactory == null) {
             throw new IllegalArgumentException("sessionFactory must not be null");
         }
         this.sessionFactory = sessionFactory;
+        this.defaultSessionOptions = defaultSessionOptions == null ? SessionOptions.defaults() : defaultSessionOptions;
         this.eventSink = eventSink;
         this.approvalCoordinator = new ApprovalCoordinator(approvalHandler);
-        this.session = configure(sessionFactory.openSession());
+        this.session = configure(sessionFactory.openSession(this.defaultSessionOptions));
     }
 
     public UiCommandAck handle(UiCommand command) {
@@ -116,7 +129,7 @@ public class CommandManager implements AutoCloseable {
         try {
             return switch (command.getType()) {
                 case SUBMIT_USER_INPUT -> submit(command, commandId);
-                case NEW_SESSION -> newSession(commandId);
+                case NEW_SESSION -> newSession(command, commandId);
                 case CLOSE_SESSION -> closeSession(commandId);
                 case SET_SESSION_NAME -> setSessionName(command, commandId);
                 case RESUME_SESSION -> resume(command, commandId);
@@ -141,13 +154,13 @@ public class CommandManager implements AutoCloseable {
         return UiCommandAck.accepted(commandId, sessionId(), "submitted");
     }
 
-    private UiCommandAck newSession(String commandId) {
-        switchSession(sessionFactory.openSession());
+    private UiCommandAck newSession(UiCommand command, String commandId) {
+        switchSession(sessionFactory.openSession(newSessionOptions(command)));
         return UiCommandAck.accepted(commandId, sessionId(), history(), "new session");
     }
 
     private UiCommandAck closeSession(String commandId) {
-        switchSession(sessionFactory.openSession());
+        switchSession(sessionFactory.openSession(defaultSessionOptions));
         return UiCommandAck.accepted(commandId, sessionId(), history(), "session closed");
     }
 
@@ -194,6 +207,15 @@ public class CommandManager implements AutoCloseable {
     private UiCommandAck reloadSkills(String commandId) {
         session.reloadSkills();
         return UiCommandAck.accepted(commandId, sessionId(), "skills reloaded");
+    }
+
+    private SessionOptions newSessionOptions(UiCommand command) {
+        if (command.getPayload() instanceof UiCommandPayloads.NewSession input
+                && input.cwd() != null
+                && !input.cwd().isBlank()) {
+            return SessionOptions.cwd(Path.of(input.cwd()));
+        }
+        return defaultSessionOptions;
     }
 
     private UiCommandAck approvalResponse(UiCommand command, String commandId) {

@@ -77,8 +77,12 @@ export class AetherClient {
     return this.transport.request('compact/run');
   }
 
-  newSession(): Promise<UiCommandAck> {
-    return this.transport.request('session/new');
+  newSession(cwd: string): Promise<UiCommandAck> {
+    const sessionCwd = cwd.trim();
+    if (!sessionCwd) {
+      throw new Error('Aether session cwd is required.');
+    }
+    return this.transport.request('session/new', { cwd: sessionCwd });
   }
 
   resume(sessionId: string): Promise<UiCommandAck> {

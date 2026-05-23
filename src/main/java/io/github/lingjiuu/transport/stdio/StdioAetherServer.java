@@ -9,6 +9,7 @@ import io.github.lingjiuu.protocol.UiCommandPayloads;
 import io.github.lingjiuu.protocol.UiCommandType;
 import io.github.lingjiuu.protocol.UiEventPage;
 import io.github.lingjiuu.session.SessionFactory;
+import io.github.lingjiuu.session.SessionOptions;
 import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.ui.UiRuntime;
 
@@ -41,8 +42,12 @@ public class StdioAetherServer implements AutoCloseable {
     private EventSubscription eventSubscription;
 
     public StdioAetherServer(SessionFactory sessionFactory) {
+        this(sessionFactory, SessionOptions.defaults());
+    }
+
+    public StdioAetherServer(SessionFactory sessionFactory, SessionOptions defaultSessionOptions) {
         this(
-                new UiRuntime(sessionFactory, null, null),
+                new UiRuntime(sessionFactory, defaultSessionOptions, null, null),
                 new InputStreamReader(System.in, StandardCharsets.UTF_8),
                 new OutputStreamWriter(System.out, StandardCharsets.UTF_8)
         );
@@ -128,7 +133,7 @@ public class StdioAetherServer implements AutoCloseable {
     private Object handle(String method, JsonNode id, JsonNode params) {
         return switch (method) {
             case "initialize" -> initializeResult();
-            case "session/new" -> submitSimple(id, UiCommandType.NEW_SESSION);
+            case "session/new" -> submitNewSession(id, params);
             case "session/close" -> submitSimple(id, UiCommandType.CLOSE_SESSION);
             case "session/name/set" -> submitSessionName(id, params);
             case "session/resume" -> submitResume(id, params);
@@ -200,6 +205,18 @@ public class StdioAetherServer implements AutoCloseable {
                 .commandId(commandId(id))
                 .type(UiCommandType.SET_SESSION_NAME)
                 .payload(new UiCommandPayloads.SetSessionName(name))
+                .build());
+    }
+
+    private UiCommandAck submitNewSession(JsonNode id, JsonNode params) {
+        String cwd = textParam(params, "cwd");
+        if (cwd == null || cwd.isBlank()) {
+            throw new ProtocolException(INVALID_PARAMS, "session/new requires params.cwd.");
+        }
+        return uiRuntime.submit(UiCommand.builder()
+                .commandId(commandId(id))
+                .type(UiCommandType.NEW_SESSION)
+                .payload(new UiCommandPayloads.NewSession(cwd))
                 .build());
     }
 

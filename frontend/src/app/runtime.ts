@@ -37,7 +37,12 @@ export async function handleInput(
       await client.submit(command.text);
       break;
     case 'new': {
-      const ack = await client.newSession();
+      const cwd = state.session.cwd?.trim();
+      if (!cwd) {
+        dispatch({ type: 'notice', message: 'Cannot create a new session before the current cwd is known.' });
+        break;
+      }
+      const ack = await client.newSession(cwd);
       if (ack.history) {
         dispatch({ type: 'history', history: ack.history });
       }
