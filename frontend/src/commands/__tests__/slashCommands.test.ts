@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getSlashCommandInsertText, getSlashCommandSuggestions } from '../slashCommands.js';
 import { parseCommand } from '../../protocol/commands.js';
 
 describe('parseCommand', () => {
@@ -10,5 +11,20 @@ describe('parseCommand', () => {
     expect(parseCommand('/resume abc')).toEqual({ kind: 'resume', sessionId: 'abc' });
     expect(parseCommand('/approve')).toEqual({ kind: 'approve' });
     expect(parseCommand('/deny')).toEqual({ kind: 'deny' });
+  });
+
+  it('provides insert text for slash suggestions without argument placeholders', () => {
+    const [resume] = getSlashCommandSuggestions('/res');
+    expect(resume?.usage).toBe('/resume <session-id>');
+    expect(resume ? getSlashCommandInsertText(resume) : '').toBe('/resume ');
+
+    const [help] = getSlashCommandSuggestions('/he');
+    expect(help?.usage).toBe('/help');
+    expect(help ? getSlashCommandInsertText(help) : '').toBe('/help');
+  });
+
+  it('stops suggesting after a completed command with arguments is inserted', () => {
+    expect(getSlashCommandSuggestions('/resume ')).toEqual([]);
+    expect(getSlashCommandSuggestions('/help')).toEqual([]);
   });
 });

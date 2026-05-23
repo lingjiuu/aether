@@ -5,11 +5,21 @@ import { formatLineStatus, tailLines } from '../utils/format.js';
 import { MessageResponse } from './MessageResponse.js';
 
 export function ToolProgress({ update }: { update?: UiToolUpdate }) {
+  const [frame, setFrame] = React.useState(0);
+
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setFrame(current => (current + 1) % 4);
+    }, 480);
+    return () => clearInterval(interval);
+  }, []);
+
   const lines = tailLines(update?.text, 5);
   if (!lines.length) {
+    const suffix = '.'.repeat((frame % 3) + 1);
     return (
       <MessageResponse height={1}>
-        <Text dimColor>Running...</Text>
+        <Text dimColor>{`Running${suffix}`}</Text>
       </MessageResponse>
     );
   }

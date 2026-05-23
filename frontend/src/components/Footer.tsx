@@ -6,15 +6,12 @@ import { tokens } from '../theme/tokens.js';
 
 export function Footer({ state }: { state: AppState }) {
   const running = selectIsRunning(state);
-  const latestNotice = state.notices.at(-1);
-  const totalTokens = state.tokenUsage?.total?.totalTokens;
-  const right = latestNotice ?? (totalTokens != null ? `${totalTokens} tokens` : state.session.model);
 
   return (
-    <Box justifyContent="space-between" paddingX={2}>
+    <Box justifyContent="space-between" paddingX={2} width="100%" height={1} flexShrink={0}>
       <Text color={tokens.dim}>{running ? 'esc to interrupt' : '? for shortcuts'}</Text>
-      <Text color={latestNotice ? tokens.warning : tokens.dim} wrap="truncate-end">
-        {right ?? ' '}
+      <Text color={tokens.dim} wrap="truncate-end">
+        {state.notices.at(-1) ?? ' '}
       </Text>
     </Box>
   );

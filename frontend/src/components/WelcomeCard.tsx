@@ -8,22 +8,24 @@ export function WelcomeCard({ state }: { state: AppState }) {
   const cwd = state.session.cwd ?? process.cwd();
 
   return (
-    <Box borderStyle="round" borderColor={tokens.border} paddingX={2} paddingY={1} marginBottom={1}>
-      <Box flexDirection="column" width="42%">
+    <Box flexDirection="column" marginBottom={1}>
+      <Box>
         <Text bold>Welcome back!</Text>
-        <Text color={tokens.accent}>Aether</Text>
+      </Box>
+      <Box>
         <Text color={tokens.dim} wrap="truncate-end">
-          {sessionName}
-        </Text>
-        <Text color={tokens.dim} wrap="truncate-end">
-          {cwd}
+          {state.session.model ?? 'Aether'} · {cwd}
         </Text>
       </Box>
-      <Box flexDirection="column" flexGrow={1}>
-        <Text bold>Tips for getting started</Text>
-        <Text color={tokens.dim}>Run /help to see commands</Text>
-        <Text color={tokens.dim}>Use /sessions to resume older work</Text>
-        <Text color={tokens.dim}>Use /compact when context gets crowded</Text>
+      <Box>
+        <Text color={tokens.dim} wrap="truncate-end">
+          {sessionName} · Run /help to see commands
+        </Text>
+      </Box>
+      <Box>
+        <Text color={tokens.dim} wrap="truncate-end">
+          Use /sessions to resume older work · Use /compact when context gets crowded
+        </Text>
       </Box>
     </Box>
   );

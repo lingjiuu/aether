@@ -4,7 +4,7 @@ import { tokens } from '../theme/tokens.js';
 
 export function UserMessage({ text }: { text: string }) {
   return (
-    <Box marginTop={1} backgroundColor={tokens.userMessageBackground} paddingRight={1}>
+    <Box width="100%" marginTop={1} backgroundColor={tokens.userMessageBackground} paddingRight={1}>
       <Text color={tokens.dim} bold>
         {'❯ '}
       </Text>

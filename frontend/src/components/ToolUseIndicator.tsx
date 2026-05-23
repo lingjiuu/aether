@@ -8,23 +8,24 @@ type Props = {
 };
 
 const BLACK_CIRCLE = '●';
+const RUNNING_FRAMES = ['●', '∙', '·', '∙'] as const;
 
 export function ToolUseIndicator({ isError, isUnresolved }: Props) {
-  const [visible, setVisible] = React.useState(true);
+  const [frame, setFrame] = React.useState(0);
 
   React.useEffect(() => {
     if (!isUnresolved || isError) {
-      setVisible(true);
+      setFrame(0);
       return undefined;
     }
     const interval = setInterval(() => {
-      setVisible(current => !current);
-    }, 450);
+      setFrame(current => (current + 1) % RUNNING_FRAMES.length);
+    }, 480);
     return () => clearInterval(interval);
   }, [isError, isUnresolved]);
 
   const color = isUnresolved ? undefined : isError ? tokens.error : tokens.success;
-  const symbol = isUnresolved && !visible ? ' ' : BLACK_CIRCLE;
+  const symbol = isUnresolved ? RUNNING_FRAMES[frame] : BLACK_CIRCLE;
 
   return (
     <Box minWidth={2}>

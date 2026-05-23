@@ -14,7 +14,7 @@ export function MessageRow({ item }: { item: TimelineItem }) {
       return <AssistantText text={item.text} />;
     case 'REASONING':
       return item.text ? (
-        <Box marginTop={1} flexDirection="row">
+        <Box width="100%" marginTop={1} flexDirection="row">
           <Box flexShrink={0} minWidth={2}>
             <Text color={tokens.dim}>✻</Text>
           </Box>
@@ -27,7 +27,7 @@ export function MessageRow({ item }: { item: TimelineItem }) {
       return null;
     case 'CONTEXT_MESSAGE':
       return item.text ? (
-        <Box marginTop={1}>
+        <Box width="100%" marginTop={1}>
           <Text color={tokens.dim}>{item.text}</Text>
         </Box>
       ) : null;

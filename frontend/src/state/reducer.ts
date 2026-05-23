@@ -27,6 +27,7 @@ export type AppState = {
   composer: {
     value: string;
     commandPaletteOpen: boolean;
+    selectedSuggestionIndex: number;
   };
   lastSequence: number;
 };
@@ -39,6 +40,8 @@ export type AppAction =
   | { type: 'event'; event: UiEvent }
   | { type: 'sessions'; sessions: UiSessionSummary[] }
   | { type: 'composerChanged'; value: string }
+  | { type: 'composerSuggestionMoved'; delta: -1 | 1; count: number }
+  | { type: 'composerSuggestionSelected'; index: number }
   | { type: 'notice'; message: string };
 
 export const initialState: AppState = {
@@ -55,6 +58,7 @@ export const initialState: AppState = {
   composer: {
     value: '',
     commandPaletteOpen: false,
+    selectedSuggestionIndex: 0,
   },
   lastSequence: 0,
 };
@@ -96,11 +100,39 @@ export function reducer(state: AppState, action: AppAction): AppState {
         composer: {
           value: action.value,
           commandPaletteOpen: action.value.trimStart().startsWith('/'),
+          selectedSuggestionIndex: 0,
+        },
+      };
+    case 'composerSuggestionMoved':
+      return {
+        ...state,
+        composer: {
+          ...state.composer,
+          selectedSuggestionIndex: moveSuggestionIndex(
+            state.composer.selectedSuggestionIndex,
+            action.delta,
+            action.count,
+          ),
+        },
+      };
+    case 'composerSuggestionSelected':
+      return {
+        ...state,
+        composer: {
+          ...state.composer,
+          selectedSuggestionIndex: Math.max(0, action.index),
         },
       };
     case 'notice':
       return { ...state, notices: [...state.notices.slice(-4), action.message] };
   }
+}
+
+function moveSuggestionIndex(current: number, delta: -1 | 1, count: number): number {
+  if (count <= 0) {
+    return 0;
+  }
+  return (current + delta + count) % count;
 }
 
 function applyHistory(state: AppState, history: UiHistory): AppState {

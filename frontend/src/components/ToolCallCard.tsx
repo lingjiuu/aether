@@ -9,10 +9,11 @@ import { ToolUseIndicator } from './ToolUseIndicator.js';
 export function ToolCallCard({ item }: { item: TimelineItem }) {
   const toolCall = item.toolCall;
   const name = toolCall?.displayName ?? toolCall?.toolName ?? 'tool';
-  const args = toolCall?.displaySummary ?? formatToolUseSummary(toolCall?.toolName ?? name, toolCall?.argumentsJson, 160);
   const isError =
     item.toolResult?.error || item.status === 'ERROR' || item.status === 'FAILED' || item.status === 'ABORTED';
   const isRunning = item.status === 'RUNNING' || (!item.toolResult && !isError);
+  const args =
+    toolCall?.displaySummary ?? (isRunning ? '' : formatToolUseSummary(toolCall?.toolName ?? name, toolCall?.argumentsJson, 160));
 
   return (
     <Box flexDirection="column" marginTop={1} width="100%">

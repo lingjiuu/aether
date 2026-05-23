@@ -22,3 +22,7 @@ export type TimelineTurn = {
   endedAtMs?: number | null;
   items: TimelineItem[];
 };
+
+export function isVisibleTimelineItem(item: TimelineItem): boolean {
+  return !(item.kind === 'CONTEXT_MESSAGE' && item.text.startsWith('Environment context:'));
+}
