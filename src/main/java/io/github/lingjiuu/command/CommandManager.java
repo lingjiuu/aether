@@ -1,6 +1,8 @@
 package io.github.lingjiuu.command;
 
 import io.github.lingjiuu.event.EventSink;
+import io.github.lingjiuu.message.MessageContents;
+import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiCommandPayloads;
@@ -10,7 +12,9 @@ import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.tool.permission.ApprovalHandler;
 import io.github.lingjiuu.transcript.TranscriptRecord;
+import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
+import io.github.lingjiuu.transcript.item.SessionNameItem;
 import io.github.lingjiuu.ui.approval.ApprovalCoordinator;
 import io.github.lingjiuu.ui.history.UiHistoryState;
 
@@ -45,6 +49,7 @@ public class CommandManager implements AutoCloseable {
                 case SUBMIT_USER_INPUT -> submit(command, commandId);
                 case NEW_SESSION -> newSession(commandId);
                 case CLOSE_SESSION -> closeSession(commandId);
+                case SET_SESSION_NAME -> setSessionName(command, commandId);
                 case RESUME_SESSION -> resume(command, commandId);
                 case COMPACT -> compact(commandId);
                 case CONTINUE -> continueSession(commandId);
@@ -99,6 +104,16 @@ public class CommandManager implements AutoCloseable {
     private UiCommandAck closeSession(String commandId) {
         switchSession(sessionFactory.openSession());
         return UiCommandAck.accepted(commandId, sessionId(), history(), "session closed");
+    }
+
+    private UiCommandAck setSessionName(UiCommand command, String commandId) {
+        if (!(command.getPayload() instanceof UiCommandPayloads.SetSessionName input)
+                || input.name() == null
+                || input.name().isBlank()) {
+            return UiCommandAck.rejected(commandId, sessionId(), "Session name is required.");
+        }
+        session.setSessionName(input.name());
+        return UiCommandAck.accepted(commandId, sessionId(), "session name updated");
     }
 
     private UiCommandAck resume(UiCommand command, String commandId) {
@@ -192,10 +207,14 @@ public class CommandManager implements AutoCloseable {
                     null,
                     null,
                     null,
+                    null,
+                    null,
                     0
             );
         }
         SessionMetaItem meta = null;
+        String name = null;
+        String preview = null;
         long updatedAt = 0;
         for (TranscriptRecord record : records) {
             if (record == null) {
@@ -205,9 +224,20 @@ public class CommandManager implements AutoCloseable {
             if (meta == null && record.getItem() instanceof SessionMetaItem sessionMeta) {
                 meta = sessionMeta;
             }
+            if (record.getItem() instanceof SessionNameItem sessionName
+                    && sessionName.getName() != null
+                    && !sessionName.getName().isBlank()) {
+                name = sessionName.getName();
+            }
+            if (preview == null && record.getItem() instanceof MessageTranscriptItem messageItem
+                    && messageItem.getMessage() instanceof UserMessage userMessage) {
+                preview = normalizeName(MessageContents.text(userMessage));
+            }
         }
         return new UiSessionSummary(
                 sessionId,
+                name,
+                preview,
                 meta == null ? null : meta.getCreatedAt(),
                 updatedAt == 0 ? null : updatedAt,
                 meta == null ? null : meta.getCwd(),
@@ -215,5 +245,13 @@ public class CommandManager implements AutoCloseable {
                 meta == null ? null : meta.getModelId(),
                 records.size()
         );
+    }
+
+    private String normalizeName(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

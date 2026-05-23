@@ -4,6 +4,7 @@ public enum UiCommandType {
     SUBMIT_USER_INPUT,
     NEW_SESSION,
     CLOSE_SESSION,
+    SET_SESSION_NAME,
     RESUME_SESSION,
     COMPACT,
     CONTINUE,

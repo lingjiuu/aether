@@ -140,6 +140,7 @@ public class EventManager implements AutoCloseable {
             case TURN_STARTED,
                     TURN_COMPLETED,
                     TURN_ABORTED,
+                    SESSION_NAME_UPDATED,
                     USER_MESSAGE,
                     CONTEXT_MESSAGE,
                     ITEM_COMPLETED,

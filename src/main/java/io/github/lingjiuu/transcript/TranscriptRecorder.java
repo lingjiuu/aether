@@ -7,6 +7,7 @@ import io.github.lingjiuu.transcript.item.CompactedTranscriptItem;
 import io.github.lingjiuu.transcript.item.EventTranscriptItem;
 import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
+import io.github.lingjiuu.transcript.item.SessionNameItem;
 import io.github.lingjiuu.transcript.item.TranscriptItem;
 
 import java.util.List;
@@ -46,6 +47,16 @@ public class TranscriptRecorder {
             return null;
         }
         return append(sessionMeta, 0);
+    }
+
+    public synchronized TranscriptRecord recordSessionName(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        return append(SessionNameItem.builder()
+                .sessionId(sessionId)
+                .name(name.trim())
+                .build(), 0);
     }
 
     public synchronized TranscriptRecord recordTurnContext(TurnContextItem turnContextItem) {

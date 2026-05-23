@@ -76,6 +76,7 @@ public class Session implements AutoCloseable {
     private final InputMaterializer inputMaterializer;
     private volatile List<String> activeToolNames;
     private volatile ApprovalHandler approvalHandler = new DenyAllApprovalHandler();
+    private volatile String sessionName;
 
     Session(
             SessionConfig config,
@@ -84,6 +85,7 @@ public class Session implements AutoCloseable {
             List<Message> initialMessages,
             String lastTranscriptRecordId,
             SessionMetaItem sessionMeta,
+            String sessionName,
             boolean recordSessionMeta,
             InitialContextSnapshot initialContextBaseline,
             SkillsManager skillsManager,
@@ -102,6 +104,7 @@ public class Session implements AutoCloseable {
         this.toolRegistry = toolRegistry;
         this.skillsManager = skillsManager == null ? SkillsManager.empty(config.cwd()) : skillsManager;
         this.activeToolNames = config.activeToolNames();
+        this.sessionName = normalizeSessionName(sessionName);
         this.inputMaterializer = new InputMaterializer(config.cwd());
         TranscriptRecorder transcriptRecorder = config.transcriptStore() == null
                 ? null
@@ -556,6 +559,32 @@ public class Session implements AutoCloseable {
 
     public String sessionId() {
         return state.sessionId();
+    }
+
+    public String sessionName() {
+        return sessionName;
+    }
+
+    public void setSessionName(String name) {
+        String normalized = normalizeSessionName(name);
+        if (normalized == null) {
+            throw new IllegalArgumentException("session name must not be empty");
+        }
+        if (normalized.equals(sessionName)) {
+            return;
+        }
+        sessionName = normalized;
+        recorder.recordSessionName(normalized);
+        state.touch();
+        eventManager.emit(UiEvents.sessionNameUpdated(sessionId(), normalized));
+    }
+
+    private String normalizeSessionName(String name) {
+        if (name == null) {
+            return null;
+        }
+        String trimmed = name.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     public long createdAt() {

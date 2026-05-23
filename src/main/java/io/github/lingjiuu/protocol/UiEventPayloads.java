@@ -8,6 +8,9 @@ public final class UiEventPayloads {
     public record Text(String text) implements UiEventPayload {
     }
 
+    public record SessionName(String sessionId, String name) implements UiEventPayload {
+    }
+
     public record UserMessage(UiItem item) implements UiEventPayload {
     }
 

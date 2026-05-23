@@ -152,6 +152,7 @@ public class SessionFactory {
                 .config(config)
                 .toolRegistry(buildToolRegistry())
                 .sessionId(sessionId)
+                .sessionName(reconstruction.sessionName())
                 .initialMessages(reconstruction.messages())
                 .initialContextBaseline(reconstruction.initialContextBaseline())
                 .initialTimelineEvents(reconstruction.timelineEvents())

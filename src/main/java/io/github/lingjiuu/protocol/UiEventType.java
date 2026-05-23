@@ -2,6 +2,7 @@ package io.github.lingjiuu.protocol;
 
 public enum UiEventType {
     USER_MESSAGE,
+    SESSION_NAME_UPDATED,
     TURN_STARTED,
     ITEM_STARTED,
     ITEM_COMPLETED,

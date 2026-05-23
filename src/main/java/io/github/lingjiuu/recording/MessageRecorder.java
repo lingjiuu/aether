@@ -59,6 +59,17 @@ public class MessageRecorder {
         }
     }
 
+    public synchronized void recordSessionName(String name) {
+        if (name == null || name.isBlank() || transcriptRecorder == null) {
+            return;
+        }
+        try {
+            transcriptRecorder.recordSessionName(name);
+        } catch (RuntimeException e) {
+            throw new MessageRecordException("Failed to record transcript session name.", e);
+        }
+    }
+
     public synchronized void recordCompaction(
             String summary,
             List<Message> replacementMessages,

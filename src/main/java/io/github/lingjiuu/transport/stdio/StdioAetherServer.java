@@ -130,6 +130,7 @@ public class StdioAetherServer implements AutoCloseable {
             case "initialize" -> initializeResult();
             case "session/new" -> submitSimple(id, UiCommandType.NEW_SESSION);
             case "session/close" -> submitSimple(id, UiCommandType.CLOSE_SESSION);
+            case "session/name/set" -> submitSessionName(id, params);
             case "session/resume" -> submitResume(id, params);
             case "session/list" -> uiRuntime.listSessions();
             case "session/current" -> currentSessionResult();
@@ -158,6 +159,7 @@ public class StdioAetherServer implements AutoCloseable {
                         "approval", true,
                         "cancelTurn", true,
                         "sessions", true,
+                        "sessionName", true,
                         "eventPaging", true
                 )
         );
@@ -191,6 +193,18 @@ public class StdioAetherServer implements AutoCloseable {
                 .commandId(commandId(id))
                 .type(UiCommandType.RESUME_SESSION)
                 .payload(new UiCommandPayloads.ResumeSession(sessionId))
+                .build());
+    }
+
+    private UiCommandAck submitSessionName(JsonNode id, JsonNode params) {
+        String name = textParam(params, "name");
+        if (name == null || name.isBlank()) {
+            throw new ProtocolException(INVALID_PARAMS, "session/name/set requires params.name.");
+        }
+        return uiRuntime.submit(UiCommand.builder()
+                .commandId(commandId(id))
+                .type(UiCommandType.SET_SESSION_NAME)
+                .payload(new UiCommandPayloads.SetSessionName(name))
                 .build());
     }
 

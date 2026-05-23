@@ -10,6 +10,7 @@ import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiEvent;
+import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.ProviderSession;
@@ -29,6 +30,49 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
 public class CommandManagerTest extends TestCase {
+
+    public void testSessionListUsesPreviewFromFirstUserMessageWithoutSettingName() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-command-name-test");
+        SessionFactory sessionFactory = new SessionFactory(sessionConfig(tempDir));
+        String sessionId;
+        try (Session session = sessionFactory.openSession()) {
+            sessionId = session.sessionId();
+            TurnContext turnContext = new TurnContext(TurnId.create(), sessionId, 1, tempDir);
+            session.recordUserMessage(session.contextBuilder().userMessage("Plan a clean refactor"), turnContext);
+            session.waitForIdle();
+        }
+
+        try (CommandManager commandManager = new CommandManager(sessionFactory, null, null)) {
+            UiSessionSummary summary = commandManager.listSessions()
+                    .stream()
+                    .filter(item -> sessionId.equals(item.sessionId()))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertNull(summary.name());
+            assertEquals("Plan a clean refactor", summary.preview());
+        }
+    }
+
+    public void testSetSessionNamePersistsExplicitName() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-command-set-name-test");
+        SessionFactory sessionFactory = new SessionFactory(sessionConfig(tempDir));
+        String sessionId;
+        try (CommandManager commandManager = new CommandManager(sessionFactory, null, null)) {
+            sessionId = commandManager.sessionId();
+            UiCommandAck result = commandManager.handle(UiCommand.setSessionName("  Custom title  "));
+            assertTrue(result.accepted());
+
+            UiSessionSummary summary = commandManager.listSessions()
+                    .stream()
+                    .filter(item -> sessionId.equals(item.sessionId()))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertEquals("Custom title", summary.name());
+            assertNull(summary.preview());
+        }
+    }
 
     public void testResumeCommandReplaysRestoredTimelineWithoutReemitting() throws Exception {
         Path tempDir = Files.createTempDirectory("aether-command-test");

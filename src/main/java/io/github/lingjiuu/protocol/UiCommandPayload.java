@@ -6,11 +6,13 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "payloadType")
 @JsonSubTypes({
         @JsonSubTypes.Type(value = UiCommandPayloads.SubmitUserInput.class, name = "submitUserInput"),
+        @JsonSubTypes.Type(value = UiCommandPayloads.SetSessionName.class, name = "setSessionName"),
         @JsonSubTypes.Type(value = UiCommandPayloads.ResumeSession.class, name = "resumeSession"),
         @JsonSubTypes.Type(value = UiCommandPayloads.ApprovalResponse.class, name = "approvalResponse")
 })
 public sealed interface UiCommandPayload permits
         UiCommandPayloads.SubmitUserInput,
+        UiCommandPayloads.SetSessionName,
         UiCommandPayloads.ResumeSession,
         UiCommandPayloads.ApprovalResponse {
 }

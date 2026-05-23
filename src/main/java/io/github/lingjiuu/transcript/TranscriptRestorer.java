@@ -7,6 +7,7 @@ import io.github.lingjiuu.transcript.item.CompactedTranscriptItem;
 import io.github.lingjiuu.transcript.item.EventTranscriptItem;
 import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
+import io.github.lingjiuu.transcript.item.SessionNameItem;
 import io.github.lingjiuu.transcript.item.TranscriptItem;
 import io.github.lingjiuu.transcript.item.TurnContextItem;
 
@@ -28,12 +29,18 @@ public class TranscriptRestorer {
     public TranscriptReconstruction restore(String sessionId) {
         List<TranscriptRecord> records = store.read(sessionId);
         SessionMetaItem sessionMeta = null;
+        SessionNameItem sessionName = null;
         for (TranscriptRecord record : records) {
             if (record == null || record.getItem() == null) {
                 continue;
             }
             if (record.getItem() instanceof SessionMetaItem metaItem && sessionMeta == null) {
                 sessionMeta = metaItem;
+            }
+            if (record.getItem() instanceof SessionNameItem nameItem
+                    && nameItem.getName() != null
+                    && !nameItem.getName().isBlank()) {
+                sessionName = nameItem;
             }
         }
 
@@ -43,6 +50,7 @@ public class TranscriptRestorer {
         return new TranscriptReconstruction(
                 sessionId,
                 sessionMeta,
+                sessionName == null ? null : sessionName.getName(),
                 state.messages(),
                 state.initialContextBaseline(),
                 timelineEvents,

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "payloadType")
 @JsonSubTypes({
         @JsonSubTypes.Type(value = UiEventPayloads.Text.class, name = "text"),
+        @JsonSubTypes.Type(value = UiEventPayloads.SessionName.class, name = "sessionName"),
         @JsonSubTypes.Type(value = UiEventPayloads.UserMessage.class, name = "userMessage"),
         @JsonSubTypes.Type(value = UiEventPayloads.ContextMessage.class, name = "contextMessage"),
         @JsonSubTypes.Type(value = UiEventPayloads.ItemStarted.class, name = "itemStarted"),
@@ -23,6 +24,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 })
 public sealed interface UiEventPayload permits
         UiEventPayloads.Text,
+        UiEventPayloads.SessionName,
         UiEventPayloads.UserMessage,
         UiEventPayloads.ContextMessage,
         UiEventPayloads.ItemStarted,

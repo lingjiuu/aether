@@ -19,6 +19,7 @@ public class SessionBuilder {
     private List<Message> initialMessages = List.of();
     private String lastTranscriptRecordId;
     private SessionMetaItem sessionMeta;
+    private String sessionName;
     private boolean recordSessionMeta;
     private InitialContextSnapshot initialContextBaseline;
     private SkillsManager skillsManager;
@@ -52,6 +53,11 @@ public class SessionBuilder {
 
     public SessionBuilder sessionMeta(SessionMetaItem sessionMeta) {
         this.sessionMeta = sessionMeta;
+        return this;
+    }
+
+    public SessionBuilder sessionName(String sessionName) {
+        this.sessionName = sessionName;
         return this;
     }
 
@@ -95,6 +101,7 @@ public class SessionBuilder {
                 initialMessages,
                 lastTranscriptRecordId,
                 sessionMeta,
+                sessionName,
                 recordSessionMeta,
                 initialContextBaseline,
                 skillsManager,

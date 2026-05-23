@@ -10,6 +10,7 @@ import java.util.List;
 public record TranscriptReconstruction(
         String sessionId,
         SessionMetaItem sessionMeta,
+        String sessionName,
         List<Message> messages,
         InitialContextSnapshot initialContextBaseline,
         List<UiEvent> timelineEvents,

@@ -48,6 +48,12 @@ public final class UiEvents {
                 .build();
     }
 
+    public static UiEvent sessionNameUpdated(String sessionId, String name) {
+        return event(UiEventType.SESSION_NAME_UPDATED, sessionId, null)
+                .payload(new UiEventPayloads.SessionName(sessionId, name))
+                .build();
+    }
+
     public static UiEvent skillsChanged(String sessionId, int availableSkillCount) {
         return event(UiEventType.SKILLS_CHANGED, sessionId, null)
                 .payload(new UiEventPayloads.Text("skills changed: " + availableSkillCount))
