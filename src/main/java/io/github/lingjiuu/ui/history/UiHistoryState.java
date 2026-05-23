@@ -54,7 +54,7 @@ public final class UiHistoryState {
             case TOOL_CALL_ARGUMENTS_DELTA -> applyToolArgumentsDelta(event);
             case TOOL_CALL_ARGUMENTS_DONE -> applyToolArgumentsDone(event);
             case TOOL_CALL -> applyToolCall(event);
-            case TOOL_EXECUTION_STARTED, TOOL_EXECUTION_UPDATE, TOOL_EXECUTION_FINISHED -> applyToolExecution(event);
+            case TOOL_EXECUTION_BEGIN, TOOL_EXECUTION_UPDATE, TOOL_EXECUTION_END -> applyToolExecution(event);
             case TOOL_RESULT -> applyToolResult(event);
             case COMPACT_STARTED -> addTextItem(event, "compact-" + safeSequence(event), UiItemKind.CONTEXT_MESSAGE, RUNNING, compactText(event));
             case COMPACT_FINISHED -> addTextItem(event, "compact-" + safeSequence(event), UiItemKind.CONTEXT_MESSAGE, COMPLETED, compactText(event));

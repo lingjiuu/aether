@@ -70,15 +70,15 @@ public class ConsoleRenderer implements EventSink {
                             + " " + toolCall.getArgumentsJson());
                 }
             }
-            case TOOL_EXECUTION_STARTED -> {
+            case TOOL_EXECUTION_BEGIN -> {
                 UiToolCall toolCall = toolCall(event);
                 if (toolCall != null) {
-                    System.out.println("[TOOL] executing " + toolCall.getToolName());
+                    System.out.println("[TOOL] begin " + toolCall.getToolName());
                 }
             }
             case TOOL_EXECUTION_UPDATE -> {
             }
-            case TOOL_EXECUTION_FINISHED -> {
+            case TOOL_EXECUTION_END -> {
             }
             case TOOL_RESULT -> {
                 UiToolResult toolResult = toolResult(event);

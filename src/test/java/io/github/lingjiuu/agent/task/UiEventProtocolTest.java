@@ -79,13 +79,13 @@ public class UiEventProtocolTest extends TestCase {
         assertEquals("call-echo", doneToolCall.getToolCallId());
         assertEquals("{\"value\":\"ok\"}", doneToolCall.getArgumentsJson());
 
-        UiEvent executionStarted = first(events, UiEventType.TOOL_EXECUTION_STARTED);
-        assertNotNull(executionStarted);
-        assertTrue(executionStarted.getPayload() instanceof UiEventPayloads.ToolExecution);
-        UiEventPayloads.ToolExecution startedPayload =
-                (UiEventPayloads.ToolExecution) executionStarted.getPayload();
-        assertEquals("item-tool", startedPayload.toolCall().getItemId());
-        assertEquals("RUNNING", startedPayload.toolResult().getStatus());
+        UiEvent executionBegin = first(events, UiEventType.TOOL_EXECUTION_BEGIN);
+        assertNotNull(executionBegin);
+        assertTrue(executionBegin.getPayload() instanceof UiEventPayloads.ToolExecution);
+        UiEventPayloads.ToolExecution beginPayload =
+                (UiEventPayloads.ToolExecution) executionBegin.getPayload();
+        assertEquals("item-tool", beginPayload.toolCall().getItemId());
+        assertEquals("RUNNING", beginPayload.toolResult().getStatus());
 
         UiEvent toolResult = first(events, UiEventType.TOOL_RESULT);
         assertNotNull(toolResult);
@@ -106,9 +106,45 @@ public class UiEventProtocolTest extends TestCase {
         assertTrue(indexOf(events, UiEventType.TOOL_CALL_ARGUMENTS_DONE, UiItemKind.TOOL_CALL)
                 < indexOf(events, UiEventType.ITEM_COMPLETED, UiItemKind.TOOL_CALL));
         assertTrue(indexOf(events, UiEventType.ITEM_COMPLETED, UiItemKind.TOOL_CALL)
-                < indexOf(events, UiEventType.TOOL_EXECUTION_STARTED, null));
+                < indexOf(events, UiEventType.TOOL_EXECUTION_BEGIN, null));
         assertNotNull(first(events, UiEventType.TURN_COMPLETED));
         assertMonotonicSequences(events);
+    }
+
+    public void testDeniedToolEmitsDeclinedOutcomeWithoutExecutingToolBody() {
+        ToolCallContent toolCall = ToolCallContent.builder()
+                .toolCallId("call-write")
+                .toolName("write_echo")
+                .argumentsJson("{\"value\":\"nope\"}")
+                .build();
+        AtomicInteger executeCount = new AtomicInteger();
+        Session session = new SessionBuilder()
+                .config(sessionConfig(new StreamingToolProvider(toolCall), new ApprovalRequiredTool(executeCount)))
+                .build();
+        List<UiEvent> events = new CopyOnWriteArrayList<>();
+        session.subscribe(events::add);
+
+        session.submit(TurnInput.ofText("call write echo"));
+
+        assertNotNull(first(events, UiEventType.TOOL_CALL));
+        assertNotNull(first(events, UiEventType.TOOL_EXECUTION_BEGIN));
+        assertNotNull(first(events, UiEventType.APPROVAL_REQUESTED));
+        assertNotNull(first(events, UiEventType.APPROVAL_RESOLVED));
+        assertEquals(0, executeCount.get());
+
+        UiEvent toolExecutionEnd = first(events, UiEventType.TOOL_EXECUTION_END);
+        assertNotNull(toolExecutionEnd);
+        UiEventPayloads.ToolExecution endPayload =
+                (UiEventPayloads.ToolExecution) toolExecutionEnd.getPayload();
+        assertEquals("DECLINED", endPayload.toolResult().getStatus());
+
+        UiEvent toolResult = first(events, UiEventType.TOOL_RESULT);
+        assertNotNull(toolResult);
+        UiEventPayloads.ToolResult resultPayload =
+                (UiEventPayloads.ToolResult) toolResult.getPayload();
+        UiToolResult result = ((UiItemBodies.ToolResult) resultPayload.item().getBody()).toolResult();
+        assertEquals("DECLINED", result.getStatus());
+        assertNotNull(first(events, UiEventType.TURN_COMPLETED));
     }
 
     private SessionConfig sessionConfig(Provider provider, ToolDefinition tool) {
@@ -349,6 +385,45 @@ public class UiEventProtocolTest extends TestCase {
         @Override
         public ToolExecutionResult execute(ToolExecutionContext context) {
             return ToolExecutionResult.text("tool ok");
+        }
+    }
+
+    private record ApprovalRequiredTool(AtomicInteger executeCount) implements ToolDefinition {
+        @Override
+        public String name() {
+            return "write_echo";
+        }
+
+        @Override
+        public String label() {
+            return "Write Echo";
+        }
+
+        @Override
+        public String description() {
+            return "Requires approval before echoing test input.";
+        }
+
+        @Override
+        public Map<String, Object> parametersSchema() {
+            return Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                            "value", Map.of("type", "string")
+                    ),
+                    "required", List.of("value")
+            );
+        }
+
+        @Override
+        public ToolRiskLevel riskLevel() {
+            return ToolRiskLevel.WRITE;
+        }
+
+        @Override
+        public ToolExecutionResult execute(ToolExecutionContext context) {
+            executeCount.incrementAndGet();
+            return ToolExecutionResult.text("should not run");
         }
     }
 }

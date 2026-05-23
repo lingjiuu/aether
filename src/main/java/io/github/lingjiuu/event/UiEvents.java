@@ -159,13 +159,13 @@ public final class UiEvents {
                 .build();
     }
 
-    public static UiEvent toolExecutionStarted(
+    public static UiEvent toolExecutionBegin(
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
             TurnContext turnContext
     ) {
-        return event(UiEventType.TOOL_EXECUTION_STARTED, turnContext)
+        return event(UiEventType.TOOL_EXECUTION_BEGIN, turnContext)
                 .payload(new UiEventPayloads.ToolExecution(
                         uiToolCall(itemId, contentIndex, toolCall),
                         uiToolResult(itemId, itemId, contentIndex, toolCall, null, "RUNNING", null)
@@ -188,7 +188,7 @@ public final class UiEvents {
                 .build();
     }
 
-    public static UiEvent toolExecutionFinished(
+    public static UiEvent toolExecutionEnd(
             String sourceItemId,
             Integer contentIndex,
             ToolCallContent toolCall,
@@ -200,7 +200,7 @@ public final class UiEvents {
         if (toolResult == null) {
             return null;
         }
-        return event(UiEventType.TOOL_EXECUTION_FINISHED, turnContext)
+        return event(UiEventType.TOOL_EXECUTION_END, turnContext)
                 .payload(new UiEventPayloads.ToolExecution(
                         uiToolCall(sourceItemId, contentIndex, toolCall),
                         uiToolResult(toolResult, sourceItemId, contentIndex, status, durationMs)

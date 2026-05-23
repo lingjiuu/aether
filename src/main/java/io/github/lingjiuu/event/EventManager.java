@@ -157,9 +157,9 @@ public class EventManager implements AutoCloseable {
                     TOOL_CALL_ARGUMENTS_DELTA,
                     TOOL_CALL_ARGUMENTS_DONE,
                     TOOL_CALL,
-                    TOOL_EXECUTION_STARTED,
+                    TOOL_EXECUTION_BEGIN,
                     TOOL_EXECUTION_UPDATE,
-                    TOOL_EXECUTION_FINISHED,
+                    TOOL_EXECUTION_END,
                     APPROVAL_REQUESTED,
                     APPROVAL_RESOLVED,
                     COMPACT_STARTED -> false;

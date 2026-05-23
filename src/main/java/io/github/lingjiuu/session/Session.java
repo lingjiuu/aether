@@ -442,7 +442,7 @@ public class Session implements AutoCloseable {
             return;
         }
         recorder.record(toolResult, turnContext.turn());
-        eventManager.emit(UiEvents.toolExecutionFinished(sourceItemId, contentIndex, toolCall, toolResult, status, durationMs, turnContext));
+        eventManager.emit(UiEvents.toolExecutionEnd(sourceItemId, contentIndex, toolCall, toolResult, status, durationMs, turnContext));
         eventManager.emit(UiEvents.toolResult(sourceItemId, contentIndex, toolCall, toolResult, status, durationMs, turnContext));
     }
 

@@ -52,7 +52,7 @@ public class UiHistoryStateTest extends TestCase {
                                     .text("done")
                                     .build()))
                             .build();
-            events.emit(UiEvents.toolExecutionFinished(
+            events.emit(UiEvents.toolExecutionEnd(
                     "tool-item-1",
                     1,
                     toolCall,

@@ -62,7 +62,7 @@ final class ToolScope implements AutoCloseable {
         if (closed || context.isCancelled() || toolCallRef == null || toolCallRef.toolCall() == null) {
             return;
         }
-        emitToolCallStarted(toolCallRef);
+        emitToolCallScheduled(toolCallRef);
         long startedAtNanos = System.nanoTime();
         Future<ToolOutcome> future = executor.submit(() -> runToolCall(assistantMessage, toolCallRef, startedAtNanos));
         tasks.add(new ToolTask(toolCallRef, future, startedAtNanos));
@@ -172,11 +172,12 @@ final class ToolScope implements AutoCloseable {
         try {
             executionLock.lockInterruptibly();
             try {
-                ToolExecutionResult result = runPreparedToolCall(prepared, startedAtNanos);
+                emitToolExecutionBegin(toolCallRef);
+                ToolOutcome outcome = runPreparedToolCall(toolCallRef, prepared, startedAtNanos);
                 if (context.isCancelled()) {
                     return abortedOutcome(toolCallRef, startedAtNanos);
                 }
-                return completedOutcome(toolCallRef, result, startedAtNanos);
+                return outcome;
             } finally {
                 executionLock.unlock();
             }
@@ -189,37 +190,46 @@ final class ToolScope implements AutoCloseable {
         }
     }
 
-    private ToolExecutionResult runPreparedToolCall(ToolRunResult prepared, long startedAtNanos) {
+    private ToolOutcome runPreparedToolCall(
+            ToolCallRef toolCallRef,
+            ToolRunResult prepared,
+            long startedAtNanos
+    ) {
         if (context.isCancelled()) {
-            return abortedResult(prepared.context().getToolCall(), elapsedSeconds(startedAtNanos));
+            return abortedOutcome(toolCallRef, startedAtNanos);
         }
         PermissionDecision decision = session.permissionManager().decide(prepared.invocation(), prepared.context());
         if (decision == null || decision.allowed()) {
-            return session.toolRunner().run(prepared);
+            return completedOutcome(toolCallRef, session.toolRunner().run(prepared), startedAtNanos);
         }
 
         if (decision.mode() == PermissionMode.ASK) {
             ApprovalResponse response = session.requestApproval(approvalRequest(prepared, decision), turnContext);
             if (response != null && response.approved()) {
                 if (context.isCancelled()) {
-                    return abortedResult(prepared.context().getToolCall(), elapsedSeconds(startedAtNanos));
+                    return abortedOutcome(toolCallRef, startedAtNanos);
                 }
-                return session.toolRunner().run(prepared);
+                return completedOutcome(toolCallRef, session.toolRunner().run(prepared), startedAtNanos);
             }
             String reason = response == null || response.reason() == null || response.reason().isBlank()
                     ? "Tool permission was not approved."
                     : response.reason();
-            String message = "Tool permission denied: " + reason;
-            session.events().emit(UiEvents.error(turnContext, message));
-            return ToolExecutionResult.errorText(message);
+            return declinedOutcome(toolCallRef, "Tool permission denied: " + reason, startedAtNanos);
         }
 
         String reason = decision.reason() == null || decision.reason().isBlank()
                 ? "Tool permission was not granted."
                 : decision.reason();
-        String prefix = "Tool permission denied: ";
-        session.events().emit(UiEvents.error(turnContext, prefix + reason));
-        return ToolExecutionResult.errorText(prefix + reason);
+        return declinedOutcome(toolCallRef, "Tool permission denied: " + reason, startedAtNanos);
+    }
+
+    private void emitToolExecutionBegin(ToolCallRef toolCallRef) {
+        session.events().emit(UiEvents.toolExecutionBegin(
+                toolCallRef.itemId(),
+                toolCallRef.contentIndex(),
+                toolCallRef.toolCall(),
+                turnContext
+        ));
     }
 
     private ToolOutcome outcomeOrAborted(ToolTask task) {
@@ -282,6 +292,15 @@ final class ToolScope implements AutoCloseable {
         return new ToolOutcome(toolCallRef, safeResult, "FAILED", elapsedMillis(startedAtNanos));
     }
 
+    private ToolOutcome declinedOutcome(ToolCallRef toolCallRef, String message, long startedAtNanos) {
+        return new ToolOutcome(
+                toolCallRef,
+                ToolExecutionResult.errorText(message),
+                "DECLINED",
+                elapsedMillis(startedAtNanos)
+        );
+    }
+
     private ToolExecutionResult abortedResult(ToolCallContent toolCall, double elapsedSeconds) {
         return ToolExecutionResult.errorText(abortMessage(toolCall, elapsedSeconds));
     }
@@ -323,14 +342,8 @@ final class ToolScope implements AutoCloseable {
         );
     }
 
-    private void emitToolCallStarted(ToolCallRef toolCallRef) {
+    private void emitToolCallScheduled(ToolCallRef toolCallRef) {
         session.events().emit(UiEvents.toolCall(
-                toolCallRef.itemId(),
-                toolCallRef.contentIndex(),
-                toolCallRef.toolCall(),
-                turnContext
-        ));
-        session.events().emit(UiEvents.toolExecutionStarted(
                 toolCallRef.itemId(),
                 toolCallRef.contentIndex(),
                 toolCallRef.toolCall(),
