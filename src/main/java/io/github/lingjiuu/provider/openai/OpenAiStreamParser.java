@@ -3,7 +3,6 @@ package io.github.lingjiuu.provider.openai;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.openai.core.http.StreamResponse;
 import com.openai.models.responses.Response;
 import com.openai.models.responses.ResponseOutputMessage;
@@ -557,10 +556,10 @@ public class OpenAiStreamParser {
 
         private OpenAiReplayData.ReplayItem replayItem(OpenAiReplayData.Type type, Object value) {
             try {
-                String json = objectMapper.writeValueAsString(value);
-                if (type == OpenAiReplayData.Type.FUNCTION_CALL) {
-                    json = sanitizeFunctionCallReplayJson(json);
-                }
+                String json = OpenAiReplayJsonSanitizer.sanitize(
+                        objectMapper.writeValueAsString(value),
+                        objectMapper
+                );
                 return OpenAiReplayData.ReplayItem.builder()
                         .type(type)
                         .json(json)
@@ -587,12 +586,6 @@ public class OpenAiStreamParser {
                     .responseId(partial == null ? null : partial.getResponseId())
                     .items(List.of(replayItem))
                     .build();
-        }
-
-        private String sanitizeFunctionCallReplayJson(String json) throws Exception {
-            ObjectNode node = (ObjectNode) objectMapper.readTree(json);
-            node.remove("isValid");
-            return objectMapper.writeValueAsString(node);
         }
 
         private JsonNode parseStreamingJson(String json) {

@@ -136,15 +136,16 @@ public class OpenAiMessageAdapter {
                 continue;
             }
             try {
+                String json = OpenAiReplayJsonSanitizer.sanitize(item.getJson(), objectMapper);
                 switch (item.getType()) {
                     case OUTPUT_MESSAGE -> inputItems.add(ResponseInputItem.ofResponseOutputMessage(
-                            objectMapper.readValue(item.getJson(), ResponseOutputMessage.class)
+                            objectMapper.readValue(json, ResponseOutputMessage.class)
                     ));
                     case REASONING -> inputItems.add(ResponseInputItem.ofReasoning(
-                            objectMapper.readValue(item.getJson(), ResponseReasoningItem.class)
+                            objectMapper.readValue(json, ResponseReasoningItem.class)
                     ));
                     case FUNCTION_CALL -> inputItems.add(ResponseInputItem.ofFunctionCall(
-                            objectMapper.readValue(item.getJson(), ResponseFunctionToolCall.class)
+                            objectMapper.readValue(json, ResponseFunctionToolCall.class)
                     ));
                 }
             } catch (Exception ignored) {
