@@ -35,15 +35,18 @@ public class StdioAetherServerTest extends TestCase {
                 {"id":"1","method":"initialize"}
                 {"id":"2","method":"history/read"}
                 {"id":"3","method":"skills/list"}
+                {"id":"4","method":"session/current"}
                 """;
         String output = runServer(tempDir, input);
         List<String> lines = output.lines().toList();
 
-        assertEquals(3, lines.size());
+        assertEquals(4, lines.size());
         JsonNode initialize = objectMapper.readTree(lines.get(0));
         assertEquals("1", initialize.get("id").asText());
         assertEquals(StdioAetherServer.PROTOCOL_VERSION, initialize.get("result").get("protocolVersion").asText());
         assertTrue(initialize.get("result").hasNonNull("sessionId"));
+        assertEquals("IDLE", initialize.get("result").get("session").get("status").asText());
+        assertTrue(initialize.get("result").get("capabilities").get("sessionState").asBoolean());
         assertEquals(0, initialize.get("result").get("history").get("turns").size());
 
         JsonNode history = objectMapper.readTree(lines.get(1));
@@ -53,6 +56,15 @@ public class StdioAetherServerTest extends TestCase {
         JsonNode skills = objectMapper.readTree(lines.get(2));
         assertEquals("3", skills.get("id").asText());
         assertTrue(skills.get("result").isArray());
+
+        JsonNode currentSession = objectMapper.readTree(lines.get(3));
+        assertEquals("4", currentSession.get("id").asText());
+        assertTrue(currentSession.get("result").hasNonNull("sessionId"));
+        assertEquals("IDLE", currentSession.get("result").get("status").asText());
+        assertEquals(0, currentSession.get("result").get("messageCount").asInt());
+        assertEquals("fake", currentSession.get("result").get("summary").get("modelProvider").asText());
+        assertEquals("fake-model", currentSession.get("result").get("summary").get("modelId").asText());
+        assertEquals(100000L, currentSession.get("result").get("tokenUsage").get("modelContextWindow").asLong());
     }
 
     public void testSessionListAndEventPagingResponses() throws Exception {

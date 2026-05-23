@@ -1,0 +1,19 @@
+package io.github.lingjiuu.protocol;
+
+import java.util.List;
+
+public record UiSessionState(
+        String sessionId,
+        String status,
+        int messageCount,
+        int availableSkillCount,
+        boolean canContinue,
+        List<String> activeToolNames,
+        UiSessionSummary summary,
+        UiTokenUsage tokenUsage
+) {
+
+    public UiSessionState {
+        activeToolNames = activeToolNames == null ? List.of() : List.copyOf(activeToolNames);
+    }
+}

@@ -8,6 +8,7 @@ import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiEventPage;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiHistory;
+import io.github.lingjiuu.protocol.UiSessionState;
 import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.skill.Skill;
@@ -49,6 +50,10 @@ public class UiRuntime implements AutoCloseable {
 
     public List<UiSessionSummary> listSessions() {
         return aether.listSessions();
+    }
+
+    public UiSessionState currentSessionState() {
+        return aether.currentSessionState();
     }
 
     public void waitForIdle() {

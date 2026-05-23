@@ -133,7 +133,7 @@ public class StdioAetherServer implements AutoCloseable {
             case "session/name/set" -> submitSessionName(id, params);
             case "session/resume" -> submitResume(id, params);
             case "session/list" -> uiRuntime.listSessions();
-            case "session/current" -> currentSessionResult();
+            case "session/current" -> uiRuntime.currentSessionState();
             case "history/read" -> uiRuntime.history();
             case "events/list" -> eventPage(params);
             case "turn/submit" -> submitUserInput(id, params);
@@ -152,6 +152,7 @@ public class StdioAetherServer implements AutoCloseable {
         return Map.of(
                 "protocolVersion", PROTOCOL_VERSION,
                 "sessionId", uiRuntime.sessionId(),
+                "session", uiRuntime.currentSessionState(),
                 "history", uiRuntime.history(),
                 "capabilities", Map.of(
                         "events", true,
@@ -160,15 +161,9 @@ public class StdioAetherServer implements AutoCloseable {
                         "cancelTurn", true,
                         "sessions", true,
                         "sessionName", true,
+                        "sessionState", true,
                         "eventPaging", true
                 )
-        );
-    }
-
-    private Map<String, Object> currentSessionResult() {
-        return Map.of(
-                "sessionId", uiRuntime.sessionId(),
-                "messageCount", uiRuntime.messageCount()
         );
     }
 

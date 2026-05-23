@@ -3,12 +3,18 @@ package io.github.lingjiuu;
 import io.github.lingjiuu.command.CommandManager;
 import io.github.lingjiuu.event.EventSink;
 import io.github.lingjiuu.event.EventSubscription;
+import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.llm.TokenUsage;
+import io.github.lingjiuu.llm.TokenUsageInfo;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiEventPage;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiHistory;
+import io.github.lingjiuu.protocol.UiSessionState;
 import io.github.lingjiuu.protocol.UiSessionSummary;
+import io.github.lingjiuu.protocol.UiTokenCount;
+import io.github.lingjiuu.protocol.UiTokenUsage;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.skill.Skill;
@@ -87,6 +93,32 @@ public class Aether implements AutoCloseable {
         return commands.listSessions();
     }
 
+    public UiSessionState currentSessionState() {
+        Session session = currentSession();
+        LlmModel model = session.config().model();
+        UiSessionSummary summary = new UiSessionSummary(
+                session.sessionId(),
+                session.sessionName(),
+                null,
+                session.createdAt(),
+                session.updatedAt(),
+                session.config().cwd() == null ? null : session.config().cwd().toString(),
+                model == null ? null : model.getProvider(),
+                model == null ? null : model.getId(),
+                session.messages().size()
+        );
+        return new UiSessionState(
+                session.sessionId(),
+                session.status().name(),
+                session.messages().size(),
+                session.availableSkills().size(),
+                session.canContinue(),
+                session.activeToolNames(),
+                summary,
+                tokenUsage(session)
+        );
+    }
+
     public String sessionId() {
         return commands.sessionId();
     }
@@ -114,6 +146,33 @@ public class Aether implements AutoCloseable {
 
     Session currentSession() {
         return commands.currentSession();
+    }
+
+    private UiTokenUsage tokenUsage(Session session) {
+        TokenUsageInfo tokenUsageInfo = session.tokenUsageInfo();
+        return UiTokenUsage.builder()
+                .total(tokenCount(tokenUsageInfo == null ? null : tokenUsageInfo.totalTokenUsage()))
+                .last(tokenCount(tokenUsageInfo == null ? null : tokenUsageInfo.lastTokenUsage()))
+                .modelContextWindow(tokenUsageInfo == null ? null : tokenUsageInfo.modelContextWindow())
+                .contextTokenUsage(session.currentContextTokenUsage())
+                .autoCompactTokenLimit(autoCompactTokenLimit(session))
+                .build();
+    }
+
+    private UiTokenCount tokenCount(TokenUsage usage) {
+        TokenUsage normalized = usage == null ? TokenUsage.empty() : usage;
+        return UiTokenCount.builder()
+                .inputTokens(normalized.inputTokens())
+                .cachedInputTokens(normalized.cachedInputTokens())
+                .outputTokens(normalized.outputTokens())
+                .reasoningOutputTokens(normalized.reasoningOutputTokens())
+                .totalTokens(normalized.totalTokens())
+                .build();
+    }
+
+    private Long autoCompactTokenLimit(Session session) {
+        LlmModel model = session.config().model();
+        return model == null ? null : model.resolvedAutoCompactTokenLimit();
     }
 
     private void dispatch(UiEvent event) {
