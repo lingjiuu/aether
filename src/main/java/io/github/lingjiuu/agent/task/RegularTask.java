@@ -2,7 +2,6 @@ package io.github.lingjiuu.agent.task;
 
 import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.agent.turn.TurnContext;
-import io.github.lingjiuu.agent.turn.TurnState;
 import io.github.lingjiuu.protocol.UiItemKind;
 import io.github.lingjiuu.input.MaterializedInput;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
@@ -31,19 +30,17 @@ public class RegularTask implements SessionTask {
     public void run(TaskContext context) {
         Session session = context.session();
         TurnContext turnContext = context.turnContext();
-        TurnState state = new TurnState();
 
         CompactTask compactTask = new CompactTask();
         long blockedAutoCompactAtOrBelow = -1;
         int contextWindowRecoveries = 0;
-        AutoCompactState autoCompactState = runAutoCompactIfNeeded(
+        blockedAutoCompactAtOrBelow = runAutoCompactIfNeeded(
                 session,
                 context,
                 compactTask,
                 "pre-turn",
                 blockedAutoCompactAtOrBelow
         );
-        blockedAutoCompactAtOrBelow = autoCompactState.blockedAtOrBelow();
         if (context.isCancelled()) {
             return;
         }
@@ -54,15 +51,13 @@ public class RegularTask implements SessionTask {
         recordSkillInjections(session, context.materializedInput(), turnContext, turnSkills);
 
         while (!context.isCancelled()) {
-            state.nextSampling();
-            autoCompactState = runAutoCompactIfNeeded(
+            blockedAutoCompactAtOrBelow = runAutoCompactIfNeeded(
                     session,
                     context,
                     compactTask,
                     "pre-sampling",
                     blockedAutoCompactAtOrBelow
             );
-            blockedAutoCompactAtOrBelow = autoCompactState.blockedAtOrBelow();
             if (context.isCancelled()) {
                 return;
             }
@@ -107,7 +102,6 @@ public class RegularTask implements SessionTask {
                     return;
                 }
 
-                state.addToolCalls(toolScope.size());
                 List<ToolOutcome> outcomes = context.isCancelled() || Thread.currentThread().isInterrupted()
                         ? toolScope.abortAndDrain()
                         : toolScope.drain();
@@ -116,14 +110,13 @@ public class RegularTask implements SessionTask {
                     return;
                 }
             }
-            autoCompactState = runAutoCompactIfNeeded(
+            blockedAutoCompactAtOrBelow = runAutoCompactIfNeeded(
                     session,
                     context,
                     compactTask,
                     "mid-turn",
                     blockedAutoCompactAtOrBelow
             );
-            blockedAutoCompactAtOrBelow = autoCompactState.blockedAtOrBelow();
         }
     }
 
@@ -178,93 +171,86 @@ public class RegularTask implements SessionTask {
                     event.getToolCall(),
                     event.getDelta()
             ));
-            case TEXT_END -> {
-                AssistantMessage assistantItem = session.contextBuilder().assistantTextItem(
-                        event.getPartial(),
-                        event.getContent(),
-                        event.getProviderState()
-                );
-                session.recordAssistant(
-                        assistantItem,
-                        turnContext
-                );
-                session.events().emit(UiEvents.itemCompleted(
-                        turnContext,
-                        UiItemKind.ASSISTANT_TEXT,
-                        event.getItemId(),
-                        event.getContentIndex(),
-                        null,
-                        event.getContent()
-                ));
+            case TEXT_END -> completeTextItem(session, turnContext, event);
+            case THINKING_END -> completeThinkingItem(session, turnContext, event);
+            case TOOLCALL_END -> completeToolCallItemAndFork(session, turnContext, toolScope, event);
+            case ERROR -> {
             }
-            case THINKING_END -> {
-                AssistantMessage assistantItem = session.contextBuilder().assistantThinkingItem(
-                        event.getPartial(),
-                        event.getContent(),
-                        event.getProviderState()
-                );
-                session.recordAssistant(
-                        assistantItem,
-                        turnContext
-                );
-                session.events().emit(UiEvents.itemCompleted(
-                        turnContext,
-                        UiItemKind.REASONING,
-                        event.getItemId(),
-                        event.getContentIndex(),
-                        null,
-                        event.getContent()
-                ));
-            }
-            case TOOLCALL_END -> {
-                AssistantMessage assistantItem = session.contextBuilder().assistantToolCallItem(
-                        event.getPartial(),
-                        event.getToolCall(),
-                        event.getProviderState()
-                );
-                session.recordAssistant(assistantItem, turnContext);
-                session.events().emit(UiEvents.toolArgumentsDone(
-                        turnContext,
-                        event.getItemId(),
-                        event.getContentIndex(),
-                        event.getToolCall()
-                ));
-                session.events().emit(UiEvents.itemCompleted(
-                        turnContext,
-                        UiItemKind.TOOL_CALL,
-                        event.getItemId(),
-                        event.getContentIndex(),
-                        event.getToolCall(),
-                        event.getToolCall() == null ? null : event.getToolCall().getArgumentsJson()
-                ));
-                toolScope.fork(assistantItem, new ToolCallRef(
-                        event.getItemId(),
-                        event.getContentIndex(),
-                        event.getToolCall()
-                ));
-            }
-            case ERROR -> session.events().emit(UiEvents.error(
-                    turnContext,
-                    streamErrorMessage(event)
-            ));
             default -> {
             }
         }
     }
 
-    private String streamErrorMessage(AssistantStreamEvent event) {
-        if (event == null) {
-            return "Model stream failed.";
+    private void completeTextItem(Session session, TurnContext turnContext, AssistantStreamEvent event) {
+        AssistantMessage assistantItem = session.contextBuilder().assistantTextItem(
+                event.getPartial(),
+                event.getContent(),
+                event.getProviderState()
+        );
+        session.recordAssistant(assistantItem, turnContext);
+        session.events().emit(UiEvents.itemCompleted(
+                turnContext,
+                UiItemKind.ASSISTANT_TEXT,
+                event.getItemId(),
+                event.getContentIndex(),
+                null,
+                event.getContent()
+        ));
+    }
+
+    private void completeThinkingItem(Session session, TurnContext turnContext, AssistantStreamEvent event) {
+        AssistantMessage assistantItem = session.contextBuilder().assistantThinkingItem(
+                event.getPartial(),
+                event.getContent(),
+                event.getProviderState()
+        );
+        session.recordAssistant(assistantItem, turnContext);
+        session.events().emit(UiEvents.itemCompleted(
+                turnContext,
+                UiItemKind.REASONING,
+                event.getItemId(),
+                event.getContentIndex(),
+                null,
+                event.getContent()
+        ));
+    }
+
+    private void completeToolCallItemAndFork(
+            Session session,
+            TurnContext turnContext,
+            ToolScope toolScope,
+            AssistantStreamEvent event
+    ) {
+        if (event.getToolCall() == null) {
+            session.events().emit(UiEvents.error(turnContext, "Model emitted an incomplete tool call."));
+            return;
         }
-        if (event.getError() != null
-                && event.getError().getErrorMessage() != null
-                && !event.getError().getErrorMessage().isBlank()) {
-            return event.getError().getErrorMessage();
-        }
-        if (event.getReason() != null && !event.getReason().isBlank()) {
-            return event.getReason();
-        }
-        return "Model stream failed.";
+
+        AssistantMessage assistantItem = session.contextBuilder().assistantToolCallItem(
+                event.getPartial(),
+                event.getToolCall(),
+                event.getProviderState()
+        );
+        session.recordAssistant(assistantItem, turnContext);
+        session.events().emit(UiEvents.toolArgumentsDone(
+                turnContext,
+                event.getItemId(),
+                event.getContentIndex(),
+                event.getToolCall()
+        ));
+        session.events().emit(UiEvents.itemCompleted(
+                turnContext,
+                UiItemKind.TOOL_CALL,
+                event.getItemId(),
+                event.getContentIndex(),
+                event.getToolCall(),
+                event.getToolCall().getArgumentsJson()
+        ));
+        toolScope.fork(assistantItem, new ToolCallRef(
+                event.getItemId(),
+                event.getContentIndex(),
+                event.getToolCall()
+        ));
     }
 
     private void recordToolOutcomes(
@@ -290,7 +276,7 @@ public class RegularTask implements SessionTask {
         }
     }
 
-    private AutoCompactState runAutoCompactIfNeeded(
+    private long runAutoCompactIfNeeded(
             Session session,
             TaskContext context,
             CompactTask compactTask,
@@ -298,26 +284,23 @@ public class RegularTask implements SessionTask {
             long blockedAtOrBelow
     ) {
         if (context.isCancelled() || !session.shouldAutoCompact()) {
-            return new AutoCompactState(blockedAtOrBelow);
+            return blockedAtOrBelow;
         }
 
         long beforeTokens = session.currentContextTokenUsage();
         if (blockedAtOrBelow >= 0 && beforeTokens <= blockedAtOrBelow) {
-            return new AutoCompactState(blockedAtOrBelow);
+            return blockedAtOrBelow;
         }
 
         boolean compacted = compactTask.runInlineAutoCompact(context, phase);
         if (!compacted || context.isCancelled()) {
-            return new AutoCompactState(blockedAtOrBelow);
+            return blockedAtOrBelow;
         }
         long afterTokens = session.currentContextTokenUsage();
         if (beforeTokens - afterTokens < MIN_EFFECTIVE_COMPACT_TOKEN_DROP) {
-            return new AutoCompactState(afterTokens);
+            return afterTokens;
         }
-        return new AutoCompactState(-1);
-    }
-
-    private record AutoCompactState(long blockedAtOrBelow) {
+        return -1;
     }
 
     private void recordMaterializedInput(
