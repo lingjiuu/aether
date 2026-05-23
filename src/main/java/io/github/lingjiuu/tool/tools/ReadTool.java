@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -171,18 +172,7 @@ public class ReadTool implements ToolDefinition {
 
         return ToolExecutionResult.builder()
                 .contents(ToolExecutionResult.text(output).getContents())
-                .details(Map.of(
-                        "kind", "read",
-                        "path", requestedPath,
-                        "resolvedPath", resolvedPath.toString(),
-                        "fileType", "text",
-                        "offset", offset,
-                        "limit", limit,
-                        "returnedLines", returnedLines,
-                        "totalLines", totalLines,
-                        "truncated", truncated,
-                        "hasMore", hasMore
-                ))
+                .details(textReadDetails(requestedPath, resolvedPath, offset, limit, returnedLines, totalLines, truncated, hasMore))
                 .error(false)
                 .build();
     }
@@ -234,6 +224,32 @@ public class ReadTool implements ToolDefinition {
                 ))
                 .error(false)
                 .build();
+    }
+
+    private Map<String, Object> textReadDetails(
+            String requestedPath,
+            Path resolvedPath,
+            int offset,
+            Integer limit,
+            int returnedLines,
+            int totalLines,
+            boolean truncated,
+            boolean hasMore
+    ) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("kind", "read");
+        details.put("path", requestedPath);
+        details.put("resolvedPath", resolvedPath.toString());
+        details.put("fileType", "text");
+        details.put("offset", offset);
+        if (limit != null) {
+            details.put("limit", limit);
+        }
+        details.put("returnedLines", returnedLines);
+        details.put("totalLines", totalLines);
+        details.put("truncated", truncated);
+        details.put("hasMore", hasMore);
+        return details;
     }
 
     private boolean isOutsideWorkspaceError(IllegalArgumentException e) {
