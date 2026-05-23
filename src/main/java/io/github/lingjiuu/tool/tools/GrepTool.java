@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -228,11 +229,13 @@ public class GrepTool implements ToolDefinition {
             return ToolExecutionResult.builder()
                     .contents(ToolExecutionResult.text("No matches found").getContents())
                     .details(Map.of(
+                            "kind", "grep",
                             "pattern", pattern,
                             "path", requestedPath,
                             "resolvedPath", searchPath.toString(),
-                            "returnedMatches", 0,
-                            "matchLimitReached", false,
+                            "matchCount", 0,
+                            "fileCount", 0,
+                            "limitReached", false,
                             "truncated", false
                     ))
                     .error(false)
@@ -292,18 +295,29 @@ public class GrepTool implements ToolDefinition {
             output += "\n\n[" + String.join(". ", notices) + "]";
         }
 
+        List<String> preview = outputLines.size() <= 10
+                ? List.copyOf(outputLines)
+                : List.copyOf(outputLines.subList(0, 10));
+        int fileCount = (int) matches.stream()
+                .map(Match::file)
+                .distinct()
+                .count();
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("kind", "grep");
+        details.put("pattern", pattern);
+        details.put("path", requestedPath);
+        details.put("glob", glob == null ? "" : glob);
+        details.put("resolvedPath", searchPath.toString());
+        details.put("matchCount", matches.size());
+        details.put("fileCount", fileCount);
+        details.put("limitReached", matchLimitReached);
+        details.put("truncated", truncation.truncated());
+        details.put("linesTruncated", linesTruncated);
+        details.put("matchesPreview", preview);
+
         return ToolExecutionResult.builder()
                 .contents(ToolExecutionResult.text(output).getContents())
-                .details(Map.of(
-                        "pattern", pattern,
-                        "path", requestedPath,
-                        "glob", glob == null ? "" : glob,
-                        "resolvedPath", searchPath.toString(),
-                        "returnedMatches", matches.size(),
-                        "matchLimitReached", matchLimitReached,
-                        "truncated", truncation.truncated(),
-                        "linesTruncated", linesTruncated
-                ))
+                .details(details)
                 .error(false)
                 .build();
     }

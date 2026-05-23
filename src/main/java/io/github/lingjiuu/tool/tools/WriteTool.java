@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -98,17 +99,20 @@ public class WriteTool implements ToolDefinition {
             context.throwIfCancellationRequested();
 
             int bytes = content.getBytes(StandardCharsets.UTF_8).length;
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("kind", "write");
+            details.put("path", requestedPath);
+            details.put("resolvedPath", resolvedPath.toString());
+            details.put("operation", existedBefore ? "overwrite" : "create");
+            details.put("chars", content.length());
+            details.put("bytes", bytes);
+            details.put("existedBefore", existedBefore);
+            details.put("firstLine", firstLine(content));
             return ToolExecutionResult.builder()
                     .contents(ToolExecutionResult.text(
                             "Successfully wrote " + content.length() + " chars to " + requestedPath
                     ).getContents())
-                    .details(Map.of(
-                            "path", requestedPath,
-                            "resolvedPath", resolvedPath.toString(),
-                            "chars", content.length(),
-                            "bytes", bytes,
-                            "existedBefore", existedBefore
-                    ))
+                    .details(details)
                     .error(false)
                     .build();
         } catch (Exception e) {
@@ -126,5 +130,14 @@ public class WriteTool implements ToolDefinition {
 
     private boolean isOutsideWorkspaceError(IllegalArgumentException e) {
         return e.getMessage() != null && e.getMessage().contains("outside the allowed root");
+    }
+
+    private String firstLine(String content) {
+        if (content == null || content.isBlank()) {
+            return "";
+        }
+        String normalized = content.replace("\r\n", "\n").replace('\r', '\n');
+        int newline = normalized.indexOf('\n');
+        return newline >= 0 ? normalized.substring(0, newline) : normalized;
     }
 }

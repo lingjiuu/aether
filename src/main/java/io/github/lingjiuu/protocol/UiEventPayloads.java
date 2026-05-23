@@ -52,6 +52,7 @@ public final class UiEventPayloads {
 
     public record ToolExecution(
             UiToolCall toolCall,
+            UiToolUpdate toolUpdate,
             UiToolResult toolResult
     ) implements UiEventPayload {
     }

@@ -137,14 +137,19 @@ public class LsTool implements ToolDefinition {
             output += "\n\n[" + String.join(". ", notices) + "]";
         }
 
+        List<String> preview = renderedEntries.size() <= 20
+                ? List.copyOf(renderedEntries)
+                : List.copyOf(renderedEntries.subList(0, 20));
         return ToolExecutionResult.builder()
                 .contents(ToolExecutionResult.text(output).getContents())
                 .details(Map.of(
+                        "kind", "ls",
                         "path", requestedPath,
                         "resolvedPath", resolvedPath.toString(),
-                        "returnedEntries", renderedEntries.size(),
-                        "entryLimitReached", entryLimitReached,
-                        "truncated", truncation.truncated()
+                        "entryCount", renderedEntries.size(),
+                        "limitReached", entryLimitReached,
+                        "truncated", truncation.truncated(),
+                        "entriesPreview", preview
                 ))
                 .error(false)
                 .build();

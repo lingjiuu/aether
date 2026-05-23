@@ -48,6 +48,10 @@ export type UiToolCall = {
   toolCallId?: string | null;
   toolName?: string | null;
   argumentsJson?: string | null;
+  arguments?: unknown;
+  displayName?: string | null;
+  displaySummary?: string | null;
+  riskLevel?: string | null;
 };
 
 export type UiToolResult = {
@@ -59,6 +63,19 @@ export type UiToolResult = {
   text?: string | null;
   error?: boolean;
   status?: string | null;
+  durationMs?: number | null;
+  details?: unknown;
+  truncated?: boolean | null;
+};
+
+export type UiToolUpdate = {
+  itemId?: string | null;
+  sourceItemId?: string | null;
+  contentIndex?: number | null;
+  toolCallId?: string | null;
+  toolName?: string | null;
+  status?: string | null;
+  text?: string | null;
   durationMs?: number | null;
   details?: unknown;
   truncated?: boolean | null;
@@ -136,7 +153,12 @@ export type UiEventPayload =
     }
   | { payloadType: 'toolArgumentsDone'; item?: UiItem | null }
   | { payloadType: 'toolCall'; toolCall?: UiToolCall | null }
-  | { payloadType: 'toolExecution'; toolCall?: UiToolCall | null; toolResult?: UiToolResult | null }
+  | {
+      payloadType: 'toolExecution';
+      toolCall?: UiToolCall | null;
+      toolUpdate?: UiToolUpdate | null;
+      toolResult?: UiToolResult | null;
+    }
   | { payloadType: 'toolResult'; item?: UiItem | null }
   | { payloadType: 'approval'; request?: UiApprovalRequest | null; response?: UiApprovalResponse | null }
   | { payloadType: 'tokenUsage'; tokenUsage?: UiTokenUsage | null }
@@ -166,6 +188,7 @@ export type UiHistoryItem = {
   contentIndex?: number | null;
   text?: string | null;
   toolCall?: UiToolCall | null;
+  toolUpdate?: UiToolUpdate | null;
   toolResult?: UiToolResult | null;
 };
 

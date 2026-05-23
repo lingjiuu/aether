@@ -18,12 +18,23 @@ import io.github.lingjiuu.transcript.item.SessionNameItem;
 import io.github.lingjiuu.ui.approval.ApprovalCoordinator;
 import io.github.lingjiuu.ui.history.UiHistoryState;
 
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+
 public class CommandManager implements AutoCloseable {
 
     private final SessionFactory sessionFactory;
     private final EventSink eventSink;
     private final ApprovalCoordinator approvalCoordinator;
-    private Session session;
+    private final ExecutorService dispatcher = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "aether-ui-commands");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private volatile Session session;
 
     public CommandManager(
             SessionFactory sessionFactory,
@@ -39,26 +50,25 @@ public class CommandManager implements AutoCloseable {
         this.session = configure(sessionFactory.openSession());
     }
 
-    public synchronized UiCommandAck handle(UiCommand command) {
+    public UiCommandAck handle(UiCommand command) {
         if (command == null || command.getType() == null) {
             return UiCommandAck.rejected(sessionId(), "Command type is required.");
         }
         String commandId = commandId(command);
+        Future<UiCommandAck> future;
         try {
-            return switch (command.getType()) {
-                case SUBMIT_USER_INPUT -> submit(command, commandId);
-                case NEW_SESSION -> newSession(commandId);
-                case CLOSE_SESSION -> closeSession(commandId);
-                case SET_SESSION_NAME -> setSessionName(command, commandId);
-                case RESUME_SESSION -> resume(command, commandId);
-                case COMPACT -> compact(commandId);
-                case CONTINUE -> continueSession(commandId);
-                case CANCEL_TURN -> cancelTurn(commandId);
-                case APPROVAL_RESPONSE -> approvalResponse(command, commandId);
-                case RELOAD_SKILLS -> reloadSkills(commandId);
-            };
-        } catch (RuntimeException e) {
-            return UiCommandAck.rejected(commandId, sessionId(), e.getMessage());
+            future = dispatcher.submit(() -> handleOnMailbox(command, commandId));
+        } catch (RejectedExecutionException e) {
+            return UiCommandAck.rejected(commandId, sessionId(), "command mailbox is closed");
+        }
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return UiCommandAck.rejected(commandId, sessionId(), "command interrupted");
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            return UiCommandAck.rejected(commandId, sessionId(), cause.getMessage());
         }
     }
 
@@ -83,7 +93,42 @@ public class CommandManager implements AutoCloseable {
 
     @Override
     public synchronized void close() {
+        flush();
         closeCurrentSession();
+        dispatcher.shutdownNow();
+    }
+
+    public void flush() {
+        try {
+            Future<?> future = dispatcher.submit(() -> {
+            });
+            future.get();
+        } catch (RejectedExecutionException e) {
+            return;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to flush command mailbox.", e);
+        }
+    }
+
+    private UiCommandAck handleOnMailbox(UiCommand command, String commandId) {
+        try {
+            return switch (command.getType()) {
+                case SUBMIT_USER_INPUT -> submit(command, commandId);
+                case NEW_SESSION -> newSession(commandId);
+                case CLOSE_SESSION -> closeSession(commandId);
+                case SET_SESSION_NAME -> setSessionName(command, commandId);
+                case RESUME_SESSION -> resume(command, commandId);
+                case COMPACT -> compact(commandId);
+                case CONTINUE -> continueSession(commandId);
+                case CANCEL_TURN -> cancelTurn(commandId);
+                case APPROVAL_RESPONSE -> approvalResponse(command, commandId);
+                case RELOAD_SKILLS -> reloadSkills(commandId);
+            };
+        } catch (RuntimeException e) {
+            return UiCommandAck.rejected(commandId, sessionId(), e.getMessage());
+        }
     }
 
     private UiCommandAck submit(UiCommand command, String commandId) {

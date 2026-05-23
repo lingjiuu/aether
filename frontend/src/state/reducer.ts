@@ -13,6 +13,7 @@ import type {
   UiTokenUsage,
   UiToolCall,
   UiToolResult,
+  UiToolUpdate,
 } from '../protocol/wire.js';
 
 export type AppState = {
@@ -221,7 +222,7 @@ function applyTimelineEvent(state: AppState, event: UiEvent): AppState {
     case 'TOOL_EXECUTION_UPDATE':
     case 'TOOL_EXECUTION_END': {
       const data = payload(event, 'toolExecution');
-      return applyToolExecution(state, event, data?.toolCall, data?.toolResult);
+      return applyToolExecution(state, event, data?.toolCall, data?.toolUpdate, data?.toolResult);
     }
     case 'TOOL_RESULT': {
       const item = payload(event, 'toolResult')?.item;
@@ -259,6 +260,7 @@ function applyToolExecution(
   state: AppState,
   event: UiEvent,
   toolCall?: UiToolCall | null,
+  toolUpdate?: UiToolUpdate | null,
   toolResult?: UiToolResult | null,
 ): AppState {
   const itemId = toolCall?.itemId ?? toolCall?.toolCallId;
@@ -269,9 +271,10 @@ function applyToolExecution(
     ...current,
     id: itemId,
     kind: 'TOOL_CALL',
-    status: toolResult?.status ?? 'RUNNING',
+    status: toolUpdate?.status ?? 'RUNNING',
     contentIndex: toolCall?.contentIndex,
     toolCall: toolCall ?? current.toolCall,
+    toolUpdate: toolUpdate ?? current.toolUpdate,
     toolResult: toolResult ?? current.toolResult,
   }));
 }
@@ -285,6 +288,7 @@ function applyToolResultItem(state: AppState, event: UiEvent, item: UiItem): App
   return upsertPartialItem(state, event, sourceItemId, current => ({
     ...current,
     status: resultItem.toolResult?.status ?? 'COMPLETED',
+    toolUpdate: undefined,
     toolResult: resultItem.toolResult ?? current.toolResult,
   }));
 }
@@ -373,6 +377,7 @@ function historyItemToTimelineItem(item: UiHistoryItem): TimelineItem {
     contentIndex: item.contentIndex,
     text: item.text ?? '',
     toolCall: item.toolCall ?? undefined,
+    toolUpdate: item.toolUpdate ?? undefined,
     toolResult: item.toolResult ?? undefined,
   };
 }

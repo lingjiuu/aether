@@ -183,11 +183,12 @@ public class EditTool implements ToolDefinition {
                         "Successfully replaced " + applied.replacements() + " block(s) in " + requestedPath + "."
                 ).getContents())
                 .details(Map.of(
+                        "kind", "edit",
                         "path", requestedPath,
                         "resolvedPath", resolvedPath.toString(),
-                        "replacements", applied.replacements(),
+                        "editCount", applied.replacements(),
                         "firstChangedLine", applied.firstChangedLine(),
-                        "diff", applied.diff()
+                        "diffText", applied.diff()
                 ))
                 .error(false)
                 .build();

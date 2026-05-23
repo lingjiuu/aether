@@ -8,8 +8,8 @@ import { ToolUseIndicator } from './ToolUseIndicator.js';
 
 export function ToolCallCard({ item }: { item: TimelineItem }) {
   const toolCall = item.toolCall;
-  const name = toolCall?.toolName ?? 'tool';
-  const args = formatToolUseSummary(name, toolCall?.argumentsJson, 160);
+  const name = toolCall?.displayName ?? toolCall?.toolName ?? 'tool';
+  const args = toolCall?.displaySummary ?? formatToolUseSummary(toolCall?.toolName ?? name, toolCall?.argumentsJson, 160);
   const isError =
     item.toolResult?.error || item.status === 'ERROR' || item.status === 'FAILED' || item.status === 'ABORTED';
   const isRunning = item.status === 'RUNNING' || (!item.toolResult && !isError);
@@ -29,7 +29,7 @@ export function ToolCallCard({ item }: { item: TimelineItem }) {
           </Box>
         ) : null}
       </Box>
-      {isRunning ? <ToolProgress result={item.toolResult} /> : <ToolResult result={item.toolResult} />}
+      {isRunning ? <ToolProgress update={item.toolUpdate} /> : <ToolResult result={item.toolResult} />}
     </Box>
   );
 }

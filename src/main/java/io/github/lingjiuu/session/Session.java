@@ -441,8 +441,18 @@ public class Session implements AutoCloseable {
         if (toolResult == null) {
             return;
         }
+        ToolDefinition toolDefinition = toolRegistry.findDefinition(toolCall == null ? null : toolCall.getToolName());
         recorder.record(toolResult, turnContext.turn());
-        eventManager.emit(UiEvents.toolExecutionEnd(sourceItemId, contentIndex, toolCall, toolResult, status, durationMs, turnContext));
+        eventManager.emit(UiEvents.toolExecutionEnd(
+                sourceItemId,
+                contentIndex,
+                toolCall,
+                toolDefinition,
+                toolResult,
+                status,
+                durationMs,
+                turnContext
+        ));
         eventManager.emit(UiEvents.toolResult(sourceItemId, contentIndex, toolCall, toolResult, status, durationMs, turnContext));
     }
 

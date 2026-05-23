@@ -10,6 +10,7 @@ import io.github.lingjiuu.protocol.UiItemBodies;
 import io.github.lingjiuu.protocol.UiItemKind;
 import io.github.lingjiuu.protocol.UiToolCall;
 import io.github.lingjiuu.protocol.UiToolResult;
+import io.github.lingjiuu.protocol.UiToolUpdate;
 import io.github.lingjiuu.protocol.UiTurn;
 
 import java.util.ArrayList;
@@ -166,9 +167,9 @@ public final class UiHistoryState {
         }
         ItemState item = item(event, itemId, UiItemKind.TOOL_CALL, toolCall.getContentIndex());
         item.toolCall = toolCall;
-        UiToolResult result = payload.toolResult();
-        item.toolResult = result;
-        item.status = result == null || result.getStatus() == null ? RUNNING : result.getStatus();
+        UiToolUpdate update = payload.toolUpdate();
+        item.toolUpdate = update;
+        item.status = update == null || update.getStatus() == null ? RUNNING : update.getStatus();
     }
 
     private void applyToolResult(UiEvent event) {
@@ -302,6 +303,7 @@ public final class UiHistoryState {
         private String status = RUNNING;
         private String text;
         private UiToolCall toolCall;
+        private UiToolUpdate toolUpdate;
         private UiToolResult toolResult;
 
         private ItemState(String id, UiItemKind kind, Integer contentIndex) {
@@ -311,7 +313,7 @@ public final class UiHistoryState {
         }
 
         private UiHistoryItem toItem() {
-            return new UiHistoryItem(id, kind, status, contentIndex, text, toolCall, toolResult);
+                return new UiHistoryItem(id, kind, status, contentIndex, text, toolCall, toolUpdate, toolResult);
         }
     }
 }

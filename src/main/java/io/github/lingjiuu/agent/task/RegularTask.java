@@ -136,6 +136,7 @@ public class RegularTask implements SessionTask {
                     UiItemKind.ASSISTANT_TEXT,
                     event.getItemId(),
                     event.getContentIndex(),
+                    null,
                     null
             ));
             case THINKING_START -> session.events().emit(UiEvents.itemStarted(
@@ -143,6 +144,7 @@ public class RegularTask implements SessionTask {
                     UiItemKind.REASONING,
                     event.getItemId(),
                     event.getContentIndex(),
+                    null,
                     null
             ));
             case TOOLCALL_START -> session.events().emit(UiEvents.itemStarted(
@@ -150,7 +152,8 @@ public class RegularTask implements SessionTask {
                     UiItemKind.TOOL_CALL,
                     event.getItemId(),
                     event.getContentIndex(),
-                    event.getToolCall()
+                    event.getToolCall(),
+                    session.toolRegistry().findDefinition(event.getToolName())
             ));
             case TEXT_DELTA -> session.events().emit(UiEvents.assistantTextDelta(
                     turnContext,
@@ -169,6 +172,7 @@ public class RegularTask implements SessionTask {
                     event.getItemId(),
                     event.getContentIndex(),
                     event.getToolCall(),
+                    session.toolRegistry().findDefinition(event.getToolName()),
                     event.getDelta()
             ));
             case TEXT_END -> completeTextItem(session, turnContext, event);
@@ -194,6 +198,7 @@ public class RegularTask implements SessionTask {
                 event.getItemId(),
                 event.getContentIndex(),
                 null,
+                null,
                 event.getContent()
         ));
     }
@@ -210,6 +215,7 @@ public class RegularTask implements SessionTask {
                 UiItemKind.REASONING,
                 event.getItemId(),
                 event.getContentIndex(),
+                null,
                 null,
                 event.getContent()
         ));
@@ -236,7 +242,8 @@ public class RegularTask implements SessionTask {
                 turnContext,
                 event.getItemId(),
                 event.getContentIndex(),
-                event.getToolCall()
+                event.getToolCall(),
+                session.toolRegistry().findDefinition(event.getToolName())
         ));
         session.events().emit(UiEvents.itemCompleted(
                 turnContext,
@@ -244,6 +251,7 @@ public class RegularTask implements SessionTask {
                 event.getItemId(),
                 event.getContentIndex(),
                 event.getToolCall(),
+                session.toolRegistry().findDefinition(event.getToolName()),
                 event.getToolCall().getArgumentsJson()
         ));
         toolScope.fork(assistantItem, new ToolCallRef(

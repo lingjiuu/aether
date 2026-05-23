@@ -14,6 +14,7 @@ import java.io.InputStreamReader;
 import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -182,16 +183,22 @@ public class FindTool implements ToolDefinition {
                 output += "\n\n[" + String.join(". ", notices) + "]";
             }
 
+            List<String> preview = returned.size() <= 20
+                    ? List.copyOf(returned)
+                    : List.copyOf(returned.subList(0, 20));
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("kind", "find");
+            details.put("pattern", pattern);
+            details.put("path", requestedPath);
+            details.put("resolvedPath", resolvedPath.toString());
+            details.put("resultCount", returned.size());
+            details.put("limitReached", resultLimitReached);
+            details.put("truncated", truncation.truncated());
+            details.put("filesPreview", preview);
+
             return ToolExecutionResult.builder()
                     .contents(ToolExecutionResult.text(output).getContents())
-                    .details(Map.of(
-                            "pattern", pattern,
-                            "path", requestedPath,
-                            "resolvedPath", resolvedPath.toString(),
-                            "returnedResults", returned.size(),
-                            "resultLimitReached", resultLimitReached,
-                            "truncated", truncation.truncated()
-                    ))
+                    .details(details)
                     .error(false)
                     .build();
         } finally {

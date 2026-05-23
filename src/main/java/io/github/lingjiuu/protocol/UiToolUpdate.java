@@ -11,9 +11,11 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class UiToolCall {
+public class UiToolUpdate {
 
     private String itemId;
+
+    private String sourceItemId;
 
     private Integer contentIndex;
 
@@ -21,13 +23,13 @@ public class UiToolCall {
 
     private String toolName;
 
-    private String argumentsJson;
+    private String status;
 
-    private Object arguments;
+    private String text;
 
-    private String displayName;
+    private Long durationMs;
 
-    private String displaySummary;
+    private Object details;
 
-    private String riskLevel;
+    private Boolean truncated;
 }

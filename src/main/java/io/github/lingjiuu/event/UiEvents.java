@@ -10,6 +10,7 @@ import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.github.lingjiuu.protocol.UiApprovalRequest;
 import io.github.lingjiuu.protocol.UiApprovalResponse;
 import io.github.lingjiuu.protocol.UiEvent;
@@ -22,10 +23,13 @@ import io.github.lingjiuu.protocol.UiTokenCount;
 import io.github.lingjiuu.protocol.UiTokenUsage;
 import io.github.lingjiuu.protocol.UiToolCall;
 import io.github.lingjiuu.protocol.UiToolResult;
+import io.github.lingjiuu.protocol.UiToolUpdate;
+import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.permission.ApprovalRequest;
 import io.github.lingjiuu.tool.permission.ApprovalResponse;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class UiEvents {
@@ -85,14 +89,15 @@ public final class UiEvents {
             UiItemKind itemKind,
             String itemId,
             Integer contentIndex,
-            ToolCallContent toolCall
+            ToolCallContent toolCall,
+            ToolDefinition toolDefinition
     ) {
         return event(UiEventType.ITEM_STARTED, turnContext)
                 .payload(new UiEventPayloads.ItemStarted(
                         itemKind,
                         itemId,
                         contentIndex,
-                        uiToolCall(itemId, contentIndex, toolCall)
+                        uiToolCall(itemId, contentIndex, toolCall, toolDefinition)
                 ))
                 .build();
     }
@@ -103,10 +108,11 @@ public final class UiEvents {
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
+            ToolDefinition toolDefinition,
             String text
     ) {
         UiItem item = itemKind == UiItemKind.TOOL_CALL
-                ? toolCallItem(itemId, contentIndex, uiToolCall(itemId, contentIndex, toolCall))
+                ? toolCallItem(itemId, contentIndex, uiToolCall(itemId, contentIndex, toolCall, toolDefinition))
                 : textItem(itemId, itemKind, contentIndex, text);
         return event(UiEventType.ITEM_COMPLETED, turnContext)
                 .payload(new UiEventPayloads.ItemCompleted(item))
@@ -126,13 +132,14 @@ public final class UiEvents {
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
+            ToolDefinition toolDefinition,
             String delta
     ) {
         return event(UiEventType.TOOL_CALL_ARGUMENTS_DELTA, turnContext)
                 .payload(new UiEventPayloads.ToolArgumentsDelta(
                         itemId,
                         contentIndex,
-                        uiToolCall(itemId, contentIndex, toolCall),
+                        uiToolCall(itemId, contentIndex, toolCall, toolDefinition),
                         delta
                 ))
                 .build();
@@ -142,20 +149,27 @@ public final class UiEvents {
             TurnContext turnContext,
             String itemId,
             Integer contentIndex,
-            ToolCallContent toolCall
+            ToolCallContent toolCall,
+            ToolDefinition toolDefinition
     ) {
         return event(UiEventType.TOOL_CALL_ARGUMENTS_DONE, turnContext)
                 .payload(new UiEventPayloads.ToolArgumentsDone(toolCallItem(
                         itemId,
                         contentIndex,
-                        uiToolCall(itemId, contentIndex, toolCall)
+                        uiToolCall(itemId, contentIndex, toolCall, toolDefinition)
                 )))
                 .build();
     }
 
-    public static UiEvent toolCall(String itemId, Integer contentIndex, ToolCallContent toolCall, TurnContext turnContext) {
+    public static UiEvent toolCall(
+            String itemId,
+            Integer contentIndex,
+            ToolCallContent toolCall,
+            ToolDefinition toolDefinition,
+            TurnContext turnContext
+    ) {
         return event(UiEventType.TOOL_CALL, turnContext)
-                .payload(new UiEventPayloads.ToolCall(uiToolCall(itemId, contentIndex, toolCall)))
+                .payload(new UiEventPayloads.ToolCall(uiToolCall(itemId, contentIndex, toolCall, toolDefinition)))
                 .build();
     }
 
@@ -163,12 +177,14 @@ public final class UiEvents {
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
+            ToolDefinition toolDefinition,
             TurnContext turnContext
     ) {
         return event(UiEventType.TOOL_EXECUTION_BEGIN, turnContext)
                 .payload(new UiEventPayloads.ToolExecution(
-                        uiToolCall(itemId, contentIndex, toolCall),
-                        uiToolResult(itemId, itemId, contentIndex, toolCall, null, "RUNNING", null)
+                        uiToolCall(itemId, contentIndex, toolCall, toolDefinition),
+                        uiToolUpdate(itemId, itemId, contentIndex, toolCall, null, "RUNNING", null),
+                        null
                 ))
                 .build();
     }
@@ -177,13 +193,16 @@ public final class UiEvents {
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
+            ToolDefinition toolDefinition,
             ToolExecutionResult partialResult,
+            Long durationMs,
             TurnContext turnContext
     ) {
         return event(UiEventType.TOOL_EXECUTION_UPDATE, turnContext)
                 .payload(new UiEventPayloads.ToolExecution(
-                        uiToolCall(itemId, contentIndex, toolCall),
-                        uiToolResult(itemId, itemId, contentIndex, toolCall, partialResult, "RUNNING", null)
+                        uiToolCall(itemId, contentIndex, toolCall, toolDefinition),
+                        uiToolUpdate(itemId, itemId, contentIndex, toolCall, partialResult, "RUNNING", durationMs),
+                        null
                 ))
                 .build();
     }
@@ -192,6 +211,7 @@ public final class UiEvents {
             String sourceItemId,
             Integer contentIndex,
             ToolCallContent toolCall,
+            ToolDefinition toolDefinition,
             ToolResultMessage toolResult,
             String status,
             Long durationMs,
@@ -202,7 +222,8 @@ public final class UiEvents {
         }
         return event(UiEventType.TOOL_EXECUTION_END, turnContext)
                 .payload(new UiEventPayloads.ToolExecution(
-                        uiToolCall(sourceItemId, contentIndex, toolCall),
+                        uiToolCall(sourceItemId, contentIndex, toolCall, toolDefinition),
+                        uiToolUpdate(sourceItemId, sourceItemId, contentIndex, toolCall, null, status, durationMs),
                         uiToolResult(toolResult, sourceItemId, contentIndex, status, durationMs)
                 ))
                 .build();
@@ -387,16 +408,28 @@ public final class UiEvents {
                 .build();
     }
 
-    private static UiToolCall uiToolCall(String itemId, Integer contentIndex, ToolCallContent toolCall) {
+    private static UiToolCall uiToolCall(
+            String itemId,
+            Integer contentIndex,
+            ToolCallContent toolCall,
+            ToolDefinition toolDefinition
+    ) {
         if (toolCall == null) {
             return null;
         }
+        Object arguments = toolArguments(toolCall);
         return UiToolCall.builder()
                 .itemId(itemId)
                 .contentIndex(contentIndex)
                 .toolCallId(toolCall.getToolCallId())
                 .toolName(toolCall.getToolName())
                 .argumentsJson(toolCall.getArgumentsJson())
+                .arguments(arguments)
+                .displayName(toolDisplayName(toolCall, toolDefinition))
+                .displaySummary(toolDisplaySummary(toolCall, arguments))
+                .riskLevel(toolDefinition == null || toolDefinition.riskLevel() == null
+                        ? null
+                        : toolDefinition.riskLevel().name())
                 .build();
     }
 
@@ -420,12 +453,36 @@ public final class UiEvents {
                 .error(message.isError())
                 .status(status == null ? (message.isError() ? "FAILED" : "COMPLETED") : status)
                 .durationMs(durationMs)
-                .details(message.getDetails())
+                .details(normalizeToolDetails(message.getToolName(), message.getDetails()))
                 .truncated(truncated(message.getDetails()))
                 .build();
     }
 
-    private static UiToolResult uiToolResult(
+    private static UiToolUpdate uiToolUpdate(
+            ToolResultMessage message,
+            String sourceItemId,
+            Integer contentIndex,
+            String status,
+            Long durationMs
+    ) {
+        if (message == null) {
+            return null;
+        }
+        return UiToolUpdate.builder()
+                .itemId(message.id())
+                .sourceItemId(sourceItemId)
+                .contentIndex(contentIndex)
+                .toolCallId(message.getToolCallId())
+                .toolName(message.getToolName())
+                .text(MessageContents.text(message))
+                .status(status == null ? (message.isError() ? "FAILED" : "COMPLETED") : status)
+                .durationMs(durationMs)
+                .details(normalizeToolDetails(message.getToolName(), message.getDetails()))
+                .truncated(truncated(message.getDetails()))
+                .build();
+    }
+
+    private static UiToolUpdate uiToolUpdate(
             String itemId,
             String sourceItemId,
             Integer contentIndex,
@@ -435,7 +492,8 @@ public final class UiEvents {
             Long durationMs
     ) {
         if (result == null) {
-            return UiToolResult.builder()
+            return UiToolUpdate.builder()
+                    .itemId(itemId)
                     .sourceItemId(sourceItemId)
                     .contentIndex(contentIndex)
                     .toolCallId(toolCall == null ? null : toolCall.getToolCallId())
@@ -444,19 +502,128 @@ public final class UiEvents {
                     .durationMs(durationMs)
                     .build();
         }
-        return UiToolResult.builder()
+        String toolName = toolCall == null ? null : toolCall.getToolName();
+        return UiToolUpdate.builder()
                 .itemId(itemId)
                 .sourceItemId(sourceItemId)
                 .contentIndex(contentIndex)
                 .toolCallId(toolCall == null ? null : toolCall.getToolCallId())
-                .toolName(toolCall == null ? null : toolCall.getToolName())
+                .toolName(toolName)
                 .text(toolExecutionText(result))
-                .error(result.isError())
                 .status(status == null ? (result.isError() ? "FAILED" : "COMPLETED") : status)
                 .durationMs(durationMs)
-                .details(result.getDetails())
+                .details(normalizeToolDetails(toolName, result.getDetails()))
                 .truncated(truncated(result.getDetails()))
                 .build();
+    }
+
+    private static Object toolArguments(ToolCallContent toolCall) {
+        if (toolCall.getArguments() != null
+                && !toolCall.getArguments().isMissingNode()
+                && !toolCall.getArguments().isNull()) {
+            return toolCall.getArguments();
+        }
+        return null;
+    }
+
+    private static String toolDisplayName(ToolCallContent toolCall, ToolDefinition toolDefinition) {
+        if (toolDefinition != null && toolDefinition.label() != null && !toolDefinition.label().isBlank()) {
+            return toolDefinition.label();
+        }
+        return toolCall.getToolName();
+    }
+
+    private static String toolDisplaySummary(ToolCallContent toolCall, Object arguments) {
+        String toolName = toolCall.getToolName();
+        if (arguments instanceof JsonNode node && node.isObject()) {
+            return switch (toolName == null ? "" : toolName) {
+                case "bash" -> jsonText(node, "command");
+                case "read", "write", "edit", "ls" -> jsonText(node, "path");
+                case "find" -> joinSummary(
+                        jsonText(node, "pattern"),
+                        prefixed("in ", jsonText(node, "path"))
+                );
+                case "grep" -> joinSummary(
+                        jsonText(node, "pattern"),
+                        prefixed("in ", jsonText(node, "path")),
+                        parenthesized(jsonText(node, "glob"))
+                );
+                default -> null;
+            };
+        }
+        if (!(arguments instanceof Map<?, ?> map)) {
+            return null;
+        }
+        return switch (toolName == null ? "" : toolName) {
+            case "bash" -> stringValue(map.get("command"));
+            case "read", "write", "edit", "ls" -> stringValue(map.get("path"));
+            case "find" -> joinSummary(
+                    stringValue(map.get("pattern")),
+                    prefixed("in ", stringValue(map.get("path")))
+            );
+            case "grep" -> joinSummary(
+                    stringValue(map.get("pattern")),
+                    prefixed("in ", stringValue(map.get("path"))),
+                    parenthesized(stringValue(map.get("glob")))
+            );
+            default -> null;
+        };
+    }
+
+    private static Object normalizeToolDetails(String toolName, Object details) {
+        if (!(details instanceof Map<?, ?> input)) {
+            return details;
+        }
+        Map<String, Object> output = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : input.entrySet()) {
+            if (entry.getKey() != null) {
+                output.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        output.put("kind", toolName == null || toolName.isBlank() ? stringValue(input.get("kind")) : toolName);
+        return output;
+    }
+
+    private static String joinSummary(String... parts) {
+        StringBuilder summary = new StringBuilder();
+        for (String part : parts) {
+            if (part == null || part.isBlank()) {
+                continue;
+            }
+            if (summary.length() > 0) {
+                summary.append(' ');
+            }
+            summary.append(part.trim());
+        }
+        return summary.length() == 0 ? null : summary.toString();
+    }
+
+    private static String prefixed(String prefix, String value) {
+        return value == null || value.isBlank() ? null : prefix + value.trim();
+    }
+
+    private static String parenthesized(String value) {
+        return value == null || value.isBlank() ? null : "(" + value.trim() + ")";
+    }
+
+    private static String stringValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isBlank() ? null : text;
+    }
+
+    private static String jsonText(JsonNode node, String field) {
+        if (node == null || field == null || field.isBlank()) {
+            return null;
+        }
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        String text = value.asText();
+        return text == null || text.isBlank() ? null : text;
     }
 
     private static Boolean truncated(Object details) {

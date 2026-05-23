@@ -180,12 +180,14 @@ public class BashTool implements ToolDefinition {
     private void emitPartial(BashOutputAccumulator output, ToolExecutionContext context) {
         try {
             BashOutputAccumulator.Snapshot snapshot = output.snapshot(false);
+            String command = ToolArguments.requiredString(context.getArguments(), "command");
             context.emitUpdate(ToolExecutionResult.builder()
                     .contents(ToolExecutionResult.text(snapshot.content()).getContents())
-                    .details(Map.of("partial", true))
+                    .details(partialDetails(command, snapshot))
                     .error(false)
                     .build());
         } catch (IOException ignored) {
+        } catch (IllegalArgumentException ignored) {
         }
     }
 
@@ -207,12 +209,19 @@ public class BashTool implements ToolDefinition {
         }
 
         Map<String, Object> details = new LinkedHashMap<>();
+        details.put("kind", "bash");
         details.put("command", command);
         if (exitCode != null) {
             details.put("exitCode", exitCode);
         }
-        details.put("durationMillis", Duration.between(startedAt, Instant.now()).toMillis());
+        details.put("durationMs", Duration.between(startedAt, Instant.now()).toMillis());
         details.put("truncation", snapshot.truncationDetails());
+        details.put("outputPreview", text);
+        details.put("totalLines", snapshot.truncation().totalLines());
+        details.put("totalBytes", snapshot.truncation().totalBytes());
+        details.put("lineCount", snapshot.truncation().outputLines());
+        details.put("byteCount", snapshot.truncation().outputBytes());
+        details.put("truncated", snapshot.truncated());
         if (snapshot.fullOutputPath() != null) {
             details.put("fullOutputPath", snapshot.fullOutputPath().toString());
         }
@@ -221,6 +230,27 @@ public class BashTool implements ToolDefinition {
                 .details(details)
                 .error(error)
                 .build();
+    }
+
+    private Map<String, Object> partialDetails(
+            String command,
+            BashOutputAccumulator.Snapshot snapshot
+    ) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("kind", "bash");
+        details.put("command", command);
+        details.put("partial", true);
+        details.put("outputPreview", snapshot.content());
+        details.put("totalLines", snapshot.truncation().totalLines());
+        details.put("totalBytes", snapshot.truncation().totalBytes());
+        details.put("lineCount", snapshot.truncation().outputLines());
+        details.put("byteCount", snapshot.truncation().outputBytes());
+        details.put("truncated", snapshot.truncated());
+        if (snapshot.fullOutputPath() != null) {
+            details.put("fullOutputPath", snapshot.fullOutputPath().toString());
+        }
+        details.put("truncation", snapshot.truncationDetails());
+        return details;
     }
 
     private String truncationNotice(BashOutputAccumulator.Snapshot snapshot) {

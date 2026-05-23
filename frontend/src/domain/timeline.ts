@@ -1,4 +1,4 @@
-import type { UiItemKind, UiToolCall, UiToolResult } from '../protocol/wire.js';
+import type { UiItemKind, UiToolCall, UiToolResult, UiToolUpdate } from '../protocol/wire.js';
 
 export type TimelineStatus = 'RUNNING' | 'COMPLETED' | 'ABORTED' | 'ERROR' | 'SKIPPED';
 
@@ -9,6 +9,7 @@ export type TimelineItem = {
   contentIndex?: number | null;
   text: string;
   toolCall?: UiToolCall;
+  toolUpdate?: UiToolUpdate;
   toolResult?: UiToolResult;
 };
 

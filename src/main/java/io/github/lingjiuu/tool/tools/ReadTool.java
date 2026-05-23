@@ -172,9 +172,12 @@ public class ReadTool implements ToolDefinition {
         return ToolExecutionResult.builder()
                 .contents(ToolExecutionResult.text(output).getContents())
                 .details(Map.of(
+                        "kind", "read",
                         "path", requestedPath,
                         "resolvedPath", resolvedPath.toString(),
+                        "fileType", "text",
                         "offset", offset,
+                        "limit", limit,
                         "returnedLines", returnedLines,
                         "totalLines", totalLines,
                         "truncated", truncated,
@@ -196,8 +199,10 @@ public class ReadTool implements ToolDefinition {
                             + TextOutputTruncator.formatSize(ToolOutputLimits.READ_MAX_IMAGE_BASE64_BYTES)
                             + " limit.]").getContents())
                     .details(Map.of(
+                            "kind", "read",
                             "path", requestedPath,
                             "resolvedPath", resolvedPath.toString(),
+                            "fileType", "image",
                             "mimeType", mimeType,
                             "bytes", bytes.length,
                             "base64Bytes", base64Bytes,
@@ -217,8 +222,10 @@ public class ReadTool implements ToolDefinition {
                                 .build()
                 ))
                 .details(Map.of(
+                        "kind", "read",
                         "path", requestedPath,
                         "resolvedPath", resolvedPath.toString(),
+                        "fileType", "image",
                         "mimeType", mimeType,
                         "bytes", bytes.length,
                         "base64Bytes", base64Bytes,

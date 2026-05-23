@@ -10,6 +10,7 @@ import io.github.lingjiuu.protocol.UiHistory;
 import io.github.lingjiuu.protocol.UiHistoryItem;
 import io.github.lingjiuu.protocol.UiToolCall;
 import io.github.lingjiuu.protocol.UiToolResult;
+import io.github.lingjiuu.protocol.UiToolUpdate;
 import io.github.lingjiuu.protocol.UiTurn;
 
 public class ConsoleRenderer implements EventSink {
@@ -244,9 +245,6 @@ public class ConsoleRenderer implements EventSink {
         UiEventPayload payload = event.getPayload();
         if (payload instanceof UiEventPayloads.ToolResult toolResult) {
             return itemToolResult(toolResult.item());
-        }
-        if (payload instanceof UiEventPayloads.ToolExecution toolExecution) {
-            return toolExecution.toolResult();
         }
         return null;
     }
