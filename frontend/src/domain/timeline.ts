@@ -1,0 +1,21 @@
+import type { UiItemKind, UiToolCall, UiToolResult } from '../protocol/wire.js';
+
+export type TimelineStatus = 'RUNNING' | 'COMPLETED' | 'ABORTED' | 'ERROR' | 'SKIPPED';
+
+export type TimelineItem = {
+  id: string;
+  kind: UiItemKind;
+  status: TimelineStatus | string;
+  contentIndex?: number | null;
+  text: string;
+  toolCall?: UiToolCall;
+  toolResult?: UiToolResult;
+};
+
+export type TimelineTurn = {
+  turnId: string;
+  commandId?: string | null;
+  turn?: number | null;
+  status: TimelineStatus | string;
+  items: TimelineItem[];
+};
