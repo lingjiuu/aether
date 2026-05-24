@@ -106,6 +106,7 @@ public class WriteTool implements ToolDefinition {
             details.put("operation", existedBefore ? "overwrite" : "create");
             details.put("chars", content.length());
             details.put("bytes", bytes);
+            details.put("lineCount", lineCount(content));
             details.put("existedBefore", existedBefore);
             details.put("firstLine", firstLine(content));
             return ToolExecutionResult.builder()
@@ -139,5 +140,19 @@ public class WriteTool implements ToolDefinition {
         String normalized = content.replace("\r\n", "\n").replace('\r', '\n');
         int newline = normalized.indexOf('\n');
         return newline >= 0 ? normalized.substring(0, newline) : normalized;
+    }
+
+    private int lineCount(String content) {
+        if (content == null || content.isEmpty()) {
+            return 0;
+        }
+        String normalized = content.replace("\r\n", "\n").replace('\r', '\n');
+        int lines = normalized.endsWith("\n") ? 0 : 1;
+        for (int i = 0; i < normalized.length(); i++) {
+            if (normalized.charAt(i) == '\n') {
+                lines++;
+            }
+        }
+        return lines;
     }
 }

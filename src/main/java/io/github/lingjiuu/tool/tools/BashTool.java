@@ -93,7 +93,8 @@ public class BashTool implements ToolDefinition {
     public ToolExecutionResult execute(ToolExecutionContext context) {
         Instant startedAt = Instant.now();
         Process process = null;
-        Thread readerThread = null;
+        Thread stdoutReaderThread = null;
+        Thread stderrReaderThread = null;
         try {
             context.throwIfCancellationRequested();
             String command = ToolArguments.requiredString(context.getArguments(), "command");
@@ -102,17 +103,37 @@ public class BashTool implements ToolDefinition {
             BashOutputAccumulator output = new BashOutputAccumulator();
             ProcessBuilder builder = new ProcessBuilder(shellCommand)
                     .directory(workspaceRoot.toFile())
-                    .redirectErrorStream(true);
+                    .redirectErrorStream(false);
             process = builder.start();
             Process runningProcess = process;
-            CountDownLatch readerDone = new CountDownLatch(1);
+            CountDownLatch readerDone = new CountDownLatch(2);
             AtomicReference<IOException> readerError = new AtomicReference<>();
-            readerThread = new Thread(
-                    () -> readOutput(runningProcess, output, context, readerDone, readerError),
-                    "aether-bash-output"
+            stdoutReaderThread = new Thread(
+                    () -> readOutput(
+                            runningProcess.getInputStream(),
+                            output::appendStdout,
+                            output,
+                            context,
+                            readerDone,
+                            readerError
+                    ),
+                    "aether-bash-stdout"
             );
-            readerThread.setDaemon(true);
-            readerThread.start();
+            stderrReaderThread = new Thread(
+                    () -> readOutput(
+                            runningProcess.getErrorStream(),
+                            output::appendStderr,
+                            output,
+                            context,
+                            readerDone,
+                            readerError
+                    ),
+                    "aether-bash-stderr"
+            );
+            stdoutReaderThread.setDaemon(true);
+            stderrReaderThread.setDaemon(true);
+            stdoutReaderThread.start();
+            stderrReaderThread.start();
 
             try (AutoCloseable ignored = context.cancellationToken().onCancel(() -> destroyProcessTree(runningProcess))) {
                 boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
@@ -144,14 +165,18 @@ public class BashTool implements ToolDefinition {
             if (process != null && process.isAlive()) {
                 destroyProcessTree(process);
             }
-            if (readerThread != null) {
-                readerThread.interrupt();
+            if (stdoutReaderThread != null) {
+                stdoutReaderThread.interrupt();
+            }
+            if (stderrReaderThread != null) {
+                stderrReaderThread.interrupt();
             }
         }
     }
 
     private void readOutput(
-            Process process,
+            InputStream input,
+            OutputAppender appendOutput,
             BashOutputAccumulator output,
             ToolExecutionContext context,
             CountDownLatch readerDone,
@@ -159,10 +184,10 @@ public class BashTool implements ToolDefinition {
     ) {
         byte[] buffer = new byte[4096];
         long lastUpdateAt = 0L;
-        try (InputStream input = process.getInputStream()) {
+        try (input) {
             int read;
             while ((read = input.read(buffer)) != -1) {
-                output.append(buffer, read);
+                appendOutput.append(buffer, read);
                 long now = System.currentTimeMillis();
                 if (now - lastUpdateAt >= 100L) {
                     lastUpdateAt = now;
@@ -216,14 +241,25 @@ public class BashTool implements ToolDefinition {
         }
         details.put("durationMs", Duration.between(startedAt, Instant.now()).toMillis());
         details.put("truncation", snapshot.truncationDetails());
-        details.put("outputPreview", text);
-        details.put("totalLines", snapshot.truncation().totalLines());
-        details.put("totalBytes", snapshot.truncation().totalBytes());
-        details.put("lineCount", snapshot.truncation().outputLines());
-        details.put("byteCount", snapshot.truncation().outputBytes());
+        details.put("stdout", snapshot.stdout().content());
+        details.put("stderr", snapshot.stderr().content());
+        details.put("aggregatedOutput", snapshot.content());
+        details.put("stdoutLineCount", snapshot.stdout().truncation().outputLines());
+        details.put("stderrLineCount", snapshot.stderr().truncation().outputLines());
+        details.put("stdoutTotalLines", snapshot.stdout().truncation().totalLines());
+        details.put("stderrTotalLines", snapshot.stderr().truncation().totalLines());
+        details.put("stdoutByteCount", snapshot.stdout().truncation().outputBytes());
+        details.put("stderrByteCount", snapshot.stderr().truncation().outputBytes());
+        details.put("stdoutTotalBytes", snapshot.stdout().truncation().totalBytes());
+        details.put("stderrTotalBytes", snapshot.stderr().truncation().totalBytes());
+        details.put("stdoutTruncated", snapshot.stdout().truncated());
+        details.put("stderrTruncated", snapshot.stderr().truncated());
         details.put("truncated", snapshot.truncated());
-        if (snapshot.fullOutputPath() != null) {
-            details.put("fullOutputPath", snapshot.fullOutputPath().toString());
+        if (snapshot.stdout().fullOutputPath() != null) {
+            details.put("stdoutFullOutputPath", snapshot.stdout().fullOutputPath().toString());
+        }
+        if (snapshot.stderr().fullOutputPath() != null) {
+            details.put("stderrFullOutputPath", snapshot.stderr().fullOutputPath().toString());
         }
         return ToolExecutionResult.builder()
                 .contents(ToolExecutionResult.text(text).getContents())
@@ -240,33 +276,51 @@ public class BashTool implements ToolDefinition {
         details.put("kind", "bash");
         details.put("command", command);
         details.put("partial", true);
-        details.put("outputPreview", snapshot.content());
-        details.put("totalLines", snapshot.truncation().totalLines());
-        details.put("totalBytes", snapshot.truncation().totalBytes());
-        details.put("lineCount", snapshot.truncation().outputLines());
-        details.put("byteCount", snapshot.truncation().outputBytes());
+        details.put("stdout", snapshot.stdout().content());
+        details.put("stderr", snapshot.stderr().content());
+        details.put("aggregatedOutput", snapshot.content());
+        details.put("stdoutLineCount", snapshot.stdout().truncation().outputLines());
+        details.put("stderrLineCount", snapshot.stderr().truncation().outputLines());
+        details.put("stdoutTotalLines", snapshot.stdout().truncation().totalLines());
+        details.put("stderrTotalLines", snapshot.stderr().truncation().totalLines());
+        details.put("stdoutByteCount", snapshot.stdout().truncation().outputBytes());
+        details.put("stderrByteCount", snapshot.stderr().truncation().outputBytes());
+        details.put("stdoutTotalBytes", snapshot.stdout().truncation().totalBytes());
+        details.put("stderrTotalBytes", snapshot.stderr().truncation().totalBytes());
+        details.put("stdoutTruncated", snapshot.stdout().truncated());
+        details.put("stderrTruncated", snapshot.stderr().truncated());
         details.put("truncated", snapshot.truncated());
-        if (snapshot.fullOutputPath() != null) {
-            details.put("fullOutputPath", snapshot.fullOutputPath().toString());
-        }
         details.put("truncation", snapshot.truncationDetails());
         return details;
     }
 
     private String truncationNotice(BashOutputAccumulator.Snapshot snapshot) {
-        if (!snapshot.truncated() || snapshot.fullOutputPath() == null) {
-            return "";
+        List<String> notices = new ArrayList<>();
+        addTruncationNotice(notices, "stdout", snapshot.stdout());
+        addTruncationNotice(notices, "stderr", snapshot.stderr());
+        return String.join("\n", notices);
+    }
+
+    private void addTruncationNotice(
+            List<String> notices,
+            String streamName,
+            BashOutputAccumulator.StreamSnapshot stream
+    ) {
+        if (!stream.truncated() || stream.fullOutputPath() == null) {
+            return;
         }
-        TextOutputTruncator.TruncationResult truncation = snapshot.truncation();
+        TextOutputTruncator.TruncationResult truncation = stream.truncation();
         if (truncation.lastLinePartial()) {
             int line = truncation.totalLines();
-            return "[Showing last " + TextOutputTruncator.formatSize(truncation.outputBytes())
-                    + " of line " + line + ". Full output: " + snapshot.fullOutputPath() + "]";
+            notices.add("[Showing last " + TextOutputTruncator.formatSize(truncation.outputBytes())
+                    + " of " + streamName + " line " + line
+                    + ". Full output: " + stream.fullOutputPath() + "]");
+            return;
         }
         int startLine = Math.max(1, truncation.totalLines() - truncation.outputLines() + 1);
-        return "[Showing lines " + startLine + "-" + truncation.totalLines()
+        notices.add("[Showing " + streamName + " lines " + startLine + "-" + truncation.totalLines()
                 + " of " + truncation.totalLines()
-                + ". Full output: " + snapshot.fullOutputPath() + "]";
+                + ". Full output: " + stream.fullOutputPath() + "]");
     }
 
     private int optionalPositiveNumber(Map<String, Object> arguments, String name, int defaultValue) {
@@ -307,6 +361,11 @@ public class BashTool implements ToolDefinition {
             return List.of(bash.get(), "-c", command);
         }
         return List.of("sh", "-c", command);
+    }
+
+    @FunctionalInterface
+    private interface OutputAppender {
+        void append(byte[] bytes, int length);
     }
 
     private Optional<String> findOnPath(String executable) {
