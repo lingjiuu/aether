@@ -15,16 +15,20 @@ import {
   type ToolLineTone,
 } from './toolRenderers.js';
 
-export type TerminalSection = {
-  key: string;
-  lines: string[];
-};
-
 export type TerminalView = {
   resetKey: string;
-  sections: TerminalSection[];
-  liveLines: string[];
+  transcriptLines: string[];
+  bottomLines: string[];
+  scroll: TerminalScrollInfo;
   cursor?: { x: number; y: number };
+};
+
+export type TerminalScrollInfo = {
+  scrollTop: number;
+  maxScrollTop: number;
+  viewportRows: number;
+  transcriptLineCount: number;
+  isAtBottom: boolean;
 };
 
 type RenderOptions = {
@@ -32,6 +36,7 @@ type RenderOptions = {
   columns: number;
   rows: number;
   composerCursorOffset: number;
+  transcriptScrollTop?: number;
   approvalSelectedIndex?: number;
 };
 
@@ -39,10 +44,6 @@ type RenderedLine = {
   text: string;
   raw: string;
 };
-
-type RenderTarget =
-  | { kind: 'stable'; sections: TerminalSection[] }
-  | { kind: 'live'; lines: RenderedLine[] };
 
 const PROMPT = '❯ ';
 const RESUME_VISIBLE_COUNT = 8;
@@ -52,50 +53,47 @@ export function renderScrollback({
   columns,
   rows,
   composerCursorOffset,
+  transcriptScrollTop,
   approvalSelectedIndex = 0,
 }: RenderOptions): TerminalView {
   const width = Math.max(20, columns - 1);
-  const stableSections: TerminalSection[] = [
-    section('header', renderHeader(state, width)),
-  ];
-  const liveTranscript: RenderedLine[] = [];
-  let target: RenderTarget = { kind: 'stable', sections: stableSections };
+  const transcript: RenderedLine[] = renderHeader(state, width);
 
-  appendLocalEntries(target, state.localCommandEntries, 0, width);
+  appendLocalEntries(transcript, state.localCommandEntries, 0, width);
   for (const [index, turn] of selectTurns(state).entries()) {
-    if (target.kind === 'stable' && isStableTurn(turn)) {
-      target.sections.push(section(`turn:${turn.turnId}`, turnLines(turn, width)));
-    } else {
-      if (target.kind === 'stable') {
-        target = { kind: 'live', lines: liveTranscript };
-      }
-      target.lines.push(...turnLines(turn, width));
-    }
-    appendLocalEntries(target, state.localCommandEntries, index + 1, width);
+    transcript.push(...turnLines(turn, width));
+    appendLocalEntries(transcript, state.localCommandEntries, index + 1, width);
   }
 
   const footer = renderFooter(state, width);
-  const bottomBudget = Math.max(6, rows - liveTranscript.length - footer.length);
+  const bottomBudget = Math.max(6, rows - footer.length);
   const bottom = state.commandPanel
     ? renderCommandPanel(state, width, bottomBudget)
     : state.pendingApproval
       ? renderApprovalPanel(state, width, approvalSelectedIndex)
     : renderComposer(state, width, composerCursorOffset);
-  const liveLines = [...liveTranscript, ...bottom.lines, ...footer];
+  const bottomLines = [...bottom.lines, ...footer];
+  const transcriptRows = Math.max(1, rows - bottomLines.length);
+  const maxScrollTop = Math.max(0, transcript.length - transcriptRows);
+  const scrollTop = clampNumber(transcriptScrollTop ?? maxScrollTop, 0, maxScrollTop);
+  const transcriptLines = transcript.slice(scrollTop, scrollTop + transcriptRows);
   const cursor = bottom.cursor
-    ? { x: bottom.cursor.x, y: liveTranscript.length + bottom.cursor.y }
+    ? { x: bottom.cursor.x, y: transcriptLines.length + bottom.cursor.y }
     : undefined;
 
-  return limitLiveBlock({
+  return {
     resetKey: `transcript:${state.transcriptEpoch}`,
-    sections: stableSections,
-    liveLines: liveLines.map(rendered => rendered.text),
+    transcriptLines: transcriptLines.map(rendered => rendered.text),
+    bottomLines: bottomLines.map(rendered => rendered.text),
+    scroll: {
+      scrollTop,
+      maxScrollTop,
+      viewportRows: transcriptRows,
+      transcriptLineCount: transcript.length,
+      isAtBottom: scrollTop >= maxScrollTop,
+    },
     cursor,
-  }, Math.max(6, rows - 1));
-}
-
-function section(key: string, lines: RenderedLine[]): TerminalSection {
-  return { key, lines: lines.map(rendered => rendered.text) };
+  };
 }
 
 function renderHeader(state: AppState, width: number): RenderedLine[] {
@@ -286,18 +284,14 @@ function turnStatusLines(turn: TimelineTurn, width: number): RenderedLine[] {
 }
 
 function appendLocalEntries(
-  target: RenderTarget,
+  target: RenderedLine[],
   entries: LocalCommandEntry[],
   position: number,
   width: number,
 ): void {
   for (const entry of entries.filter(localEntry => localEntry.afterTurnOrderLength === position)) {
     const lines = [blankLine(), commandLine(entry.command, width), ...entry.output.split('\n').map(outputLine => responseLine(outputLine, width))];
-    if (target.kind === 'stable') {
-      target.sections.push(section(`local:${entry.id}`, lines));
-    } else {
-      target.lines.push(...lines);
-    }
+    target.push(...lines);
   }
 }
 
@@ -442,25 +436,6 @@ function line(text: string, raw: string, width: number): RenderedLine {
     return { text: truncated, raw: truncated };
   }
   return { text, raw };
-}
-
-function isStableTurn(turn: TimelineTurn): boolean {
-  return turn.status !== 'RUNNING' && turn.items.every(item => item.status !== 'RUNNING');
-}
-
-function limitLiveBlock(view: TerminalView, maxRows: number): TerminalView {
-  if (view.liveLines.length <= maxRows) {
-    return view;
-  }
-  const removed = view.liveLines.length - maxRows;
-  const cursor = view.cursor && view.cursor.y >= removed
-    ? { ...view.cursor, y: view.cursor.y - removed }
-    : undefined;
-  return {
-    ...view,
-    liveLines: view.liveLines.slice(removed),
-    cursor,
-  };
 }
 
 function filterSessions(sessions: UiSessionSummary[], query: string): UiSessionSummary[] {

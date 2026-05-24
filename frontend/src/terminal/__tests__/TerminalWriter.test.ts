@@ -4,19 +4,15 @@ import { TerminalWriter } from '../TerminalWriter.js';
 describe('TerminalWriter', () => {
   it('renders on the main screen without entering alternate screen', () => {
     const chunks: string[] = [];
-    const stdout = {
-      write(chunk: string) {
-        chunks.push(String(chunk));
-        return true;
-      },
-    } as NodeJS.WriteStream;
+    const stdout = fakeStdout(chunks);
     const writer = new TerminalWriter(stdout);
 
     writer.render({
-      resetKey: 'width:79',
-      sections: [{ key: 'header', lines: ['Welcome back!', ''] }],
-      liveLines: ['❯ '],
-      cursor: { x: 2, y: 0 },
+      resetKey: 'transcript:0',
+      transcriptLines: ['Welcome back!', ''],
+      bottomLines: ['❯ '],
+      scroll: scrollInfo(),
+      cursor: { x: 2, y: 2 },
     });
 
     const output = chunks.join('');
@@ -25,118 +21,92 @@ describe('TerminalWriter', () => {
     expect(output).toContain('❯ ');
   });
 
-  it('patches same-height live updates without printing newlines', () => {
+  it('redraws the visible frame in place when the prompt changes', () => {
     const chunks: string[] = [];
-    const stdout = {
-      write(chunk: string) {
-        chunks.push(String(chunk));
-        return true;
-      },
-    } as NodeJS.WriteStream;
+    const stdout = fakeStdout(chunks);
     const writer = new TerminalWriter(stdout);
 
     writer.render({
-      resetKey: 'width:79',
-      sections: [{ key: 'header', lines: ['Welcome back!', ''] }],
-      liveLines: ['─'.repeat(79), '❯ ', '─'.repeat(79), '? for shortcuts'],
-      cursor: { x: 2, y: 1 },
+      resetKey: 'transcript:0',
+      transcriptLines: ['Welcome back!'],
+      bottomLines: ['─'.repeat(79), '❯ ', '─'.repeat(79), '? for shortcuts'],
+      scroll: scrollInfo(),
+      cursor: { x: 2, y: 2 },
     });
     writer.render({
-      resetKey: 'width:79',
-      sections: [{ key: 'header', lines: ['Welcome back!', ''] }],
-      liveLines: ['─'.repeat(79), '❯ 你', '─'.repeat(79), '? for shortcuts'],
-      cursor: { x: 4, y: 1 },
+      resetKey: 'transcript:0',
+      transcriptLines: ['Welcome back!'],
+      bottomLines: ['─'.repeat(79), '❯ 你', '─'.repeat(79), '? for shortcuts'],
+      scroll: scrollInfo(),
+      cursor: { x: 4, y: 2 },
     });
 
     const updateOutput = chunks.at(-1) ?? '';
-    expect(updateOutput).not.toContain('\r\n');
-    expect(updateOutput).toContain('\x1b[K');
+    expect(updateOutput).toContain('\x1b[J');
     expect(updateOutput).toContain('❯ 你');
   });
 
-  it('keeps the live block bottom anchored when it shrinks', () => {
+  it('keeps the bottom pane pinned when transcript height changes', () => {
     const chunks: string[] = [];
-    const stdout = {
-      write(chunk: string) {
-        chunks.push(String(chunk));
-        return true;
-      },
-    } as NodeJS.WriteStream;
+    const stdout = fakeStdout(chunks);
     const writer = new TerminalWriter(stdout);
 
     writer.render({
       resetKey: 'transcript:0',
-      sections: [{ key: 'header', lines: ['Welcome back!', ''] }],
-      liveLines: ['suggestion', '─'.repeat(79), '❯ /h', '─'.repeat(79), '? for shortcuts'],
-      cursor: { x: 4, y: 2 },
+      transcriptLines: ['tool 1', 'tool 2', 'tool 3'],
+      bottomLines: ['─'.repeat(79), '❯ ', '─'.repeat(79), '? for shortcuts'],
+      scroll: scrollInfo(),
+      cursor: { x: 2, y: 4 },
     });
     writer.render({
       resetKey: 'transcript:0',
-      sections: [{ key: 'header', lines: ['Welcome back!', ''] }],
-      liveLines: ['─'.repeat(79), '❯ hello', '─'.repeat(79), '? for shortcuts'],
-      cursor: { x: 7, y: 1 },
+      transcriptLines: ['tool 3'],
+      bottomLines: ['─'.repeat(79), '❯ hello', '─'.repeat(79), '? for shortcuts'],
+      scroll: scrollInfo(),
+      cursor: { x: 7, y: 2 },
     });
 
     const updateOutput = chunks.at(-1) ?? '';
-    expect(updateOutput).toContain('\x1b[1B');
+    expect(updateOutput).toContain('\x1b[J');
+    expect(updateOutput).toContain('tool 3');
     expect(updateOutput).toContain('❯ hello');
+    expect(updateOutput).not.toContain('tool 1');
   });
 
-  it('does not rewrite committed sections whose keys were already printed', () => {
+  it('skips identical frame renders', () => {
     const chunks: string[] = [];
-    const stdout = {
-      write(chunk: string) {
-        chunks.push(String(chunk));
-        return true;
-      },
-    } as NodeJS.WriteStream;
+    const stdout = fakeStdout(chunks);
     const writer = new TerminalWriter(stdout);
-
-    writer.render({
+    const view = {
       resetKey: 'transcript:0',
-      sections: [{ key: 'header', lines: ['Welcome back!', ''] }],
-      liveLines: ['❯ '],
-      cursor: { x: 2, y: 0 },
-    });
-    writer.render({
-      resetKey: 'transcript:0',
-      sections: [{ key: 'header', lines: ['Changed title', ''] }],
-      liveLines: ['❯ '],
-      cursor: { x: 2, y: 0 },
-    });
+      transcriptLines: ['Welcome back!'],
+      bottomLines: ['❯ '],
+      scroll: scrollInfo(),
+      cursor: { x: 2, y: 1 },
+    };
 
-    expect(chunks.at(-1) ?? '').not.toContain('Changed title');
-  });
+    writer.render(view);
+    writer.render(view);
 
-  it('appends only unseen committed section keys', () => {
-    const chunks: string[] = [];
-    const stdout = {
-      write(chunk: string) {
-        chunks.push(String(chunk));
-        return true;
-      },
-    } as NodeJS.WriteStream;
-    const writer = new TerminalWriter(stdout);
-
-    writer.render({
-      resetKey: 'transcript:0',
-      sections: [{ key: 'header', lines: ['Welcome back!', ''] }],
-      liveLines: ['❯ '],
-      cursor: { x: 2, y: 0 },
-    });
-    writer.render({
-      resetKey: 'transcript:0',
-      sections: [
-        { key: 'header', lines: ['Changed title', ''] },
-        { key: 'turn:1', lines: ['❯ hi', '● hello'] },
-      ],
-      liveLines: ['❯ '],
-      cursor: { x: 2, y: 0 },
-    });
-
-    const updateOutput = chunks.at(-1) ?? '';
-    expect(updateOutput).toContain('❯ hi');
-    expect(updateOutput).toContain('● hello');
-    expect(updateOutput).not.toContain('Changed title');
+    expect(chunks).toHaveLength(1);
   });
 });
+
+function scrollInfo() {
+  return {
+    scrollTop: 0,
+    maxScrollTop: 0,
+    viewportRows: 1,
+    transcriptLineCount: 1,
+    isAtBottom: true,
+  };
+}
+
+function fakeStdout(chunks: string[]): NodeJS.WriteStream {
+  return {
+    write(chunk: string) {
+      chunks.push(String(chunk));
+      return true;
+    },
+  } as NodeJS.WriteStream;
+}

@@ -12,7 +12,7 @@ function renderText(state: AppState, columns = 100): string {
     composerCursorOffset: 0,
   });
 
-  return [...view.sections.flatMap(section => section.lines), ...view.liveLines].map(stripAnsi).join('\n');
+  return [...view.transcriptLines, ...view.bottomLines].map(stripAnsi).join('\n');
 }
 
 describe('renderScrollback', () => {
@@ -37,8 +37,8 @@ describe('renderScrollback', () => {
       composerCursorOffset: 0,
     });
 
-    const stableText = view.sections.flatMap(section => section.lines).map(stripAnsi).join('\n');
-    expect(view.cursor).toEqual({ x: 2, y: 1 });
+    const stableText = view.transcriptLines.map(stripAnsi).join('\n');
+    expect(view.cursor).toEqual({ x: 2, y: view.transcriptLines.length + 1 });
     expect(stableText).toContain('❯ /resume');
     expect(stableText).toContain('⎿  Resume cancelled');
   });
@@ -53,8 +53,8 @@ describe('renderScrollback', () => {
       composerCursorOffset: '你好'.length,
     });
 
-    expect(view.cursor).toEqual({ x: 6, y: 1 });
-    expect(view.liveLines.map(stripAnsi).join('\n')).toContain('❯ 你好');
+    expect(view.cursor).toEqual({ x: 6, y: view.transcriptLines.length + 1 });
+    expect(view.bottomLines.map(stripAnsi).join('\n')).toContain('❯ 你好');
   });
 
   it('renders argument placeholders without moving the real cursor past them', () => {
@@ -67,8 +67,8 @@ describe('renderScrollback', () => {
       composerCursorOffset: '/rename '.length,
     });
 
-    expect(view.cursor).toEqual({ x: 10, y: 1 });
-    expect(view.liveLines.map(stripAnsi).join('\n')).toContain('❯ /rename [name]');
+    expect(view.cursor).toEqual({ x: 10, y: view.transcriptLines.length + 1 });
+    expect(view.bottomLines.map(stripAnsi).join('\n')).toContain('❯ /rename [name]');
   });
 
   it('renders approval requests as a focused choice panel', () => {
@@ -93,7 +93,7 @@ describe('renderScrollback', () => {
       approvalSelectedIndex: 1,
     });
 
-    const text = view.liveLines.map(stripAnsi).join('\n');
+    const text = view.bottomLines.map(stripAnsi).join('\n');
     expect(text).toContain('Approval required: write');
     expect(text).toContain('  Approve');
     expect(text).toContain('› Deny');
@@ -130,7 +130,7 @@ describe('renderScrollback', () => {
       composerCursorOffset: 0,
     });
 
-    const userLine = view.sections.flatMap(section => section.lines).find(line => stripAnsi(line).startsWith('❯ 你好啊')) ?? '';
+    const userLine = view.transcriptLines.find(line => stripAnsi(line).startsWith('❯ 你好啊')) ?? '';
     expect(userLine).toContain('\x1b[48;2;48;50;58m');
     expect(visualWidth(stripAnsi(userLine))).toBe(20);
   });
@@ -149,7 +149,7 @@ describe('renderScrollback', () => {
       composerCursorOffset: 0,
     });
 
-    const commandLine = view.sections.flatMap(section => section.lines).find(line => stripAnsi(line).startsWith('❯ /help')) ?? '';
+    const commandLine = view.transcriptLines.find(line => stripAnsi(line).startsWith('❯ /help')) ?? '';
     expect(commandLine).toContain('\x1b[48;2;48;50;58m');
     expect(stripAnsi(commandLine)).toBe('❯ /help');
   });
@@ -183,7 +183,7 @@ describe('renderScrollback', () => {
       composerCursorOffset: 0,
     });
 
-    const text = [...view.sections.flatMap(section => section.lines), ...view.liveLines].map(stripAnsi).join('\n');
+    const text = [...view.transcriptLines, ...view.bottomLines].map(stripAnsi).join('\n');
     expect(text).toContain('print("helloworld")');
     expect(text).not.toContain('```');
   });
@@ -217,7 +217,7 @@ describe('renderScrollback', () => {
       composerCursorOffset: 0,
     });
 
-    const renderedLines = view.sections.flatMap(section => section.lines);
+    const renderedLines = view.transcriptLines;
     const codeLine = renderedLines.find(line => stripAnsi(line).includes('print("helloworld")')) ?? '';
     expect(codeLine).toBe('● print("helloworld")');
     expect(codeLine).not.toContain('\x1b[2m');
@@ -252,7 +252,7 @@ describe('renderScrollback', () => {
       composerCursorOffset: 0,
     });
 
-    const text = [...view.sections.flatMap(section => section.lines), ...view.liveLines].map(stripAnsi).join('\n');
+    const text = [...view.transcriptLines, ...view.bottomLines].map(stripAnsi).join('\n');
     expect(text).toContain('print("helloworld")');
     expect(text).not.toContain('``');
   });
@@ -456,6 +456,141 @@ describe('renderScrollback', () => {
     expect(text).toContain('warn');
     expect(text).not.toContain('"stdout"');
   });
+
+  it('sticks the transcript viewport to the bottom when no scroll top is set', () => {
+    const state = longTranscriptState(12);
+
+    const view = renderScrollback({
+      state,
+      columns: 80,
+      rows: 10,
+      composerCursorOffset: 0,
+    });
+    const transcriptText = view.transcriptLines.map(stripAnsi).join('\n');
+    const bottomText = view.bottomLines.map(stripAnsi).join('\n');
+
+    expect(view.scroll.isAtBottom).toBe(true);
+    expect(view.scroll.maxScrollTop).toBeGreaterThan(0);
+    expect(transcriptText).toContain('message-11');
+    expect(transcriptText).not.toContain('Welcome back!');
+    expect(bottomText).toContain('❯ ');
+  });
+
+  it('uses the app-managed transcript scroll top above a pinned bottom pane', () => {
+    const state = longTranscriptState(12);
+
+    const view = renderScrollback({
+      state,
+      columns: 80,
+      rows: 10,
+      composerCursorOffset: 0,
+      transcriptScrollTop: 0,
+    });
+    const transcriptText = view.transcriptLines.map(stripAnsi).join('\n');
+    const bottomText = view.bottomLines.map(stripAnsi).join('\n');
+
+    expect(view.scroll.scrollTop).toBe(0);
+    expect(view.scroll.isAtBottom).toBe(false);
+    expect(transcriptText).toContain('Welcome back!');
+    expect(transcriptText).not.toContain('message-11');
+    expect(bottomText).toContain('❯ ');
+  });
+
+  it('clamps transcript scroll top to the available transcript range', () => {
+    const state = longTranscriptState(12);
+
+    const view = renderScrollback({
+      state,
+      columns: 80,
+      rows: 10,
+      composerCursorOffset: 0,
+      transcriptScrollTop: 999,
+    });
+
+    expect(view.scroll.scrollTop).toBe(view.scroll.maxScrollTop);
+    expect(view.scroll.isAtBottom).toBe(true);
+  });
+
+  it('keeps a running parallel tool turn in the transcript viewport and pins the bottom pane', () => {
+    const state = reducer(initialState, {
+      type: 'history',
+      history: {
+        sessionId: 'session-1',
+        turns: [
+          {
+            turnId: 'turn-1',
+            status: 'COMPLETED',
+            items: [
+              {
+                id: 'assistant-previous',
+                kind: 'ASSISTANT_TEXT',
+                status: 'COMPLETED',
+                text: '上一轮回复',
+              },
+            ],
+          },
+          {
+            turnId: 'turn-2',
+            status: 'RUNNING',
+            items: [
+              {
+                id: 'user-2',
+                kind: 'USER_MESSAGE',
+                status: 'COMPLETED',
+                text: '你每一个都调用一遍给我看看',
+              },
+              ...Array.from({ length: 8 }, (_, index) => ({
+                id: `tool-${index}`,
+                kind: 'TOOL_CALL' as const,
+                status: 'COMPLETED',
+                toolCall: {
+                  toolName: 'ls',
+                  arguments: { path: `dir-${index}` },
+                  argumentsJson: JSON.stringify({ path: `dir-${index}` }),
+                  displayName: 'ls',
+                  displaySummary: `dir-${index}`,
+                },
+                toolResult: {
+                  toolName: 'ls',
+                  text: '',
+                  details: { kind: 'ls', path: `dir-${index}`, entryCount: index + 1 },
+                },
+              })),
+              {
+                id: 'tool-running',
+                kind: 'TOOL_CALL',
+                status: 'RUNNING',
+                toolCall: {
+                  toolName: 'bash',
+                  arguments: { command: 'sleep 10' },
+                  argumentsJson: JSON.stringify({ command: 'sleep 10' }),
+                  displayName: 'bash',
+                  displaySummary: 'sleep 10',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const view = renderScrollback({
+      state,
+      columns: 100,
+      rows: 12,
+      composerCursorOffset: 0,
+    });
+    const transcriptText = view.transcriptLines.map(stripAnsi).join('\n');
+    const bottomText = view.bottomLines.map(stripAnsi).join('\n');
+
+    expect(view.transcriptLines.length + view.bottomLines.length).toBeLessThanOrEqual(12);
+    expect(bottomText).toContain('❯ ');
+    expect(bottomText).toContain('esc to interrupt');
+    expect(transcriptText).toContain('● ls(dir-7)');
+    expect(transcriptText).toContain('● Bash(sleep 10)');
+    expect(transcriptText).toContain('⎿  Running...');
+    expect(bottomText).not.toContain('● Bash(sleep 10)');
+  });
 });
 
 type ToolHistory = {
@@ -463,6 +598,27 @@ type ToolHistory = {
   toolCall: NonNullable<AppState['turns'][string]['items'][number]['toolCall']>;
   toolResult: NonNullable<AppState['turns'][string]['items'][number]['toolResult']>;
 };
+
+function longTranscriptState(count: number): AppState {
+  return reducer(initialState, {
+    type: 'history',
+    history: {
+      sessionId: 'session-1',
+      turns: [
+        {
+          turnId: 'turn-1',
+          status: 'COMPLETED',
+          items: Array.from({ length: count }, (_, index) => ({
+            id: `assistant-${index}`,
+            kind: 'ASSISTANT_TEXT' as const,
+            status: 'COMPLETED' as const,
+            text: `message-${index}`,
+          })),
+        },
+      ],
+    },
+  });
+}
 
 function toolHistoryState({ id, toolCall, toolResult }: ToolHistory): AppState {
   return reducer(initialState, {

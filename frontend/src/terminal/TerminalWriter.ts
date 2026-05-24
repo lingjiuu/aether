@@ -1,15 +1,13 @@
 import { ansi, cursorMove } from './ansi.js';
-import type { TerminalSection, TerminalView } from './renderScrollback.js';
+import type { TerminalView } from './renderScrollback.js';
 import { visualWidth } from './text.js';
 
 export class TerminalWriter {
   private started = false;
   private resetKey?: string;
-  private committedSectionKeys = new Set<string>();
-  private liveHeight = 0;
-  private liveLines: string[] = [];
+  private frameHeight = 0;
   private displayCursor = { x: 0, y: 0 };
-  private lastLiveSignature = '';
+  private lastFrameSignature = '';
 
   constructor(private readonly stdout: NodeJS.WriteStream = process.stdout) {}
 
@@ -32,33 +30,16 @@ export class TerminalWriter {
       output += this.resetFor(view.resetKey);
     }
 
-    const pendingSections = view.sections.filter(section => !this.committedSectionKeys.has(section.key));
-    const liveSignature = signatureForLive(view);
-    if (!pendingSections.length && liveSignature === this.lastLiveSignature) {
+    const frameSignature = signatureForFrame(view);
+    if (frameSignature === this.lastFrameSignature) {
       return;
     }
 
-    const nextLiveHeight = liveLinesFor(view).length;
-    const anchorShrinkingLiveBlock = !pendingSections.length && this.liveHeight > nextLiveHeight;
-    const previousLiveHeight = this.liveHeight;
-    const canPatchLiveBlock = !pendingSections.length && this.canPatchLiveBlock(view);
-
     output += ansi.hideCursor;
-    if (canPatchLiveBlock) {
-      output += this.patchLiveBlock(view);
-    } else {
-      output += this.clearLiveBlock();
-      if (anchorShrinkingLiveBlock) {
-        output += cursorMove(0, previousLiveHeight - nextLiveHeight);
-      }
-      for (const section of pendingSections) {
-        output += writeCommittedLines(section.lines);
-        this.committedSectionKeys.add(section.key);
-      }
-      output += this.renderLiveBlock(view);
-    }
+    output += this.clearFrame();
+    output += this.renderFrame(view);
     output += ansi.showCursor;
-    this.lastLiveSignature = liveSignature;
+    this.lastFrameSignature = frameSignature;
 
     this.stdout.write(`${ansi.syncStart}${output}${ansi.syncEnd}`);
   }
@@ -75,89 +56,51 @@ export class TerminalWriter {
       return;
     }
     this.started = false;
-    const output = `${ansi.hideCursor}${this.clearLiveBlock()}${ansi.showCursor}`;
+    const output = `${ansi.hideCursor}${this.clearFrame()}${ansi.showCursor}`;
     this.stdout.write(`${ansi.syncStart}${output}${ansi.syncEnd}`);
   }
 
   private resetFor(resetKey: string | undefined): string {
     this.resetKey = resetKey;
-    this.committedSectionKeys = new Set<string>();
-    this.lastLiveSignature = '';
-    const clearLive = this.clearLiveBlock();
-    this.liveHeight = 0;
-    this.liveLines = [];
+    this.lastFrameSignature = '';
+    const clearFrame = this.clearFrame();
+    this.frameHeight = 0;
     this.displayCursor = { x: 0, y: 0 };
-    return `${clearLive}${ansi.clearVisible}${ansi.home}`;
+    return `${clearFrame}${ansi.clearVisible}${ansi.home}`;
   }
 
-  private clearLiveBlock(): string {
-    if (this.liveHeight <= 0) {
+  private clearFrame(): string {
+    if (this.frameHeight <= 0) {
       return '';
     }
     const moveToTop = this.displayCursor.y > 0 ? cursorMove(0, -this.displayCursor.y) : '';
-    this.liveHeight = 0;
-    this.liveLines = [];
+    this.frameHeight = 0;
     this.displayCursor = { x: 0, y: 0 };
     return `\r${moveToTop}${ansi.eraseDown}`;
   }
 
-  private renderLiveBlock(view: TerminalView): string {
-    const lines = liveLinesFor(view);
+  private renderFrame(view: TerminalView): string {
+    const lines = frameLinesFor(view);
     const body = lines.join('\r\n');
     const end = {
       x: visualWidth(lines.at(-1) ?? ''),
       y: lines.length - 1,
     };
     const cursor = view.cursor ?? end;
-    this.liveHeight = lines.length;
-    this.liveLines = lines;
+    this.frameHeight = lines.length;
     this.displayCursor = cursor;
     return `${body}${cursorMove(cursor.x - end.x, cursor.y - end.y)}`;
   }
-
-  private canPatchLiveBlock(view: TerminalView): boolean {
-    const nextLines = liveLinesFor(view);
-    return this.liveHeight > 0 && nextLines.length === this.liveHeight;
-  }
-
-  private patchLiveBlock(view: TerminalView): string {
-    const nextLines = liveLinesFor(view);
-    let output = `\r${cursorMove(0, -this.displayCursor.y)}`;
-    let current = { x: 0, y: 0 };
-
-    for (const [index, nextLine] of nextLines.entries()) {
-      if (this.liveLines[index] !== nextLine) {
-        output += cursorMove(-current.x, index - current.y);
-        current = { x: 0, y: index };
-        output += nextLine;
-        current = { x: visualWidth(nextLine), y: index };
-        output += ansi.eraseLineRight;
-      }
-    }
-
-    const end = {
-      x: visualWidth(nextLines.at(-1) ?? ''),
-      y: nextLines.length - 1,
-    };
-    const cursor = view.cursor ?? end;
-    output += cursorMove(cursor.x - current.x, cursor.y - current.y);
-    this.liveLines = nextLines;
-    this.displayCursor = cursor;
-    return output;
-  }
 }
 
-function liveLinesFor(view: TerminalView): string[] {
-  return view.liveLines.length ? view.liveLines : [''];
+function frameLinesFor(view: TerminalView): string[] {
+  const lines = [...view.transcriptLines, ...view.bottomLines];
+  return lines.length ? lines : [''];
 }
 
-function writeCommittedLines(lines: string[]): string {
-  return lines.map(line => `${line}\r\n`).join('');
-}
-
-function signatureForLive(view: TerminalView): string {
+function signatureForFrame(view: TerminalView): string {
   return JSON.stringify({
     cursor: view.cursor ?? null,
-    lines: view.liveLines,
+    lines: frameLinesFor(view),
   });
 }

@@ -5,6 +5,8 @@ export const ansi = {
   home: '\x1b[H',
   hideCursor: '\x1b[?25l',
   showCursor: '\x1b[?25h',
+  enableMouseTracking: '\x1b[?1000h\x1b[?1006h',
+  disableMouseTracking: '\x1b[?1006l\x1b[?1000l',
   syncStart: '\x1b[?2026h',
   syncEnd: '\x1b[?2026l',
   reset: '\x1b[0m',

@@ -6,11 +6,12 @@ import {
 } from '../commands/slashCommands.js';
 import { boot, handleInput } from '../app/runtime.js';
 import { initialState, reducer, type AppAction, type AppState } from '../state/reducer.js';
-import { renderScrollback } from './renderScrollback.js';
+import { ansi } from './ansi.js';
+import { renderScrollback, type TerminalScrollInfo } from './renderScrollback.js';
 import { charWidth } from './text.js';
 import { TerminalWriter } from './TerminalWriter.js';
 
-type Key =
+export type Key =
   | { kind: 'text'; value: string }
   | { kind: 'return' }
   | { kind: 'tab' }
@@ -20,6 +21,12 @@ type Key =
   | { kind: 'down' }
   | { kind: 'left' }
   | { kind: 'right' }
+  | { kind: 'page-up' }
+  | { kind: 'page-down' }
+  | { kind: 'home' }
+  | { kind: 'end' }
+  | { kind: 'wheel-up' }
+  | { kind: 'wheel-down' }
   | { kind: 'ctrl-c' }
   | { kind: 'ctrl-a' }
   | { kind: 'ctrl-e' };
@@ -30,8 +37,17 @@ export class TerminalApp {
   private composerCursorOffset = 0;
   private approvalSelectedIndex = 0;
   private approvalId?: string;
+  private transcriptScrollTop: number | undefined;
+  private lastScroll: TerminalScrollInfo = {
+    scrollTop: 0,
+    maxScrollTop: 0,
+    viewportRows: 1,
+    transcriptLineCount: 0,
+    isAtBottom: true,
+  };
   private stopped = false;
   private renderTimer?: NodeJS.Timeout;
+  private terminalModesEnabled = false;
 
   constructor(
     private readonly client: AetherClient,
@@ -59,6 +75,7 @@ export class TerminalApp {
     }
     this.stdin.off('data', this.onData);
     this.stdout.off('resize', this.onResize);
+    this.disableTerminalModes();
     if (this.stdin.isTTY) {
       this.stdin.setRawMode(false);
     }
@@ -72,12 +89,16 @@ export class TerminalApp {
     if (this.stdin.isTTY) {
       this.stdin.setRawMode(true);
     }
+    this.enableTerminalModes();
     this.stdin.resume();
     this.stdin.on('data', this.onData);
     this.stdout.on('resize', this.onResize);
     process.once('SIGINT', () => this.stop());
     process.once('SIGTERM', () => this.stop());
-    process.once('exit', () => this.writer.stop());
+    process.once('exit', () => {
+      this.disableTerminalModes();
+      this.writer.stop();
+    });
   }
 
   private readonly onResize = (): void => {
@@ -94,6 +115,10 @@ export class TerminalApp {
   private async handleKey(key: Key): Promise<void> {
     if (key.kind === 'ctrl-c') {
       this.stop();
+      return;
+    }
+
+    if (this.handleScrollKey(key)) {
       return;
     }
 
@@ -185,10 +210,12 @@ export class TerminalApp {
         this.render();
         break;
       case 'ctrl-a':
+      case 'home':
         this.composerCursorOffset = 0;
         this.render();
         break;
       case 'ctrl-e':
+      case 'end':
         this.composerCursorOffset = value.length;
         this.render();
         break;
@@ -262,6 +289,7 @@ export class TerminalApp {
   }
 
   private async submit(input: string): Promise<void> {
+    this.transcriptScrollTop = undefined;
     this.updateComposer('');
     try {
       await handleInput(input, this.state, this.client, action => this.dispatch(action), () => this.stop());
@@ -297,6 +325,9 @@ export class TerminalApp {
   }
 
   private dispatch(action: AppAction): void {
+    if (action.type === 'history') {
+      this.transcriptScrollTop = undefined;
+    }
     this.state = reducer(this.state, action);
     this.composerCursorOffset = clampNumber(this.composerCursorOffset, 0, this.state.composer.value.length);
     this.syncApprovalSelection();
@@ -307,15 +338,19 @@ export class TerminalApp {
     if (this.stopped) {
       return;
     }
-    this.writer.render(
-      renderScrollback({
-        state: this.state,
-        columns: this.stdout.columns ?? 80,
-        rows: this.stdout.rows ?? 24,
-        composerCursorOffset: this.composerCursorOffset,
-        approvalSelectedIndex: this.approvalSelectedIndex,
-      }),
-    );
+    const view = renderScrollback({
+      state: this.state,
+      columns: this.stdout.columns ?? 80,
+      rows: this.stdout.rows ?? 24,
+      composerCursorOffset: this.composerCursorOffset,
+      transcriptScrollTop: this.transcriptScrollTop,
+      approvalSelectedIndex: this.approvalSelectedIndex,
+    });
+    this.lastScroll = view.scroll;
+    if (this.transcriptScrollTop !== undefined) {
+      this.transcriptScrollTop = view.scroll.isAtBottom ? undefined : view.scroll.scrollTop;
+    }
+    this.writer.render(view);
   }
 
   private syncApprovalSelection(): void {
@@ -325,13 +360,101 @@ export class TerminalApp {
       this.approvalSelectedIndex = 0;
     }
   }
+
+  private enableTerminalModes(): void {
+    if (this.terminalModesEnabled || !this.stdout.isTTY) {
+      return;
+    }
+    this.stdout.write(ansi.enableMouseTracking);
+    this.terminalModesEnabled = true;
+  }
+
+  private disableTerminalModes(): void {
+    if (!this.terminalModesEnabled) {
+      return;
+    }
+    this.stdout.write(ansi.disableMouseTracking);
+    this.terminalModesEnabled = false;
+  }
+
+  private handleScrollKey(key: Key): boolean {
+    switch (key.kind) {
+      case 'page-up':
+        this.scrollTranscriptBy(-this.pageScrollRows());
+        return true;
+      case 'page-down':
+        this.scrollTranscriptBy(this.pageScrollRows());
+        return true;
+      case 'home':
+        if (this.state.composer.value || this.state.commandPanel) {
+          return false;
+        }
+        this.scrollTranscriptToTop();
+        return true;
+      case 'end':
+        if (this.state.composer.value || this.state.commandPanel) {
+          return false;
+        }
+        this.scrollTranscriptToBottom();
+        return true;
+      case 'wheel-up':
+        this.scrollTranscriptBy(-3);
+        return true;
+      case 'wheel-down':
+        this.scrollTranscriptBy(3);
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private scrollTranscriptBy(deltaRows: number): void {
+    const maxScrollTop = this.lastScroll.maxScrollTop;
+    if (maxScrollTop <= 0) {
+      return;
+    }
+    const currentTop = this.transcriptScrollTop ?? maxScrollTop;
+    const nextTop = clampNumber(currentTop + deltaRows, 0, maxScrollTop);
+    this.transcriptScrollTop = nextTop >= maxScrollTop ? undefined : nextTop;
+    this.render();
+  }
+
+  private scrollTranscriptToTop(): void {
+    if (this.lastScroll.maxScrollTop <= 0) {
+      return;
+    }
+    this.transcriptScrollTop = 0;
+    this.render();
+  }
+
+  private scrollTranscriptToBottom(): void {
+    if (this.transcriptScrollTop === undefined) {
+      return;
+    }
+    this.transcriptScrollTop = undefined;
+    this.render();
+  }
+
+  private pageScrollRows(): number {
+    return Math.max(1, this.lastScroll.viewportRows - 1);
+  }
 }
 
-function parseKeys(input: string): Key[] {
+export function parseKeys(input: string): Key[] {
   const keys: Key[] = [];
   for (let index = 0; index < input.length; ) {
     const rest = input.slice(index);
-    if (rest.startsWith('\x1b[A')) {
+    const mouse = rest.match(/^\x1b\[<(\d+);\d+;\d+[mM]/);
+    if (mouse) {
+      const buttonCode = Number(mouse[1]);
+      const buttonWithoutModifiers = buttonCode & ~0b11100;
+      if (buttonWithoutModifiers === 64) {
+        keys.push({ kind: 'wheel-up' });
+      } else if (buttonWithoutModifiers === 65) {
+        keys.push({ kind: 'wheel-down' });
+      }
+      index += mouse[0].length;
+    } else if (rest.startsWith('\x1b[A')) {
       keys.push({ kind: 'up' });
       index += 3;
     } else if (rest.startsWith('\x1b[B')) {
@@ -343,6 +466,18 @@ function parseKeys(input: string): Key[] {
     } else if (rest.startsWith('\x1b[D')) {
       keys.push({ kind: 'left' });
       index += 3;
+    } else if (rest.startsWith('\x1b[5~')) {
+      keys.push({ kind: 'page-up' });
+      index += 4;
+    } else if (rest.startsWith('\x1b[6~')) {
+      keys.push({ kind: 'page-down' });
+      index += 4;
+    } else if (rest.startsWith('\x1b[H') || rest.startsWith('\x1b[1~') || rest.startsWith('\x1b[7~')) {
+      keys.push({ kind: 'home' });
+      index += rest.startsWith('\x1b[H') ? 3 : 4;
+    } else if (rest.startsWith('\x1b[F') || rest.startsWith('\x1b[4~') || rest.startsWith('\x1b[8~')) {
+      keys.push({ kind: 'end' });
+      index += rest.startsWith('\x1b[F') ? 3 : 4;
     } else if (rest.startsWith('\x1b')) {
       keys.push({ kind: 'escape' });
       index += 1;
