@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useBoxMetrics, useCursor, useInput, useStdout, type DOMElement } from 'ink';
 import type { AppState } from '../state/reducer.js';
-import { getSlashCommandInsertText, getSlashCommandSuggestions } from '../commands/slashCommands.js';
+import {
+  getSlashCommandInsertText,
+  getSlashCommandPlaceholder,
+  getSlashCommandSuggestions,
+} from '../commands/slashCommands.js';
 import { tokens } from '../theme/tokens.js';
 
 type Props = {
   state: AppState;
   disabled: boolean;
-  suggestionLimit: number;
   onSubmit: (input: string) => void;
   onChange: (value: string) => void;
   onMoveSuggestion: (delta: -1 | 1, count: number) => void;
@@ -21,7 +24,6 @@ const FOOTER_HEIGHT = 1;
 export function Composer({
   state,
   disabled,
-  suggestionLimit,
   onSubmit,
   onChange,
   onMoveSuggestion,
@@ -38,9 +40,10 @@ export function Composer({
   const { setCursorPosition } = useCursor();
   const { stdout } = useStdout();
   const suggestions = useMemo(
-    () => (state.composer.commandPaletteOpen ? getSlashCommandSuggestions(value, suggestionLimit) : []),
-    [state.composer.commandPaletteOpen, suggestionLimit, value],
+    () => (state.composer.commandPaletteOpen ? getSlashCommandSuggestions(value) : []),
+    [state.composer.commandPaletteOpen, value],
   );
+  const suggestionUsageWidth = Math.max(0, ...suggestions.map(command => command.usage.length));
   const connected = state.session.connectionStatus === 'connected';
   const disconnected = state.session.connectionStatus === 'disconnected';
   const active = connected && !disabled;
@@ -48,6 +51,8 @@ export function Composer({
   const promptColor = disconnected ? tokens.warning : active ? tokens.accent : tokens.dim;
   const selectedSuggestionIndex = clampIndex(state.composer.selectedSuggestionIndex, suggestions.length);
   const visibleCursorOffset = clampNumber(cursorOffset, 0, value.length);
+  const ghostPlaceholder =
+    visibleCursorOffset === value.length ? getSlashCommandPlaceholder(value) : undefined;
   const beforeCursor = value.slice(0, visibleCursorOffset);
   const afterCursor = value.slice(visibleCursorOffset);
 
@@ -95,8 +100,14 @@ export function Composer({
         const selected = suggestions[selectedSuggestionIndex] ?? suggestions[0];
         if (selected) {
           const nextValue = getSlashCommandInsertText(selected);
-          onChange(nextValue);
-          setCursorOffset(nextValue.length);
+          if (key.return) {
+            onChange('');
+            setCursorOffset(0);
+            onSubmit(nextValue);
+          } else {
+            onChange(nextValue);
+            setCursorOffset(nextValue.length);
+          }
         }
         return;
       }
@@ -163,9 +174,14 @@ export function Composer({
         <Box flexDirection="column" width="100%">
           {suggestions.map((command, index) => (
             <Box key={command.usage} flexDirection="row">
-              <Text color={index === selectedSuggestionIndex ? tokens.accent : tokens.dim}>
-                {index === selectedSuggestionIndex ? '› ' : '  '}
-                {command.usage}
+              <Box width={suggestionUsageWidth + 3}>
+                <Text color={index === selectedSuggestionIndex ? tokens.accent : tokens.dim}>
+                  {index === selectedSuggestionIndex ? '› ' : '  '}
+                  {command.usage}
+                </Text>
+              </Box>
+              <Text color={tokens.dim} wrap="truncate-end">
+                {command.description}
               </Text>
             </Box>
           ))}
@@ -189,6 +205,7 @@ export function Composer({
             {PROMPT}
           </Text>
           <Text>{beforeCursor}</Text>
+          {ghostPlaceholder ? <Text color={tokens.dim}>{`[${ghostPlaceholder}]`}</Text> : null}
           <Text>{afterCursor}</Text>
         </Box>
       </Box>

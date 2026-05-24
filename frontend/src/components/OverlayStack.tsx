@@ -9,7 +9,7 @@ export function OverlayStack({ onApprovalRespond }: { onApprovalRespond: (approv
 
   return (
     <Box flexDirection="column">
-      {state.sessions.length ? <SessionPicker /> : null}
+      {!state.commandPanel && state.sessions.length ? <SessionPicker /> : null}
       {state.pendingApproval ? <ApprovalCard onRespond={onApprovalRespond} /> : null}
     </Box>
   );

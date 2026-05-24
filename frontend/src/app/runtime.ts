@@ -50,6 +50,20 @@ export async function handleInput(
       break;
     }
     case 'resume': {
+      if (!command.sessionId) {
+        dispatch({
+          type: 'commandPanelOpened',
+          panel: {
+            kind: 'resume',
+            id: localCommandId('resume'),
+            command: '/resume',
+            sessions: await client.listSessions(),
+            selectedIndex: 0,
+            query: '',
+          },
+        });
+        break;
+      }
       const ack = await client.resume(command.sessionId);
       if (ack.history) {
         dispatch({ type: 'history', history: ack.history });
@@ -77,9 +91,17 @@ export async function handleInput(
     case 'reloadSkills':
       await client.reloadSkills();
       break;
-    case 'name':
-      await client.setSessionName(command.name);
+    case 'name': {
+      if (!command.name.trim()) {
+        recordLocalCommand(input, 'Session name is required. Usage: /rename [name]', dispatch);
+        break;
+      }
+      const ack = await client.setSessionName(command.name.trim());
+      if (ack.message) {
+        recordLocalCommand(input, ack.message, dispatch);
+      }
       break;
+    }
     case 'approve':
       await respondToPendingApproval(state, client, true);
       break;
@@ -88,17 +110,30 @@ export async function handleInput(
       break;
     case 'help':
       dispatch({
-        type: 'notice',
-        message: '/new /resume <id> /sessions /compact /cancel /skills /reload-skills /name <text> /approve /deny /quit',
+        type: 'commandPanelOpened',
+        panel: { kind: 'help', id: localCommandId('help'), command: '/help' },
       });
       break;
     case 'quit':
       quit();
       break;
     case 'unknown':
-      dispatch({ type: 'notice', message: `Unknown command: /${command.name}` });
+      recordLocalCommand(input, `Unknown command: /${command.name}`, dispatch);
       break;
   }
+}
+
+function localCommandId(name: string): string {
+  return `local-${name}-${Date.now()}`;
+}
+
+function recordLocalCommand(input: string, output: string, dispatch: (action: AppAction) => void): void {
+  dispatch({
+    type: 'localCommandCompleted',
+    id: localCommandId('command'),
+    command: input.trim(),
+    output,
+  });
 }
 
 async function respondToPendingApproval(state: AppState, client: AetherClient, approved: boolean): Promise<void> {

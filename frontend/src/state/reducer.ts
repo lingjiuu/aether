@@ -20,6 +20,8 @@ export type AppState = {
   session: SessionView;
   turns: Record<string, TimelineTurn>;
   turnOrder: string[];
+  localCommandEntries: LocalCommandEntry[];
+  commandPanel?: CommandPanel;
   pendingApproval?: PendingApproval;
   sessions: UiSessionSummary[];
   tokenUsage?: UiTokenUsage;
@@ -32,6 +34,24 @@ export type AppState = {
   lastSequence: number;
 };
 
+export type LocalCommandEntry = {
+  id: string;
+  command: string;
+  output: string;
+  afterTurnOrderLength: number;
+};
+
+export type CommandPanel =
+  | { kind: 'help'; id: string; command: '/help' }
+  | {
+      kind: 'resume';
+      id: string;
+      command: '/resume';
+      sessions: UiSessionSummary[];
+      selectedIndex: number;
+      query: string;
+    };
+
 export type AppAction =
   | { type: 'connected'; session?: UiSessionState | null }
   | { type: 'disconnected' }
@@ -42,6 +62,11 @@ export type AppAction =
   | { type: 'composerChanged'; value: string }
   | { type: 'composerSuggestionMoved'; delta: -1 | 1; count: number }
   | { type: 'composerSuggestionSelected'; index: number }
+  | { type: 'commandPanelOpened'; panel: CommandPanel }
+  | { type: 'commandPanelSelectionMoved'; delta: -1 | 1; count: number }
+  | { type: 'commandPanelQueryChanged'; query: string }
+  | { type: 'commandPanelClosed'; output: string }
+  | { type: 'localCommandCompleted'; id: string; command: string; output: string }
   | { type: 'notice'; message: string };
 
 export const initialState: AppState = {
@@ -53,6 +78,7 @@ export const initialState: AppState = {
   },
   turns: {},
   turnOrder: [],
+  localCommandEntries: [],
   sessions: [],
   notices: [],
   composer: {
@@ -123,9 +149,85 @@ export function reducer(state: AppState, action: AppAction): AppState {
           selectedSuggestionIndex: Math.max(0, action.index),
         },
       };
+    case 'commandPanelOpened':
+      return {
+        ...state,
+        commandPanel: action.panel,
+        composer: {
+          ...state.composer,
+          value: '',
+          commandPaletteOpen: false,
+          selectedSuggestionIndex: 0,
+        },
+      };
+    case 'commandPanelSelectionMoved':
+      return moveCommandPanelSelection(state, action.delta, action.count);
+    case 'commandPanelQueryChanged':
+      return state.commandPanel?.kind === 'resume'
+        ? { ...state, commandPanel: { ...state.commandPanel, query: action.query, selectedIndex: 0 } }
+        : state;
+    case 'commandPanelClosed':
+      return closeCommandPanel(state, action.output);
+    case 'localCommandCompleted':
+      return appendLocalCommand(
+        state,
+        {
+          id: action.id,
+          command: action.command,
+          output: action.output,
+        },
+        state.commandPanel,
+      );
     case 'notice':
       return { ...state, notices: [...state.notices.slice(-4), action.message] };
   }
+}
+
+function moveCommandPanelSelection(state: AppState, delta: -1 | 1, count: number): AppState {
+  if (state.commandPanel?.kind !== 'resume') {
+    return state;
+  }
+  return {
+    ...state,
+    commandPanel: {
+      ...state.commandPanel,
+      selectedIndex: moveSuggestionIndex(state.commandPanel.selectedIndex, delta, count),
+    },
+  };
+}
+
+function closeCommandPanel(state: AppState, output: string): AppState {
+  const panel = state.commandPanel;
+  if (!panel) {
+    return state;
+  }
+  return appendLocalCommand(
+    state,
+    {
+      id: panel.id,
+      command: panel.command,
+      output,
+    },
+    undefined,
+  );
+}
+
+function appendLocalCommand(
+  state: AppState,
+  entry: Pick<LocalCommandEntry, 'id' | 'command' | 'output'>,
+  commandPanel: CommandPanel | undefined,
+): AppState {
+  return {
+    ...state,
+    commandPanel,
+    localCommandEntries: [
+      ...state.localCommandEntries,
+      {
+        ...entry,
+        afterTurnOrderLength: state.turnOrder.length,
+      },
+    ],
+  };
 }
 
 function moveSuggestionIndex(current: number, delta: -1 | 1, count: number): number {
@@ -159,6 +261,8 @@ function applyHistory(state: AppState, history: UiHistory): AppState {
     },
     turns,
     turnOrder,
+    localCommandEntries: [],
+    commandPanel: undefined,
   };
 }
 

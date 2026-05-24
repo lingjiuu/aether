@@ -1,23 +1,24 @@
 export type SlashCommandInfo = {
   usage: string;
+  description: string;
+  placeholder?: string;
+  aliases?: string[];
 };
 
 const slashCommands: SlashCommandInfo[] = [
-  { usage: '/new' },
-  { usage: '/resume <session-id>' },
-  { usage: '/sessions' },
-  { usage: '/compact' },
-  { usage: '/cancel' },
-  { usage: '/skills' },
-  { usage: '/reload-skills' },
-  { usage: '/name <session-name>' },
-  { usage: '/approve' },
-  { usage: '/deny' },
-  { usage: '/quit' },
-  { usage: '/help' },
+  { usage: '/new', description: 'Start a new session in the current working directory' },
+  { usage: '/resume', description: 'Browse previous sessions; add an id to resume directly' },
+  { usage: '/sessions', description: 'List known sessions' },
+  { usage: '/compact', description: 'Compact the current conversation context' },
+  { usage: '/cancel', description: 'Interrupt the running turn' },
+  { usage: '/skills', description: 'List loaded skills' },
+  { usage: '/reload-skills', description: 'Reload skills from disk' },
+  { usage: '/rename', description: 'Rename the current session', placeholder: 'name', aliases: ['/name'] },
+  { usage: '/help', description: 'Open command help' },
+  { usage: '/quit', description: 'Exit Aether' },
 ];
 
-export function getSlashCommandSuggestions(input: string, limit = 6): SlashCommandInfo[] {
+export function getSlashCommandSuggestions(input: string, limit = slashCommands.length): SlashCommandInfo[] {
   const trimmed = input.trimStart();
   if (!trimmed.startsWith('/')) {
     return [];
@@ -34,10 +35,10 @@ export function getSlashCommandSuggestions(input: string, limit = 6): SlashComma
   }
 
   const matches = slashCommands
-    .filter(command => command.usage.slice(1).toLowerCase().startsWith(fragment))
+    .filter(command => commandMatchesFragment(command, fragment))
     .slice(0, limit);
   const onlyMatch = matches[0];
-  if (matches.length === 1 && onlyMatch && commandName(onlyMatch) === fragment && !expectsArguments(onlyMatch)) {
+  if (matches.length === 1 && onlyMatch && commandMatchesName(onlyMatch, fragment) && !expectsArguments(onlyMatch)) {
     return [];
   }
   return matches;
@@ -45,7 +46,7 @@ export function getSlashCommandSuggestions(input: string, limit = 6): SlashComma
 
 export function getSlashCommandInsertText(command: SlashCommandInfo): string {
   const name = commandName(command);
-  return expectsArguments(command) ? `/${name} ` : `/${name}`;
+  return command.placeholder ? `/${name} ` : `/${name}`;
 }
 
 function commandName(command: SlashCommandInfo): string {
@@ -53,5 +54,41 @@ function commandName(command: SlashCommandInfo): string {
 }
 
 function expectsArguments(command: SlashCommandInfo): boolean {
-  return command.usage.includes(' ');
+  return Boolean(command.placeholder);
+}
+
+export function getSlashCommandPlaceholder(input: string): string | undefined {
+  const trimmed = input.trimStart();
+  if (!trimmed.startsWith('/')) {
+    return undefined;
+  }
+
+  const body = trimmed.slice(1);
+  if (!body || !/\s/.test(body)) {
+    return undefined;
+  }
+
+  const name = body.split(/\s+/)[0]?.toLowerCase();
+  if (!name) {
+    return undefined;
+  }
+
+  const command = slashCommands.find(entry => commandMatchesName(entry, name));
+  if (!command?.placeholder) {
+    return undefined;
+  }
+
+  return body.trimEnd() === name ? command.placeholder : undefined;
+}
+
+function commandMatchesName(command: SlashCommandInfo, name: string): boolean {
+  return commandNames(command).includes(name);
+}
+
+function commandMatchesFragment(command: SlashCommandInfo, fragment: string): boolean {
+  return commandNames(command).some(name => name.startsWith(fragment));
+}
+
+function commandNames(command: SlashCommandInfo): string[] {
+  return [commandName(command), ...(command.aliases ?? [])].map(name => name.replace(/^\//, '').toLowerCase());
 }

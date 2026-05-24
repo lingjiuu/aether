@@ -1,7 +1,7 @@
 export type SlashCommand =
   | { kind: 'submit'; text: string }
   | { kind: 'new' }
-  | { kind: 'resume'; sessionId: string }
+  | { kind: 'resume'; sessionId?: string }
   | { kind: 'sessions' }
   | { kind: 'compact' }
   | { kind: 'cancel' }
@@ -30,7 +30,7 @@ export function parseCommand(input: string): SlashCommand {
     case 'new':
       return { kind: 'new' };
     case 'resume':
-      return arg ? { kind: 'resume', sessionId: arg } : { kind: 'unknown', name: 'resume <session-id>' };
+      return arg ? { kind: 'resume', sessionId: arg } : { kind: 'resume' };
     case 'sessions':
       return { kind: 'sessions' };
     case 'compact':
@@ -43,7 +43,8 @@ export function parseCommand(input: string): SlashCommand {
     case 'skills-reload':
       return { kind: 'reloadSkills' };
     case 'name':
-      return arg ? { kind: 'name', name: arg } : { kind: 'unknown', name: 'name <session-name>' };
+    case 'rename':
+      return { kind: 'name', name: arg };
     case 'approve':
     case 'yes':
     case 'y':
