@@ -4,6 +4,42 @@ import { stripAnsi, visualWidth } from '../shared/text.js';
 import { activeLines, renderView, historyLines } from './renderTestHelpers.js';
 
 describe('transcript renderer', () => {
+  it('renders the session header as a Codex-style card', () => {
+    const cwd = `${process.env.HOME ?? '/Users/Apple'}/code/MyProjects/test0`;
+    const view = renderView({
+      ...initialState,
+      session: {
+        ...initialState.session,
+        cwd,
+        model: 'ikun-openai/gpt-5.4-mini',
+      },
+    }, { columns: 80 });
+    const text = historyLines(view).map(stripAnsi).join('\n');
+
+    expect(text).toContain('╭');
+    expect(text).toContain('>_ Aether');
+    expect(text).toContain('model:     ikun-openai/gpt-5.4-mini');
+    expect(text).toContain('directory: ~/code/MyProjects/test0');
+    expect(text).not.toContain('Welcome back!');
+  });
+
+  it('keeps the session header inside narrow terminal widths', () => {
+    const cwd = `${process.env.HOME ?? '/Users/Apple'}/code/MyProjects/test0`;
+    const view = renderView({
+      ...initialState,
+      session: {
+        ...initialState.session,
+        cwd,
+        model: 'ikun-openai/gpt-5.4-mini',
+      },
+    }, { columns: 24 });
+    const headerLines = historyLines(view).map(stripAnsi).slice(0, 6);
+
+    expect(headerLines.some(line => line.includes('model:'))).toBe(true);
+    expect(headerLines.some(line => line.includes('directory:'))).toBe(true);
+    expect(headerLines.every(line => visualWidth(line) <= 23)).toBe(true);
+  });
+
   it('renders committed user messages with a full-row background', () => {
     const state = reducer(initialState, {
       type: 'history',

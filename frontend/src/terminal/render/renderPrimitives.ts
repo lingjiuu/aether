@@ -3,6 +3,7 @@ import { padPlain, truncatePlain, visualWidth } from '../shared/text.js';
 import type { RenderBlock, RenderNode, RenderedLine } from './viewModel.js';
 
 export const PROMPT = '❯ ';
+export const CARD_MAX_INNER_WIDTH = 56;
 
 let lineSequence = 0;
 
@@ -41,6 +42,43 @@ export function line(text: string, raw: string, width: number, role?: string): R
   return renderLine(text, raw, width, role);
 }
 
+export type CardRow = {
+  text: string;
+  raw: string;
+};
+
+export function cardInnerWidth(width: number, maxInnerWidth = CARD_MAX_INNER_WIDTH): number | undefined {
+  if (width < 4) {
+    return undefined;
+  }
+  return Math.min(width - 4, maxInnerWidth);
+}
+
+export function borderedCard(rows: CardRow[], width: number, role = 'card'): RenderedLine[] {
+  const innerWidth = cardInnerWidth(width);
+  if (innerWidth === undefined) {
+    return rows.map(row => line(row.text, row.raw, width, role));
+  }
+
+  const fittedRows = rows.map(row => fitCardRow(row, innerWidth));
+  const contentWidth = Math.max(0, ...fittedRows.map(row => visualWidth(row.raw)));
+  const borderWidth = contentWidth + 2;
+  const output: RenderedLine[] = [];
+  const top = `╭${'─'.repeat(borderWidth)}╮`;
+  output.push(line(dim(top), top, width, role));
+
+  for (const row of fittedRows) {
+    const padding = ' '.repeat(contentWidth - visualWidth(row.raw));
+    const raw = `│ ${row.raw}${padding} │`;
+    const text = `${dim('│ ')}${row.text}${dim(`${padding} │`)}`;
+    output.push(line(text, raw, width, role));
+  }
+
+  const bottom = `╰${'─'.repeat(borderWidth)}╯`;
+  output.push(line(dim(bottom), bottom, width, role));
+  return output;
+}
+
 export function flattenLines(node: RenderNode): RenderedLine[] {
   return node.kind === 'line' ? [node] : node.children.flatMap(flattenLines);
 }
@@ -52,6 +90,14 @@ function renderLine(text: string, raw: string, width: number, role?: string): Re
     return { kind: 'line', key, text: truncated, raw: truncated, role };
   }
   return { kind: 'line', key, text, raw, role };
+}
+
+function fitCardRow(row: CardRow, width: number): CardRow {
+  if (visualWidth(row.raw) <= width) {
+    return row;
+  }
+  const raw = truncatePlain(row.raw, width);
+  return { raw, text: raw };
 }
 
 export function selectedLine(label: string, selected: boolean, width: number): RenderedLine {

@@ -4,8 +4,8 @@ import { formatElapsedTime } from '../../utils/format.js';
 import { bold, dim, error, success } from '../shared/ansi.js';
 import { renderMarkdownLines } from './markdown.js';
 import type { TerminalPresentation } from './presentationModel.js';
-import { blankLine, commandLine, line, userMessageLine } from './renderPrimitives.js';
-import { visualWidth, wrapPlain } from '../shared/text.js';
+import { blankLine, borderedCard, cardInnerWidth, commandLine, line, userMessageLine } from './renderPrimitives.js';
+import { truncatePlain, visualWidth, wrapPlain } from '../shared/text.js';
 import {
   toolProgressView,
   toolResultView,
@@ -62,21 +62,35 @@ export function renderTranscriptSections(presentation: TerminalPresentation, wid
 }
 
 function renderHeader(presentation: TerminalPresentation, width: number): RenderedLine[] {
-  const title = presentation.session.name?.trim() || 'Welcome back!';
-  const statusParts = [presentation.session.model, presentation.session.cwd].filter(Boolean);
-  const status = statusParts.join(' · ') || 'Aether';
-
-  return [
-    line(bold(title), title, width),
-    line(dim(status), status, width),
-    line(dim('Aether · Run /help to see commands'), 'Aether · Run /help to see commands', width),
-    line(
-      dim('Use /sessions to resume older work · Use /compact when context gets crowded'),
-      'Use /sessions to resume older work · Use /compact when context gets crowded',
-      width,
-    ),
-    blankLine(),
+  const innerWidth = cardInnerWidth(width);
+  const labelWidth = 'directory:'.length;
+  const directoryPrefix = `${'directory:'.padEnd(labelWidth)} `;
+  const directory = innerWidth === undefined
+    ? formatDirectory(presentation.session.cwd)
+    : formatDirectory(presentation.session.cwd, Math.max(0, innerWidth - visualWidth(directoryPrefix)));
+  const modelPrefix = `${'model:'.padEnd(labelWidth)} `;
+  const title = '>_ Aether';
+  const rows = [
+    { raw: title, text: `${dim('>_ ')}${bold('Aether')}` },
+    { raw: '', text: '' },
+    { raw: `${modelPrefix}${presentation.session.model ?? 'unknown'}`, text: `${dim(modelPrefix)}${presentation.session.model ?? 'unknown'}` },
+    { raw: `${directoryPrefix}${directory}`, text: `${dim(directoryPrefix)}${directory}` },
   ];
+
+  return [...borderedCard(rows, width, 'session-header'), blankLine()];
+}
+
+function formatDirectory(cwd?: string, maxWidth?: number): string {
+  const directory = cwd?.trim() || process.cwd();
+  const home = process.env.HOME;
+  const formatted = home && (directory === home || directory.startsWith(`${home}/`))
+    ? `~${directory.slice(home.length)}`
+    : directory;
+
+  if (maxWidth === undefined || visualWidth(formatted) <= maxWidth) {
+    return formatted;
+  }
+  return truncatePlain(formatted, maxWidth);
 }
 
 function isStableTurn(turn: TimelineTurn): boolean {

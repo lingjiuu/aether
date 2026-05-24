@@ -10,7 +10,7 @@ describe('native scrollback renderer', () => {
     const historyText = historyLines(view).map(stripAnsi).join('\n');
     const activeText = activeLines(view).map(stripAnsi).join('\n');
 
-    expect(historyText).toContain('Welcome back!');
+    expect(historyText).toContain('>_ Aether');
     expect(historyText).toContain('message-0');
     expect(historyText).toContain('message-11');
     expect(activeText).toContain('❯ ');
