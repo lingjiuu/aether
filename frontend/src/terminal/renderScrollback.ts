@@ -3,10 +3,17 @@ import { isVisibleTimelineItem, type TimelineItem, type TimelineTurn } from '../
 import type { UiSessionSummary } from '../protocol/wire.js';
 import type { AppState, LocalCommandEntry } from '../state/reducer.js';
 import { selectIsRunning, selectTurns } from '../state/selectors.js';
-import { formatDuration, formatElapsedTime, formatToolUseSummary, tailLines } from '../utils/format.js';
-import { accent, bold, dim, error, userLine, warning } from './ansi.js';
+import { formatElapsedTime } from '../utils/format.js';
+import { accent, bold, dim, error, success, userLine, warning } from './ansi.js';
 import { renderMarkdownLines } from './markdown.js';
 import { padPlain, truncatePlain, visualWidth, wrapPlain } from './text.js';
+import {
+  toolProgressView,
+  toolResultView,
+  toolUseView,
+  type ToolLine,
+  type ToolLineTone,
+} from './toolRenderers.js';
 
 export type TerminalSection = {
   key: string;
@@ -250,31 +257,19 @@ function itemLines(item: TimelineItem, width: number): RenderedLine[] {
 }
 
 function toolCallLines(item: TimelineItem, width: number): RenderedLine[] {
-  const toolCall = item.toolCall;
-  const name = toolCall?.displayName ?? toolCall?.toolName ?? 'tool';
+  const toolUse = toolUseView(item);
   const isError = Boolean(item.toolResult?.error || item.status === 'ERROR' || item.status === 'FAILED' || item.status === 'ABORTED');
   const isRunning = item.status === 'RUNNING' || (!item.toolResult && !isError);
-  const args =
-    toolCall?.displaySummary ?? (isRunning ? '' : formatToolUseSummary(toolCall?.toolName ?? name, toolCall?.argumentsJson, 160));
-  const lines = [blankLine(), line(`${isError ? error('●') : '●'} ${bold(name)}${args ? `(${args})` : ''}`, `● ${name}${args ? `(${args})` : ''}`, width)];
+  const header = `● ${toolUse.name}${toolUse.summary ? `(${toolUse.summary})` : ''}`;
+  const lines = [
+    blankLine(),
+    line(`${isError ? error('●') : '●'} ${bold(toolUse.name)}${toolUse.summary ? `(${toolUse.summary})` : ''}`, header, width),
+  ];
   if (isRunning) {
-    lines.push(responseLine('Running...', width));
+    lines.push(...responseLines(toolProgressView(item).lines, width));
     return lines;
   }
-  const result = item.toolResult;
-  if (!result) {
-    return lines;
-  }
-  const resultLines = tailLines(result.text, 5);
-  if (resultLines.length) {
-    for (const resultLine of resultLines) {
-      lines.push(responseLine(resultLine, width, Boolean(result.error)));
-    }
-  } else {
-    const duration = formatDuration(result.durationMs);
-    const text = result.error ? 'Error' : 'Done';
-    lines.push(responseLine(`${text}${duration ? ` ${duration}` : ''}`, width, Boolean(result.error)));
-  }
+  lines.push(...responseLines(toolResultView(item).lines, width));
   return lines;
 }
 
@@ -397,6 +392,30 @@ function formatApprovalArguments(args?: Record<string, unknown> | null): string 
 function responseLine(text: string, width: number, isError = false): RenderedLine {
   const raw = `  ⎿  ${text}`;
   return line(isError ? error(raw) : dim(raw), raw, width);
+}
+
+function responseLines(lines: ToolLine[], width: number): RenderedLine[] {
+  return lines.length ? lines.map((toolLine, index) => responseBlockLine(toolLine, width, index === 0)) : [];
+}
+
+function responseBlockLine(toolLine: ToolLine, width: number, first: boolean): RenderedLine {
+  const prefix = first ? '  ⎿  ' : '     ';
+  const raw = `${prefix}${toolLine.text}`;
+  return line(tone(raw, toolLine.tone), raw, width);
+}
+
+function tone(text: string, toneName: ToolLineTone | undefined): string {
+  switch (toneName) {
+    case 'error':
+      return error(text);
+    case 'success':
+      return success(text);
+    case 'normal':
+      return text;
+    case 'dim':
+    default:
+      return dim(text);
+  }
 }
 
 function commandLine(command: string, width: number): RenderedLine {

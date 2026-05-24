@@ -7,21 +7,17 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "tsx src/main.tsx",
+    "dev": "tsx src/main.ts",
     "smoke": "tsx src/smoke/stdioSmoke.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "cli-truncate": "6.0.0",
-    "ink": "7.0.3",
-    "ink-text-input": "6.0.0",
-    "react": "19.2.6",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "25.9.1",
-    "@types/react": "19.2.15",
     "tsx": "4.22.3",
     "typescript": "6.0.3",
     "vitest": "4.1.7"
