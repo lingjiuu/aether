@@ -1,5 +1,5 @@
-import { bold, dim } from './ansi.js';
-import { visualWidth, wrapPlain } from './text.js';
+import { bold, dim } from '../shared/ansi.js';
+import { visualWidth, wrapPlain } from '../shared/text.js';
 
 export type MarkdownLine = {
   text: string;

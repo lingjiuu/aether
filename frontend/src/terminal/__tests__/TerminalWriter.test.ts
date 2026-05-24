@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TerminalWriter } from '../TerminalWriter.js';
+import { TerminalWriter } from '../app/TerminalWriter.js';
 
 describe('TerminalWriter', () => {
   it('renders on the main screen without entering alternate screen', () => {

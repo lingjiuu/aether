@@ -1,6 +1,6 @@
-import { ansi, cursorMove } from './ansi.js';
-import type { TerminalView } from './renderScrollback.js';
-import { visualWidth } from './text.js';
+import { ansi, cursorMove } from '../shared/ansi.js';
+import { visualWidth } from '../shared/text.js';
+import type { TerminalView } from '../render/viewModel.js';
 
 export class TerminalWriter {
   private started = false;

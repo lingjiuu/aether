@@ -1,6 +1,6 @@
 import { AetherClient } from './backend/AetherClient.js';
 import { backendOptions } from './app/bootstrap.js';
-import { TerminalApp } from './terminal/TerminalApp.js';
+import { TerminalApp } from './terminal/app/TerminalApp.js';
 
 const client = new AetherClient(backendOptions());
 const app = new TerminalApp(client);
