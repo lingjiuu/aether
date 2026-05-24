@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { initialState, reducer } from '../../state/reducer.js';
-import type { AppState } from '../../state/reducer.js';
+import type { AppState, LocalCommandEntry } from '../../state/reducer.js';
 import { renderScrollback } from '../renderScrollback.js';
-import { stripAnsi } from '../text.js';
+import { stripAnsi, visualWidth } from '../text.js';
 
 describe('renderScrollback', () => {
   it('keeps command-panel cancellation as stable scrollback history', () => {
@@ -90,6 +90,59 @@ describe('renderScrollback', () => {
     expect(text).not.toContain('/deny');
   });
 
+  it('renders committed user messages with a full-row background', () => {
+    const state = reducer(initialState, {
+      type: 'history',
+      history: {
+        sessionId: 'session-1',
+        turns: [
+          {
+            turnId: 'turn-1',
+            status: 'COMPLETED',
+            items: [
+              {
+                id: 'user-1',
+                kind: 'USER_MESSAGE',
+                status: 'COMPLETED',
+                text: '你好啊',
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const view = renderScrollback({
+      state,
+      columns: 20,
+      rows: 24,
+      composerCursorOffset: 0,
+    });
+
+    const userLine = view.sections.flatMap(section => section.lines).find(line => stripAnsi(line).startsWith('❯ 你好啊')) ?? '';
+    expect(userLine).toContain('\x1b[48;2;48;50;58m');
+    expect(visualWidth(stripAnsi(userLine))).toBe(20);
+  });
+
+  it('keeps local command backgrounds tight to the command text', () => {
+    const localEntry: LocalCommandEntry = {
+      id: 'local-1',
+      command: '/help',
+      output: 'Help dialog dismissed',
+      afterTurnOrderLength: 0,
+    };
+    const view = renderScrollback({
+      state: { ...initialState, localCommandEntries: [localEntry] },
+      columns: 20,
+      rows: 24,
+      composerCursorOffset: 0,
+    });
+
+    const commandLine = view.sections.flatMap(section => section.lines).find(line => stripAnsi(line).startsWith('❯ /help')) ?? '';
+    expect(commandLine).toContain('\x1b[48;2;48;50;58m');
+    expect(stripAnsi(commandLine)).toBe('❯ /help');
+  });
+
   it('renders assistant fenced Markdown without fence markers', () => {
     const state = reducer(initialState, {
       type: 'history',
@@ -122,6 +175,41 @@ describe('renderScrollback', () => {
     const text = [...view.sections.flatMap(section => section.lines), ...view.liveLines].map(stripAnsi).join('\n');
     expect(text).toContain('print("helloworld")');
     expect(text).not.toContain('```');
+  });
+
+  it('renders assistant fenced Markdown code without dim styling or synthetic padding', () => {
+    const state = reducer(initialState, {
+      type: 'history',
+      history: {
+        sessionId: 'session-1',
+        turns: [
+          {
+            turnId: 'turn-1',
+            status: 'COMPLETED',
+            items: [
+              {
+                id: 'assistant-1',
+                kind: 'ASSISTANT_TEXT',
+                status: 'COMPLETED',
+                text: '```python\nprint("helloworld")\n```',
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const view = renderScrollback({
+      state,
+      columns: 80,
+      rows: 24,
+      composerCursorOffset: 0,
+    });
+
+    const renderedLines = view.sections.flatMap(section => section.lines);
+    const codeLine = renderedLines.find(line => stripAnsi(line).includes('print("helloworld")')) ?? '';
+    expect(codeLine).toBe('● print("helloworld")');
+    expect(codeLine).not.toContain('\x1b[2m');
   });
 
   it('does not leak streaming fence fragments', () => {

@@ -51,9 +51,8 @@ function renderTextLine(source: string, width: number): MarkdownLine[] {
 function renderCodeBlock(sourceLines: string[], width: number): MarkdownLine[] {
   const lines = sourceLines.length ? sourceLines : [''];
   return lines.flatMap(sourceLine => {
-    const raw = `  ${sourceLine}`;
-    return wrapPlain(raw, width, '  ').map(wrapped => ({
-      text: dim(wrapped),
+    return wrapPlain(sourceLine, width).map(wrapped => ({
+      text: wrapped,
       raw: wrapped,
     }));
   });
@@ -180,7 +179,7 @@ function trimBlankEdges(lines: string[]): string[] {
 }
 
 function shouldSeparate(previous: MarkdownBlock | undefined, next: MarkdownBlock): boolean {
-  return Boolean(previous && (previous.type === 'code' || next.type === 'code'));
+  return Boolean(previous && previous.type === 'code' && next.type === 'code');
 }
 
 function renderInlineRaw(line: string): string {

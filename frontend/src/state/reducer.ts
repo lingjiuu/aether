@@ -18,12 +18,12 @@ import type {
 
 export type AppState = {
   session: SessionView;
+  transcriptEpoch: number;
   turns: Record<string, TimelineTurn>;
   turnOrder: string[];
   localCommandEntries: LocalCommandEntry[];
   commandPanel?: CommandPanel;
   pendingApproval?: PendingApproval;
-  sessions: UiSessionSummary[];
   tokenUsage?: UiTokenUsage;
   notices: string[];
   composer: {
@@ -76,10 +76,10 @@ export const initialState: AppState = {
     canContinue: false,
     connectionStatus: 'starting',
   },
+  transcriptEpoch: 0,
   turns: {},
   turnOrder: [],
   localCommandEntries: [],
-  sessions: [],
   notices: [],
   composer: {
     value: '',
@@ -119,7 +119,15 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case 'event':
       return applyEvent(state, action.event);
     case 'sessions':
-      return { ...state, sessions: action.sessions };
+      return appendLocalCommand(
+        state,
+        {
+          id: localCommandId('sessions'),
+          command: '/sessions',
+          output: formatSessionList(action.sessions),
+        },
+        undefined,
+      );
     case 'composerChanged':
       return {
         ...state,
@@ -259,6 +267,7 @@ function applyHistory(state: AppState, history: UiHistory): AppState {
       ...state.session,
       sessionId: history.sessionId ?? state.session.sessionId,
     },
+    transcriptEpoch: state.transcriptEpoch + 1,
     turns,
     turnOrder,
     localCommandEntries: [],
@@ -271,7 +280,7 @@ function applyEvent(state: AppState, event: UiEvent): AppState {
 
   switch (event.type) {
     case 'SESSION_RESET':
-      return { ...state, turns: {}, turnOrder: [], lastSequence };
+      return { ...state, transcriptEpoch: state.transcriptEpoch + 1, turns: {}, turnOrder: [], localCommandEntries: [], lastSequence };
     case 'SESSION_NAME_UPDATED': {
       const data = payload(event, 'sessionName');
       return {
@@ -567,4 +576,48 @@ function itemToTimelineItem(item: UiItem, status: TimelineStatus): TimelineItem 
 
 function fallbackItemId(kind?: UiItemKind | null, contentIndex?: number | null): string {
   return `${kind ?? 'CONTEXT_MESSAGE'}-${contentIndex ?? 0}`;
+}
+
+function localCommandId(name: string): string {
+  return `local-${name}-${Date.now()}`;
+}
+
+function formatSessionList(sessions: UiSessionSummary[]): string {
+  if (!sessions.length) {
+    return 'No sessions found.';
+  }
+  return sessions
+    .slice(0, 8)
+    .map(session => {
+      const title = session.name?.trim() || session.preview?.trim() || session.sessionId || 'Untitled session';
+      const details = [formatRelativeSessionTime(session.updatedAt ?? session.createdAt), basename(session.cwd), session.modelId]
+        .filter(Boolean)
+        .join(' · ');
+      return details ? `${title}\n    ${details}` : title;
+    })
+    .join('\n');
+}
+
+function basename(path?: string | null): string {
+  const normalized = path?.replace(/\/+$/, '');
+  return normalized?.split('/').filter(Boolean).at(-1) ?? '';
+}
+
+function formatRelativeSessionTime(timestamp?: number | null): string {
+  if (!timestamp) {
+    return '';
+  }
+
+  const seconds = timestamp > 1_000_000_000_000 ? timestamp / 1000 : timestamp;
+  const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - seconds));
+  if (elapsed < 60) {
+    return 'just now';
+  }
+  if (elapsed < 3600) {
+    return `${Math.floor(elapsed / 60)}m ago`;
+  }
+  if (elapsed < 86_400) {
+    return `${Math.floor(elapsed / 3600)}h ago`;
+  }
+  return `${Math.floor(elapsed / 86_400)}d ago`;
 }

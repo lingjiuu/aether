@@ -6,7 +6,7 @@ import { selectIsRunning, selectTurns } from '../state/selectors.js';
 import { formatDuration, formatElapsedTime, formatToolUseSummary, tailLines } from '../utils/format.js';
 import { accent, bold, dim, error, userLine, warning } from './ansi.js';
 import { renderMarkdownLines } from './markdown.js';
-import { truncatePlain, visualWidth, wrapPlain } from './text.js';
+import { padPlain, truncatePlain, visualWidth, wrapPlain } from './text.js';
 
 export type TerminalSection = {
   key: string;
@@ -67,15 +67,6 @@ export function renderScrollback({
     appendLocalEntries(target, state.localCommandEntries, index + 1, width);
   }
 
-  if (state.sessions.length) {
-    const sessionLines = renderSessions(state.sessions, width);
-    if (target.kind === 'stable') {
-      target.sections.push(section('sessions', sessionLines));
-    } else {
-      target.lines.push(...sessionLines);
-    }
-  }
-
   const footer = renderFooter(state, width);
   const bottomBudget = Math.max(6, rows - liveTranscript.length - footer.length);
   const bottom = state.commandPanel
@@ -89,7 +80,7 @@ export function renderScrollback({
     : undefined;
 
   return limitLiveBlock({
-    resetKey: `width:${width}`,
+    resetKey: `transcript:${state.transcriptEpoch}`,
     sections: stableSections,
     liveLines: liveLines.map(rendered => rendered.text),
     cursor,
@@ -232,14 +223,6 @@ function renderHelpPanel(width: number): RenderedLine[] {
   return lines;
 }
 
-function renderSessions(sessions: UiSessionSummary[], width: number): RenderedLine[] {
-  const lines: RenderedLine[] = [blankLine(), line(bold('Sessions'), 'Sessions', width)];
-  for (const session of sessions.slice(0, 8)) {
-    lines.push(...sessionLines(session, false, width));
-  }
-  return lines;
-}
-
 function turnLines(turn: TimelineTurn, width: number): RenderedLine[] {
   const lines: RenderedLine[] = [];
   for (const item of turn.items.filter(isVisibleTimelineItem)) {
@@ -252,7 +235,7 @@ function turnLines(turn: TimelineTurn, width: number): RenderedLine[] {
 function itemLines(item: TimelineItem, width: number): RenderedLine[] {
   switch (item.kind) {
     case 'USER_MESSAGE':
-      return [blankLine(), commandLine(item.text, width)];
+      return [blankLine(), userMessageLine(item.text, width)];
     case 'ASSISTANT_TEXT':
       return prefixedMarkdownWrapped('● ', item.text, width);
     case 'REASONING':
@@ -314,7 +297,7 @@ function appendLocalEntries(
   width: number,
 ): void {
   for (const entry of entries.filter(localEntry => localEntry.afterTurnOrderLength === position)) {
-    const lines = [blankLine(), commandLine(entry.command, width), responseLine(entry.output, width)];
+    const lines = [blankLine(), commandLine(entry.command, width), ...entry.output.split('\n').map(outputLine => responseLine(outputLine, width))];
     if (target.kind === 'stable') {
       target.sections.push(section(`local:${entry.id}`, lines));
     } else {
@@ -419,6 +402,11 @@ function responseLine(text: string, width: number, isError = false): RenderedLin
 function commandLine(command: string, width: number): RenderedLine {
   const raw = `${PROMPT}${command}`;
   return line(userLine(`${PROMPT}${bold(command)}`), raw, width);
+}
+
+function userMessageLine(message: string, width: number): RenderedLine {
+  const raw = truncatePlain(`${PROMPT}${message}`, width);
+  return { text: userLine(padPlain(raw, width)), raw };
 }
 
 function separator(width: number): RenderedLine {

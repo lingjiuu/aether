@@ -5,7 +5,7 @@ import { visualWidth } from './text.js';
 export class TerminalWriter {
   private started = false;
   private resetKey?: string;
-  private committedSections: TerminalSection[] = [];
+  private committedSectionKeys = new Set<string>();
   private liveHeight = 0;
   private liveLines: string[] = [];
   private displayCursor = { x: 0, y: 0 };
@@ -28,16 +28,19 @@ export class TerminalWriter {
     let output = '';
     if (this.resetKey === undefined) {
       this.resetKey = view.resetKey;
-    } else if (this.shouldReset(view)) {
+    } else if (this.resetKey !== view.resetKey) {
       output += this.resetFor(view.resetKey);
     }
 
-    const pendingSections = view.sections.slice(this.committedSections.length);
+    const pendingSections = view.sections.filter(section => !this.committedSectionKeys.has(section.key));
     const liveSignature = signatureForLive(view);
     if (!pendingSections.length && liveSignature === this.lastLiveSignature) {
       return;
     }
 
+    const nextLiveHeight = liveLinesFor(view).length;
+    const anchorShrinkingLiveBlock = !pendingSections.length && this.liveHeight > nextLiveHeight;
+    const previousLiveHeight = this.liveHeight;
     const canPatchLiveBlock = !pendingSections.length && this.canPatchLiveBlock(view);
 
     output += ansi.hideCursor;
@@ -45,9 +48,12 @@ export class TerminalWriter {
       output += this.patchLiveBlock(view);
     } else {
       output += this.clearLiveBlock();
+      if (anchorShrinkingLiveBlock) {
+        output += cursorMove(0, previousLiveHeight - nextLiveHeight);
+      }
       for (const section of pendingSections) {
         output += writeCommittedLines(section.lines);
-        this.committedSections.push(section);
+        this.committedSectionKeys.add(section.key);
       }
       output += this.renderLiveBlock(view);
     }
@@ -73,19 +79,9 @@ export class TerminalWriter {
     this.stdout.write(`${ansi.syncStart}${output}${ansi.syncEnd}`);
   }
 
-  private shouldReset(view: TerminalView): boolean {
-    if (this.resetKey !== undefined && this.resetKey !== view.resetKey) {
-      return true;
-    }
-    if (view.sections.length < this.committedSections.length) {
-      return true;
-    }
-    return this.committedSections.some((section, index) => !sameSection(section, view.sections[index]));
-  }
-
   private resetFor(resetKey: string | undefined): string {
     this.resetKey = resetKey;
-    this.committedSections = [];
+    this.committedSectionKeys = new Set<string>();
     this.lastLiveSignature = '';
     const clearLive = this.clearLiveBlock();
     this.liveHeight = 0;
@@ -106,7 +102,7 @@ export class TerminalWriter {
   }
 
   private renderLiveBlock(view: TerminalView): string {
-    const lines = view.liveLines.length ? view.liveLines : [''];
+    const lines = liveLinesFor(view);
     const body = lines.join('\r\n');
     const end = {
       x: visualWidth(lines.at(-1) ?? ''),
@@ -120,12 +116,12 @@ export class TerminalWriter {
   }
 
   private canPatchLiveBlock(view: TerminalView): boolean {
-    const nextLines = view.liveLines.length ? view.liveLines : [''];
+    const nextLines = liveLinesFor(view);
     return this.liveHeight > 0 && nextLines.length === this.liveHeight;
   }
 
   private patchLiveBlock(view: TerminalView): string {
-    const nextLines = view.liveLines.length ? view.liveLines : [''];
+    const nextLines = liveLinesFor(view);
     let output = `\r${cursorMove(0, -this.displayCursor.y)}`;
     let current = { x: 0, y: 0 };
 
@@ -151,12 +147,12 @@ export class TerminalWriter {
   }
 }
 
-function writeCommittedLines(lines: string[]): string {
-  return lines.map(line => `${line}\r\n`).join('');
+function liveLinesFor(view: TerminalView): string[] {
+  return view.liveLines.length ? view.liveLines : [''];
 }
 
-function sameSection(left: TerminalSection, right?: TerminalSection): boolean {
-  return Boolean(right && left.key === right.key && left.lines.length === right.lines.length && left.lines.every((line, index) => line === right.lines[index]));
+function writeCommittedLines(lines: string[]): string {
+  return lines.map(line => `${line}\r\n`).join('');
 }
 
 function signatureForLive(view: TerminalView): string {
