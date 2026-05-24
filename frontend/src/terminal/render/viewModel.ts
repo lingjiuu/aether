@@ -15,21 +15,10 @@ export type RenderBlock = {
 
 export type RenderNode = RenderBlock | RenderedLine;
 
-export type TerminalScrollInfo = {
-  scrollTop: number;
-  maxScrollTop: number;
-  viewportRows: number;
-  transcriptLineCount: number;
-  isAtBottom: boolean;
-  isSticky: boolean;
-  pendingDeltaRows: number;
-};
-
 export type TerminalView = {
   resetKey: string;
   frame: RenderBlock;
-  transcript: RenderBlock;
-  bottom: RenderBlock;
-  scroll: TerminalScrollInfo;
+  history: RenderBlock;
+  active: RenderBlock;
   cursor?: { x: number; y: number };
 };

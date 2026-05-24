@@ -27,6 +27,40 @@ export function renderTranscript(presentation: TerminalPresentation, width: numb
   return transcript;
 }
 
+export function renderTranscriptSections(presentation: TerminalPresentation, width: number): {
+  history: RenderedLine[];
+  active: RenderedLine[];
+} {
+  const history = renderHeader(presentation, width);
+  const active: RenderedLine[] = [];
+  let activeStarted = false;
+
+  appendLocalEntries(history, presentation.localCommandEntries, 0, width);
+  for (const [turnIndex, turn] of presentation.turns.entries()) {
+    const targetForCompletedTurn = activeStarted ? active : history;
+    if (isStableTurn(turn)) {
+      targetForCompletedTurn.push(...turnLines(turn, width));
+      appendLocalEntries(targetForCompletedTurn, presentation.localCommandEntries, turnIndex + 1, width);
+      continue;
+    }
+
+    activeStarted = true;
+    const splitIndex = firstUnstableItemIndex(turn);
+    const stableItems = turn.items.slice(0, splitIndex);
+    const activeItems = turn.items.slice(splitIndex);
+    for (const item of stableItems.filter(isVisibleTimelineItem)) {
+      history.push(...itemLines(item, width));
+    }
+    for (const item of activeItems.filter(isVisibleTimelineItem)) {
+      active.push(...itemLines(item, width));
+    }
+    active.push(...turnStatusLines(turn, width));
+    appendLocalEntries(active, presentation.localCommandEntries, turnIndex + 1, width);
+  }
+
+  return { history, active };
+}
+
 function renderHeader(presentation: TerminalPresentation, width: number): RenderedLine[] {
   const title = presentation.session.name?.trim() || 'Welcome back!';
   const statusParts = [presentation.session.model, presentation.session.cwd].filter(Boolean);
@@ -43,6 +77,22 @@ function renderHeader(presentation: TerminalPresentation, width: number): Render
     ),
     blankLine(),
   ];
+}
+
+function isStableTurn(turn: TimelineTurn): boolean {
+  return turn.status === 'COMPLETED' || turn.status === 'ABORTED';
+}
+
+function firstUnstableItemIndex(turn: TimelineTurn): number {
+  const index = turn.items.findIndex(item => !isStableItem(item));
+  return index === -1 ? turn.items.length : index;
+}
+
+function isStableItem(item: TimelineItem): boolean {
+  if (item.kind === 'TOOL_CALL') {
+    return Boolean(item.toolResult) || item.status === 'ABORTED' || item.status === 'ERROR' || item.status === 'SKIPPED';
+  }
+  return item.status === 'COMPLETED' || item.status === 'ABORTED' || item.status === 'ERROR' || item.status === 'SKIPPED';
 }
 
 function turnLines(turn: TimelineTurn, width: number): RenderedLine[] {

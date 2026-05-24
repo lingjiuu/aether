@@ -1,5 +1,3 @@
-import { ansi } from '../shared/ansi.js';
-
 type TerminalRuntimeOptions = {
   stdin: NodeJS.ReadStream;
   stdout: NodeJS.WriteStream;
@@ -16,7 +14,6 @@ export class TerminalRuntime {
   private readonly onResize: () => void;
   private readonly onStop: () => void;
   private readonly onExit: () => void;
-  private terminalModesEnabled = false;
   private started = false;
 
   constructor({ stdin, stdout, onData, onResize, onStop, onExit }: TerminalRuntimeOptions) {
@@ -37,7 +34,6 @@ export class TerminalRuntime {
     if (this.stdin.isTTY) {
       this.stdin.setRawMode(true);
     }
-    this.enableTerminalModes();
     this.stdin.resume();
     this.stdin.on('data', this.onData);
     this.stdout.on('resize', this.onResize);
@@ -56,7 +52,6 @@ export class TerminalRuntime {
     process.off('SIGINT', this.onStop);
     process.off('SIGTERM', this.onStop);
     process.off('exit', this.handleExit);
-    this.disableTerminalModes();
     if (this.stdin.isTTY) {
       this.stdin.setRawMode(false);
     }
@@ -64,23 +59,6 @@ export class TerminalRuntime {
   }
 
   private readonly handleExit = (): void => {
-    this.disableTerminalModes();
     this.onExit();
   };
-
-  private enableTerminalModes(): void {
-    if (this.terminalModesEnabled || !this.stdout.isTTY) {
-      return;
-    }
-    this.stdout.write(ansi.enableMouseTracking);
-    this.terminalModesEnabled = true;
-  }
-
-  private disableTerminalModes(): void {
-    if (!this.terminalModesEnabled) {
-      return;
-    }
-    this.stdout.write(ansi.disableMouseTracking);
-    this.terminalModesEnabled = false;
-  }
 }

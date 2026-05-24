@@ -11,9 +11,9 @@ describe('TerminalWriter', () => {
 
     writer.render(terminalView({
       resetKey: 'transcript:0',
-      transcriptLines: ['Welcome back!', ''],
-      bottomLines: ['❯ '],
-      cursor: { x: 2, y: 2 },
+      historyLines: ['Welcome back!', ''],
+      activeLines: ['❯ '],
+      cursor: { x: 2, y: 0 },
     }));
 
     const output = chunks.join('');
@@ -29,14 +29,14 @@ describe('TerminalWriter', () => {
 
     writer.render(terminalView({
       resetKey: 'transcript:0',
-      transcriptLines: ['Welcome back!'],
-      bottomLines: ['─'.repeat(79), '❯ ', '─'.repeat(79), '? for shortcuts'],
+      historyLines: ['Welcome back!'],
+      activeLines: ['─'.repeat(79), '❯ ', '─'.repeat(79), '? for shortcuts'],
       cursor: { x: 2, y: 2 },
     }));
     writer.render(terminalView({
       resetKey: 'transcript:0',
-      transcriptLines: ['Welcome back!'],
-      bottomLines: ['─'.repeat(79), '❯ 你', '─'.repeat(79), '? for shortcuts'],
+      historyLines: ['Welcome back!'],
+      activeLines: ['─'.repeat(79), '❯ 你', '─'.repeat(79), '? for shortcuts'],
       cursor: { x: 4, y: 2 },
     }));
 
@@ -45,22 +45,22 @@ describe('TerminalWriter', () => {
     expect(updateOutput).toContain('❯ 你');
   });
 
-  it('keeps the bottom pane pinned when transcript height changes', () => {
+  it('appends new stable history without rewriting old history', () => {
     const chunks: string[] = [];
     const stdout = fakeStdout(chunks);
     const writer = new TerminalWriter(stdout);
 
     writer.render(terminalView({
       resetKey: 'transcript:0',
-      transcriptLines: ['tool 1', 'tool 2', 'tool 3'],
-      bottomLines: ['─'.repeat(79), '❯ ', '─'.repeat(79), '? for shortcuts'],
-      cursor: { x: 2, y: 4 },
+      historyLines: ['tool 1', 'tool 2'],
+      activeLines: ['❯ '],
+      cursor: { x: 2, y: 0 },
     }));
     writer.render(terminalView({
       resetKey: 'transcript:0',
-      transcriptLines: ['tool 3'],
-      bottomLines: ['─'.repeat(79), '❯ hello', '─'.repeat(79), '? for shortcuts'],
-      cursor: { x: 7, y: 2 },
+      historyLines: ['tool 1', 'tool 2', 'tool 3'],
+      activeLines: ['❯ hello'],
+      cursor: { x: 7, y: 0 },
     }));
 
     const updateOutput = chunks.at(-1) ?? '';
@@ -68,6 +68,7 @@ describe('TerminalWriter', () => {
     expect(updateOutput).toContain('tool 3');
     expect(updateOutput).toContain('❯ hello');
     expect(updateOutput).not.toContain('tool 1');
+    expect(updateOutput).not.toContain('tool 2');
   });
 
   it('skips identical frame renders', () => {
@@ -76,9 +77,9 @@ describe('TerminalWriter', () => {
     const writer = new TerminalWriter(stdout);
     const view = terminalView({
       resetKey: 'transcript:0',
-      transcriptLines: ['Welcome back!'],
-      bottomLines: ['❯ '],
-      cursor: { x: 2, y: 1 },
+      historyLines: ['Welcome back!'],
+      activeLines: ['❯ '],
+      cursor: { x: 2, y: 0 },
     });
 
     writer.render(view);
@@ -86,47 +87,57 @@ describe('TerminalWriter', () => {
 
     expect(chunks).toHaveLength(1);
   });
+
+  it('clears terminal scrollback when committed history is replaced', () => {
+    const chunks: string[] = [];
+    const stdout = fakeStdout(chunks);
+    const writer = new TerminalWriter(stdout);
+
+    writer.render(terminalView({
+      resetKey: 'transcript:0',
+      historyLines: ['old history'],
+      activeLines: ['❯ '],
+      cursor: { x: 2, y: 0 },
+    }));
+    writer.render(terminalView({
+      resetKey: 'transcript:0',
+      historyLines: ['new history'],
+      activeLines: ['❯ '],
+      cursor: { x: 2, y: 0 },
+    }));
+
+    const updateOutput = chunks.at(-1) ?? '';
+    expect(updateOutput).toContain('\x1b[3J');
+    expect(updateOutput).toContain('new history');
+  });
 });
 
 function terminalView({
   resetKey,
-  transcriptLines,
-  bottomLines,
+  historyLines,
+  activeLines,
   cursor,
 }: {
   resetKey: string;
-  transcriptLines: string[];
-  bottomLines: string[];
+  historyLines: string[];
+  activeLines: string[];
   cursor: TerminalView['cursor'];
 }): TerminalView {
-  const transcript = block(
-    'transcript',
-    transcriptLines.map((text, index) => line(text, text, 1000, `test-transcript-${index}`)),
+  const history = block(
+    'history',
+    historyLines.map((text, index) => line(text, text, 1000, `test-history-${index}`)),
   );
-  const bottom = block(
-    'bottom',
-    bottomLines.map((text, index) => line(text, text, 1000, `test-bottom-${index}`)),
+  const active = block(
+    'active',
+    activeLines.map((text, index) => line(text, text, 1000, `test-active-${index}`)),
   );
 
   return {
     resetKey,
-    frame: block('terminal-frame', [transcript, bottom]),
-    transcript,
-    bottom,
-    scroll: scrollInfo(),
+    frame: block('terminal-frame', [history, active]),
+    history,
+    active,
     cursor,
-  };
-}
-
-function scrollInfo(): TerminalView['scroll'] {
-  return {
-    scrollTop: 0,
-    maxScrollTop: 0,
-    viewportRows: 1,
-    transcriptLineCount: 1,
-    isAtBottom: true,
-    isSticky: true,
-    pendingDeltaRows: 0,
   };
 }
 

@@ -6,9 +6,11 @@ import type { TerminalView } from '../render/viewModel.js';
 export class TerminalWriter {
   private started = false;
   private resetKey?: string;
-  private frameHeight = 0;
+  private activeHeight = 0;
+  private committedHistoryLines = 0;
+  private committedHistoryText: string[] = [];
   private displayCursor = { x: 0, y: 0 };
-  private lastFrameSignature = '';
+  private lastActiveSignature = '';
 
   constructor(private readonly stdout: NodeJS.WriteStream = process.stdout) {}
 
@@ -28,19 +30,28 @@ export class TerminalWriter {
     if (this.resetKey === undefined) {
       this.resetKey = view.resetKey;
     } else if (this.resetKey !== view.resetKey) {
-      output += this.resetFor(view.resetKey);
+      output += this.resetFor(view.resetKey, true);
     }
 
-    const frameSignature = signatureForFrame(view);
-    if (frameSignature === this.lastFrameSignature) {
+    const historyLines = historyLinesFor(view);
+    const activeLines = activeLinesFor(view);
+    const activeSignature = signatureForActive(view, activeLines);
+    const historyChanged = !this.committedHistoryPrefixMatches(historyLines);
+    const hasNewHistory = historyLines.length > this.committedHistoryLines;
+    if (!historyChanged && !hasNewHistory && activeSignature === this.lastActiveSignature) {
       return;
     }
 
     output += ansi.hideCursor;
-    output += this.clearFrame();
-    output += this.renderFrame(view);
+    if (historyChanged) {
+      output += this.resetFor(view.resetKey, true);
+    } else {
+      output += this.clearActive();
+    }
+    output += this.appendHistory(historyLines);
+    output += this.renderActive(view, activeLines);
     output += ansi.showCursor;
-    this.lastFrameSignature = frameSignature;
+    this.lastActiveSignature = activeSignature;
 
     this.stdout.write(`${ansi.syncStart}${output}${ansi.syncEnd}`);
   }
@@ -49,7 +60,7 @@ export class TerminalWriter {
     if (!this.started) {
       return;
     }
-    this.stdout.write(`${ansi.syncStart}${ansi.hideCursor}${this.resetFor(this.resetKey)}${ansi.showCursor}${ansi.syncEnd}`);
+    this.stdout.write(`${ansi.syncStart}${ansi.hideCursor}${this.resetFor(this.resetKey, true)}${ansi.showCursor}${ansi.syncEnd}`);
   }
 
   stop(): void {
@@ -57,51 +68,73 @@ export class TerminalWriter {
       return;
     }
     this.started = false;
-    const output = `${ansi.hideCursor}${this.clearFrame()}${ansi.showCursor}`;
+    const output = `${ansi.hideCursor}${this.clearActive()}${ansi.showCursor}`;
     this.stdout.write(`${ansi.syncStart}${output}${ansi.syncEnd}`);
   }
 
-  private resetFor(resetKey: string | undefined): string {
+  private resetFor(resetKey: string | undefined, clearScrollback = false): string {
     this.resetKey = resetKey;
-    this.lastFrameSignature = '';
-    const clearFrame = this.clearFrame();
-    this.frameHeight = 0;
+    this.lastActiveSignature = '';
+    const clearActive = this.clearActive();
+    this.activeHeight = 0;
+    this.committedHistoryLines = 0;
+    this.committedHistoryText = [];
     this.displayCursor = { x: 0, y: 0 };
-    return `${clearFrame}${ansi.clearVisible}${ansi.home}`;
+    return `${clearActive}${ansi.clearVisible}${clearScrollback ? ansi.clearScrollback : ''}${ansi.home}`;
   }
 
-  private clearFrame(): string {
-    if (this.frameHeight <= 0) {
+  private clearActive(): string {
+    if (this.activeHeight <= 0) {
       return '';
     }
     const moveToTop = this.displayCursor.y > 0 ? cursorMove(0, -this.displayCursor.y) : '';
-    this.frameHeight = 0;
+    this.activeHeight = 0;
     this.displayCursor = { x: 0, y: 0 };
     return `\r${moveToTop}${ansi.eraseDown}`;
   }
 
-  private renderFrame(view: TerminalView): string {
-    const lines = frameLinesFor(view);
-    const body = lines.join('\r\n');
+  private appendHistory(historyLines: string[]): string {
+    const newLines = historyLines.slice(this.committedHistoryLines);
+    this.committedHistoryLines = historyLines.length;
+    this.committedHistoryText = historyLines;
+    if (!newLines.length) {
+      return '';
+    }
+    return `${newLines.join('\r\n')}\r\n`;
+  }
+
+  private committedHistoryPrefixMatches(historyLines: string[]): boolean {
+    if (this.committedHistoryLines > historyLines.length) {
+      return false;
+    }
+    return this.committedHistoryText.every((line, index) => historyLines[index] === line);
+  }
+
+  private renderActive(view: TerminalView, lines: string[]): string {
+    const body = lines.length ? lines.join('\r\n') : '';
     const end = {
       x: visualWidth(lines.at(-1) ?? ''),
-      y: lines.length - 1,
+      y: Math.max(0, lines.length - 1),
     };
     const cursor = view.cursor ?? end;
-    this.frameHeight = lines.length;
+    this.activeHeight = lines.length;
     this.displayCursor = cursor;
     return `${body}${cursorMove(cursor.x - end.x, cursor.y - end.y)}`;
   }
 }
 
-function frameLinesFor(view: TerminalView): string[] {
-  const lines = flattenLines(view.frame).map(line => line.text);
+function historyLinesFor(view: TerminalView): string[] {
+  return flattenLines(view.history).map(line => line.text);
+}
+
+function activeLinesFor(view: TerminalView): string[] {
+  const lines = flattenLines(view.active).map(line => line.text);
   return lines.length ? lines : [''];
 }
 
-function signatureForFrame(view: TerminalView): string {
+function signatureForActive(view: TerminalView, lines: string[]): string {
   return JSON.stringify({
     cursor: view.cursor ?? null,
-    lines: frameLinesFor(view),
+    lines,
   });
 }

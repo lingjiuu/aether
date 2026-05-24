@@ -12,7 +12,6 @@ export function renderView(
     columns?: number;
     rows?: number;
     composerCursorOffset?: number;
-    transcriptScrollTop?: number;
     approvalSelectedIndex?: number;
   } = {},
 ) {
@@ -21,7 +20,6 @@ export function renderView(
     columns: options.columns ?? 80,
     rows: options.rows ?? 24,
     composerCursorOffset: options.composerCursorOffset ?? 0,
-    transcriptScrollTop: options.transcriptScrollTop,
     approvalSelectedIndex: options.approvalSelectedIndex,
   });
 }
@@ -39,12 +37,12 @@ export function viewLineCount(block: RenderBlock): number {
   return flattenLines(block).length;
 }
 
-export function transcriptLines(view: TerminalView): string[] {
-  return viewLines(view.transcript);
+export function historyLines(view: TerminalView): string[] {
+  return viewLines(view.history);
 }
 
-export function bottomLines(view: TerminalView): string[] {
-  return viewLines(view.bottom);
+export function activeLines(view: TerminalView): string[] {
+  return viewLines(view.active);
 }
 
 export function longTranscriptState(count: number): AppState {

@@ -10,13 +10,11 @@ import { renderScrollback } from '../render/renderScrollback.js';
 import { RenderLoop } from './RenderLoop.js';
 import { TerminalRuntime } from './TerminalRuntime.js';
 import { TerminalWriter } from './TerminalWriter.js';
-import { TranscriptViewportController } from '../viewport/viewportController.js';
 
 export class TerminalApp {
   private state: AppState = initialState;
   private readonly writer: TerminalWriter;
   private readonly keyParser = new KeyParser();
-  private readonly transcriptViewport = new TranscriptViewportController();
   private readonly composer = new ComposerController();
   private readonly commandPanel = new CommandPanelController();
   private readonly approval = new ApprovalController();
@@ -76,10 +74,6 @@ export class TerminalApp {
       return;
     }
 
-    if (this.handleScrollKey(key)) {
-      return;
-    }
-
     if (this.state.commandPanel) {
       await this.commandPanel.handleKey(key, this.state, {
         dispatch: action => this.dispatch(action),
@@ -112,7 +106,6 @@ export class TerminalApp {
   }
 
   private async submit(input: string): Promise<void> {
-    this.transcriptViewport.resetToBottom();
     this.composer.setValue('', action => this.dispatch(action));
     try {
       await handleInput(input, this.state, this.client, action => this.dispatch(action), () => this.stop());
@@ -139,9 +132,6 @@ export class TerminalApp {
   }
 
   private dispatch(action: AppAction): void {
-    if (action.type === 'history') {
-      this.transcriptViewport.resetToBottom();
-    }
     this.state = reducer(this.state, action);
     this.composer.syncValue(this.state.composer.value);
     this.approval.sync(this.state);
@@ -157,22 +147,8 @@ export class TerminalApp {
       columns: this.stdout.columns ?? 80,
       rows: this.stdout.rows ?? 24,
       composerCursorOffset: this.composer.cursorOffset,
-      transcriptScrollTop: this.transcriptViewport.renderScrollTop,
-      pendingDeltaRows: this.transcriptViewport.pendingDelta,
       approvalSelectedIndex: this.approval.selection,
     });
-    this.transcriptViewport.sync(view.scroll);
     this.writer.render(view);
-  }
-
-  private handleScrollKey(key: Key): boolean {
-    const handled = this.transcriptViewport.handleKey(key, {
-      composerHasValue: Boolean(this.state.composer.value),
-      commandPanelOpen: Boolean(this.state.commandPanel),
-    });
-    if (handled) {
-      this.render();
-    }
-    return handled;
   }
 }
