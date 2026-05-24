@@ -8,18 +8,30 @@ const DEFAULT_SCROLL: TerminalScrollInfo = {
   viewportRows: 1,
   transcriptLineCount: 0,
   isAtBottom: true,
+  isSticky: true,
+  pendingDeltaRows: 0,
 };
 
 export class TranscriptViewportController {
   private scrollTop: number | undefined;
+  private pendingDeltaRows = 0;
   private lastScroll: TerminalScrollInfo = DEFAULT_SCROLL;
 
   get renderScrollTop(): number | undefined {
     return this.scrollTop;
   }
 
+  get isSticky(): boolean {
+    return this.scrollTop === undefined;
+  }
+
+  get pendingDelta(): number {
+    return this.pendingDeltaRows;
+  }
+
   resetToBottom(): void {
     this.scrollTop = undefined;
+    this.pendingDeltaRows = 0;
   }
 
   sync(scroll: TerminalScrollInfo): void {
@@ -27,6 +39,7 @@ export class TranscriptViewportController {
     if (this.scrollTop !== undefined) {
       this.scrollTop = scroll.isAtBottom ? undefined : scroll.scrollTop;
     }
+    this.pendingDeltaRows = 0;
   }
 
   handleKey(key: Key, context: { composerHasValue: boolean; commandPanelOpen: boolean }): boolean {
@@ -55,6 +68,7 @@ export class TranscriptViewportController {
     }
     const currentTop = this.scrollTop ?? maxScrollTop;
     const nextTop = clampNumber(currentTop + deltaRows, 0, maxScrollTop);
+    this.pendingDeltaRows = deltaRows;
     this.scrollTop = nextTop >= maxScrollTop ? undefined : nextTop;
     return true;
   }
@@ -63,6 +77,7 @@ export class TranscriptViewportController {
     if (this.lastScroll.maxScrollTop <= 0) {
       return false;
     }
+    this.pendingDeltaRows = 0;
     this.scrollTop = 0;
     return true;
   }
@@ -71,6 +86,7 @@ export class TranscriptViewportController {
     if (this.scrollTop === undefined) {
       return false;
     }
+    this.pendingDeltaRows = 0;
     this.scrollTop = undefined;
     return true;
   }

@@ -2,7 +2,7 @@ import { filterSessions, formatRelativeSessionTime, sessionBasename } from '../.
 import type { UiSessionSummary } from '../../../protocol/wire.js';
 import { accent, bold, dim } from '../../shared/ansi.js';
 import type { TerminalPresentation } from '../presentationModel.js';
-import { blankLine, line } from '../renderPrimitives.js';
+import { blankLine, block, line } from '../renderPrimitives.js';
 import { clampIndex } from '../../shared/terminalMath.js';
 import { visualWidth } from '../../shared/text.js';
 import type { RenderBlock, RenderedLine } from '../viewModel.js';
@@ -12,7 +12,7 @@ const RESUME_VISIBLE_COUNT = 8;
 export function renderResumePanel(presentation: TerminalPresentation, width: number, maxRows: number): RenderBlock {
   const panel = presentation.commandPanel;
   if (panel?.kind !== 'resume') {
-    return { lines: [], cursor: undefined };
+    return block('resume-panel');
   }
 
   const filteredSessions = filterSessions(panel.sessions, panel.query);
@@ -44,10 +44,7 @@ export function renderResumePanel(presentation: TerminalPresentation, width: num
 
   lines.push(blankLine());
   lines.push(line(dim('Up/Down to select · Enter to resume · Esc to cancel'), 'Up/Down to select · Enter to resume · Esc to cancel', width));
-  return {
-    lines,
-    cursor: { x: Math.min(2 + visualWidth(panel.query), width - 3), y: 3 },
-  };
+  return block('resume-panel', lines, { x: Math.min(2 + visualWidth(panel.query), width - 3), y: 3 });
 }
 
 function searchBoxLines(query: string, width: number): RenderedLine[] {

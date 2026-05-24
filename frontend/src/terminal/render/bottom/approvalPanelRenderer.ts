@@ -1,6 +1,6 @@
 import { dim, warning } from '../../shared/ansi.js';
 import type { TerminalPresentation } from '../presentationModel.js';
-import { blankLine, line, selectedLine, separator } from '../renderPrimitives.js';
+import { blankLine, block, line, selectedLine, separator } from '../renderPrimitives.js';
 import { clampIndex } from '../../shared/terminalMath.js';
 import { truncatePlain, wrapPlain } from '../../shared/text.js';
 import type { RenderBlock, RenderedLine } from '../viewModel.js';
@@ -8,7 +8,7 @@ import type { RenderBlock, RenderedLine } from '../viewModel.js';
 export function renderApprovalPanel(presentation: TerminalPresentation, width: number, selectedIndex: number): RenderBlock {
   const request = presentation.pendingApproval?.request;
   if (!request) {
-    return { lines: [], cursor: undefined };
+    return block('approval-panel');
   }
 
   const toolName = request.toolName ?? 'tool';
@@ -32,7 +32,7 @@ export function renderApprovalPanel(presentation: TerminalPresentation, width: n
   lines.push(line(dim('Up/Down to select · Enter to confirm · Esc to deny'), 'Up/Down to select · Enter to confirm · Esc to deny', width));
   lines.push(separator(width));
 
-  return { lines, cursor: { x: 0, y: approveY + choiceIndex } };
+  return block('approval-panel', lines, { x: 0, y: approveY + choiceIndex });
 }
 
 function formatApprovalArguments(args?: Record<string, unknown> | null): string {

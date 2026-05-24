@@ -1,17 +1,17 @@
-import type { ToolPresenter } from './types.js';
-import { editPresenter, readPresenter, writePresenter } from './filePresenters.js';
-import { findPresenter, grepPresenter, lsPresenter } from './searchPresenters.js';
-import { bashPresenter } from './shellPresenter.js';
+import type { ToolPresentationDefinition, ToolPresenter } from './types.js';
+import { fileToolPresentations } from './filePresenters.js';
+import { searchToolPresentations } from './searchPresenters.js';
+import { shellToolPresentations } from './shellPresenter.js';
 
-const presenters = new Map<string, ToolPresenter>([
-  ['read', readPresenter],
-  ['write', writePresenter],
-  ['edit', editPresenter],
-  ['ls', lsPresenter],
-  ['grep', grepPresenter],
-  ['find', findPresenter],
-  ['bash', bashPresenter],
-]);
+const toolPresentations: ToolPresentationDefinition[] = [
+  ...fileToolPresentations,
+  ...searchToolPresentations,
+  ...shellToolPresentations,
+];
+
+const presenters = new Map<string, ToolPresenter>(
+  toolPresentations.flatMap(definition => definition.names.map(name => [name, definition.presenter] as const)),
+);
 
 export function presenterFor(toolName: string): ToolPresenter | undefined {
   return presenters.get(toolName);

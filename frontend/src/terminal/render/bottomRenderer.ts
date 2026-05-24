@@ -3,6 +3,7 @@ import { renderCommandPanel } from './bottom/commandPanelRenderer.js';
 import { renderComposer } from './bottom/composerRenderer.js';
 import { renderFooter } from './bottom/footerRenderer.js';
 import type { BottomRenderOptions } from './bottom/types.js';
+import { block, flattenLines } from './renderPrimitives.js';
 import type { RenderBlock } from './viewModel.js';
 
 export function renderBottom({
@@ -19,9 +20,11 @@ export function renderBottom({
     : presentation.pendingApproval
       ? renderApprovalPanel(presentation, width, approvalSelectedIndex)
       : renderComposer(presentation, width, composerCursorOffset);
+  const children = [...panel.children, ...footer];
 
-  return {
-    lines: [...panel.lines, ...footer],
-    cursor: panel.cursor,
-  };
+  return block('bottom', children, panel.cursor);
+}
+
+export function bottomLineCount(bottom: RenderBlock): number {
+  return flattenLines(bottom).length;
 }

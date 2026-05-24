@@ -1,4 +1,4 @@
-import type { ToolLine, ToolLineTone, ToolPresenter, ToolResultView } from './types.js';
+import type { ToolLine, ToolLineTone, ToolPresentationDefinition, ToolPresenter, ToolResultView } from './types.js';
 import { fallbackResultView } from './fallbackPresenter.js';
 import {
   formatBytes,
@@ -64,6 +64,12 @@ export const editPresenter: ToolPresenter = {
     return { lines };
   },
 };
+
+export const fileToolPresentations: ToolPresentationDefinition[] = [
+  { names: ['read'], presenter: readPresenter },
+  { names: ['write'], presenter: writePresenter },
+  { names: ['edit'], presenter: editPresenter },
+];
 
 function diffTone(line: string): ToolLineTone {
   if (line.startsWith('-')) {

@@ -1,5 +1,6 @@
 import { ansi, cursorMove } from '../shared/ansi.js';
 import { visualWidth } from '../shared/text.js';
+import { flattenLines } from '../render/renderPrimitives.js';
 import type { TerminalView } from '../render/viewModel.js';
 
 export class TerminalWriter {
@@ -94,7 +95,7 @@ export class TerminalWriter {
 }
 
 function frameLinesFor(view: TerminalView): string[] {
-  const lines = [...view.transcriptLines, ...view.bottomLines];
+  const lines = flattenLines(view.frame).map(line => line.text);
   return lines.length ? lines : [''];
 }
 

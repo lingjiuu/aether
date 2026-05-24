@@ -1,13 +1,14 @@
 import type { AetherClient } from '../../backend/AetherClient.js';
 import { boot, handleInput } from '../../app/runtime.js';
 import { initialState, reducer, type AppAction, type AppState } from '../../state/reducer.js';
-import { ansi } from '../shared/ansi.js';
 import { ApprovalController } from '../interaction/approvalController.js';
 import { CommandPanelController } from '../interaction/commandPanelController.js';
 import { ComposerController } from '../input/composerController.js';
 import { KeyParser, type Key } from '../input/inputParser.js';
 import { createTerminalPresentation } from '../render/presentationModel.js';
 import { renderScrollback } from '../render/renderScrollback.js';
+import { RenderLoop } from './RenderLoop.js';
+import { TerminalRuntime } from './TerminalRuntime.js';
 import { TerminalWriter } from './TerminalWriter.js';
 import { TranscriptViewportController } from '../viewport/viewportController.js';
 
@@ -19,9 +20,9 @@ export class TerminalApp {
   private readonly composer = new ComposerController();
   private readonly commandPanel = new CommandPanelController();
   private readonly approval = new ApprovalController();
+  private readonly runtime: TerminalRuntime;
+  private readonly renderLoop: RenderLoop;
   private stopped = false;
-  private renderTimer?: NodeJS.Timeout;
-  private terminalModesEnabled = false;
 
   constructor(
     private readonly client: AetherClient,
@@ -29,14 +30,23 @@ export class TerminalApp {
     private readonly stdout: NodeJS.WriteStream = process.stdout,
   ) {
     this.writer = new TerminalWriter(stdout);
+    this.runtime = new TerminalRuntime({
+      stdin,
+      stdout,
+      onData: this.onData,
+      onResize: this.onResize,
+      onStop: () => this.stop(),
+      onExit: () => this.writer.stop(),
+    });
+    this.renderLoop = new RenderLoop(() => this.render(), 480);
   }
 
   async start(): Promise<void> {
     this.writer.start();
-    this.bindTerminal();
+    this.runtime.start();
     await boot(this.client, action => this.dispatch(action));
     this.render();
-    this.renderTimer = setInterval(() => this.render(), 480);
+    this.renderLoop.start();
   }
 
   stop(): void {
@@ -44,35 +54,10 @@ export class TerminalApp {
       return;
     }
     this.stopped = true;
-    if (this.renderTimer) {
-      clearInterval(this.renderTimer);
-    }
-    this.stdin.off('data', this.onData);
-    this.stdout.off('resize', this.onResize);
-    this.disableTerminalModes();
-    if (this.stdin.isTTY) {
-      this.stdin.setRawMode(false);
-    }
-    this.stdin.pause();
+    this.renderLoop.stop();
+    this.runtime.stop();
     this.client.close();
     this.writer.stop();
-  }
-
-  private bindTerminal(): void {
-    this.stdin.setEncoding('utf8');
-    if (this.stdin.isTTY) {
-      this.stdin.setRawMode(true);
-    }
-    this.enableTerminalModes();
-    this.stdin.resume();
-    this.stdin.on('data', this.onData);
-    this.stdout.on('resize', this.onResize);
-    process.once('SIGINT', () => this.stop());
-    process.once('SIGTERM', () => this.stop());
-    process.once('exit', () => {
-      this.disableTerminalModes();
-      this.writer.stop();
-    });
   }
 
   private readonly onResize = (): void => {
@@ -173,26 +158,11 @@ export class TerminalApp {
       rows: this.stdout.rows ?? 24,
       composerCursorOffset: this.composer.cursorOffset,
       transcriptScrollTop: this.transcriptViewport.renderScrollTop,
+      pendingDeltaRows: this.transcriptViewport.pendingDelta,
       approvalSelectedIndex: this.approval.selection,
     });
     this.transcriptViewport.sync(view.scroll);
     this.writer.render(view);
-  }
-
-  private enableTerminalModes(): void {
-    if (this.terminalModesEnabled || !this.stdout.isTTY) {
-      return;
-    }
-    this.stdout.write(ansi.enableMouseTracking);
-    this.terminalModesEnabled = true;
-  }
-
-  private disableTerminalModes(): void {
-    if (!this.terminalModesEnabled) {
-      return;
-    }
-    this.stdout.write(ansi.disableMouseTracking);
-    this.terminalModesEnabled = false;
   }
 
   private handleScrollKey(key: Key): boolean {

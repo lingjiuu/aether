@@ -1,12 +1,19 @@
 export type RenderedLine = {
+  kind: 'line';
+  key: string;
   text: string;
   raw: string;
+  role?: string;
 };
 
 export type RenderBlock = {
-  lines: RenderedLine[];
+  kind: 'block';
+  key: string;
+  children: RenderNode[];
   cursor?: { x: number; y: number };
 };
+
+export type RenderNode = RenderBlock | RenderedLine;
 
 export type TerminalScrollInfo = {
   scrollTop: number;
@@ -14,12 +21,15 @@ export type TerminalScrollInfo = {
   viewportRows: number;
   transcriptLineCount: number;
   isAtBottom: boolean;
+  isSticky: boolean;
+  pendingDeltaRows: number;
 };
 
 export type TerminalView = {
   resetKey: string;
-  transcriptLines: string[];
-  bottomLines: string[];
+  frame: RenderBlock;
+  transcript: RenderBlock;
+  bottom: RenderBlock;
   scroll: TerminalScrollInfo;
   cursor?: { x: number; y: number };
 };

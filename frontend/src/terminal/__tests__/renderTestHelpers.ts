@@ -1,7 +1,9 @@
 import { initialState, reducer } from '../../state/reducer.js';
 import type { AppState } from '../../state/reducer.js';
 import { createTerminalPresentation } from '../render/presentationModel.js';
+import { flattenLines } from '../render/renderPrimitives.js';
 import { renderScrollback } from '../render/renderScrollback.js';
+import type { RenderBlock, TerminalView } from '../render/viewModel.js';
 import { stripAnsi } from '../shared/text.js';
 
 export function renderView(
@@ -26,7 +28,23 @@ export function renderView(
 
 export function renderText(state: AppState, columns = 100): string {
   const view = renderView(state, { columns, rows: 40 });
-  return [...view.transcriptLines, ...view.bottomLines].map(stripAnsi).join('\n');
+  return viewLines(view.frame).map(stripAnsi).join('\n');
+}
+
+export function viewLines(block: RenderBlock): string[] {
+  return flattenLines(block).map(line => line.text);
+}
+
+export function viewLineCount(block: RenderBlock): number {
+  return flattenLines(block).length;
+}
+
+export function transcriptLines(view: TerminalView): string[] {
+  return viewLines(view.transcript);
+}
+
+export function bottomLines(view: TerminalView): string[] {
+  return viewLines(view.bottom);
 }
 
 export function longTranscriptState(count: number): AppState {

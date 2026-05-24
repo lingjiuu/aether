@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { initialState, reducer } from '../../state/reducer.js';
 import { stripAnsi, visualWidth } from '../shared/text.js';
-import { renderView } from './renderTestHelpers.js';
+import { bottomLines, renderView, transcriptLines } from './renderTestHelpers.js';
 
 describe('transcript renderer', () => {
   it('renders committed user messages with a full-row background', () => {
@@ -27,7 +27,7 @@ describe('transcript renderer', () => {
     });
 
     const view = renderView(state, { columns: 20 });
-    const userLine = view.transcriptLines.find(line => stripAnsi(line).startsWith('❯ 你好啊')) ?? '';
+    const userLine = transcriptLines(view).find(line => stripAnsi(line).startsWith('❯ 你好啊')) ?? '';
 
     expect(userLine).toContain('\x1b[48;2;48;50;58m');
     expect(visualWidth(stripAnsi(userLine))).toBe(20);
@@ -36,7 +36,7 @@ describe('transcript renderer', () => {
   it('renders assistant fenced Markdown without fence markers', () => {
     const state = assistantHistory('内容是：\n\n```python\nprint("helloworld")\n```');
     const view = renderView(state);
-    const text = [...view.transcriptLines, ...view.bottomLines].map(stripAnsi).join('\n');
+    const text = [...transcriptLines(view), ...bottomLines(view)].map(stripAnsi).join('\n');
 
     expect(text).toContain('print("helloworld")');
     expect(text).not.toContain('```');
@@ -45,7 +45,7 @@ describe('transcript renderer', () => {
   it('renders assistant fenced Markdown code without dim styling or synthetic padding', () => {
     const state = assistantHistory('```python\nprint("helloworld")\n```');
     const view = renderView(state);
-    const codeLine = view.transcriptLines.find(line => stripAnsi(line).includes('print("helloworld")')) ?? '';
+    const codeLine = transcriptLines(view).find(line => stripAnsi(line).includes('print("helloworld")')) ?? '';
 
     expect(codeLine).toBe('● print("helloworld")');
     expect(codeLine).not.toContain('\x1b[2m');
@@ -54,7 +54,7 @@ describe('transcript renderer', () => {
   it('does not leak streaming fence fragments', () => {
     const state = assistantHistory('内容是：\n\n```python\nprint("helloworld")\n``', 'RUNNING', 'RUNNING');
     const view = renderView(state);
-    const text = [...view.transcriptLines, ...view.bottomLines].map(stripAnsi).join('\n');
+    const text = [...transcriptLines(view), ...bottomLines(view)].map(stripAnsi).join('\n');
 
     expect(text).toContain('print("helloworld")');
     expect(text).not.toContain('``');

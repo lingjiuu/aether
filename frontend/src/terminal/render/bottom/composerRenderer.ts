@@ -1,7 +1,7 @@
 import { getSlashCommandPlaceholder, getSlashCommandSuggestions } from '../../../commands/slashCommands.js';
 import { accent, dim } from '../../shared/ansi.js';
 import type { TerminalPresentation } from '../presentationModel.js';
-import { line, PROMPT, separator } from '../renderPrimitives.js';
+import { block, line, PROMPT, separator } from '../renderPrimitives.js';
 import { clampIndex } from '../../shared/terminalMath.js';
 import { visualWidth } from '../../shared/text.js';
 import type { RenderBlock, RenderedLine } from '../viewModel.js';
@@ -37,5 +37,5 @@ export function renderComposer(
   lines.push(line(renderedPromptLine, rawPromptLine, width));
   lines.push(separator(width));
   const cursorX = visualWidth(`${PROMPT}${beforeCursor}`);
-  return { lines, cursor: { x: Math.min(cursorX, width - 1), y: lines.length - 2 } };
+  return block('composer', lines, { x: Math.min(cursorX, width - 1), y: lines.length - 2 });
 }

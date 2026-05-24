@@ -24,3 +24,8 @@ export type ToolPresenter = {
   progressView?: (details: Details, update: UiToolUpdate | undefined) => ToolResultView | undefined;
   resultView?: (details: Details, result: UiToolResult) => ToolResultView;
 };
+
+export type ToolPresentationDefinition = {
+  names: readonly string[];
+  presenter: ToolPresenter;
+};

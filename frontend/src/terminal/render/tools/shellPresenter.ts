@@ -1,6 +1,6 @@
 import type { UiToolResult } from '../../../protocol/wire.js';
 import { formatDuration } from '../../../utils/format.js';
-import type { Details, ToolLine, ToolPresenter, ToolResultView } from './types.js';
+import type { Details, ToolLine, ToolPresentationDefinition, ToolPresenter, ToolResultView } from './types.js';
 import { booleanField, numberField, splitOutputLines, stringField } from './utils.js';
 
 export const bashPresenter: ToolPresenter = {
@@ -12,6 +12,10 @@ export const bashPresenter: ToolPresenter = {
   },
   resultView: bashResultView,
 };
+
+export const shellToolPresentations: ToolPresentationDefinition[] = [
+  { names: ['bash'], presenter: bashPresenter },
+];
 
 function bashResultView(details: Details, result: UiToolResult): ToolResultView {
   const output = bashOutputLines(details);

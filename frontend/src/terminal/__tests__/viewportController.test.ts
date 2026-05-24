@@ -48,6 +48,8 @@ function emptyContext() {
 function scrollInfo(overrides: { maxScrollTop: number; viewportRows: number; scrollTop: number; isAtBottom: boolean }) {
   return {
     transcriptLineCount: overrides.maxScrollTop + overrides.viewportRows,
+    isSticky: overrides.isAtBottom,
+    pendingDeltaRows: 0,
     ...overrides,
   };
 }

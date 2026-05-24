@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { initialState, reducer } from '../../state/reducer.js';
 import { stripAnsi } from '../shared/text.js';
-import { longTranscriptState, renderView } from './renderTestHelpers.js';
+import { bottomLines, longTranscriptState, renderView, transcriptLines } from './renderTestHelpers.js';
 
 describe('render viewport', () => {
   it('sticks the transcript viewport to the bottom when no scroll top is set', () => {
     const state = longTranscriptState(12);
     const view = renderView(state, { rows: 10 });
-    const transcriptText = view.transcriptLines.map(stripAnsi).join('\n');
-    const bottomText = view.bottomLines.map(stripAnsi).join('\n');
+    const transcriptText = transcriptLines(view).map(stripAnsi).join('\n');
+    const bottomText = bottomLines(view).map(stripAnsi).join('\n');
 
     expect(view.scroll.isAtBottom).toBe(true);
     expect(view.scroll.maxScrollTop).toBeGreaterThan(0);
@@ -20,8 +20,8 @@ describe('render viewport', () => {
   it('uses the app-managed transcript scroll top above a pinned bottom pane', () => {
     const state = longTranscriptState(12);
     const view = renderView(state, { rows: 10, transcriptScrollTop: 0 });
-    const transcriptText = view.transcriptLines.map(stripAnsi).join('\n');
-    const bottomText = view.bottomLines.map(stripAnsi).join('\n');
+    const transcriptText = transcriptLines(view).map(stripAnsi).join('\n');
+    const bottomText = bottomLines(view).map(stripAnsi).join('\n');
 
     expect(view.scroll.scrollTop).toBe(0);
     expect(view.scroll.isAtBottom).toBe(false);
@@ -102,10 +102,12 @@ describe('render viewport', () => {
     });
 
     const view = renderView(state, { columns: 100, rows: 12 });
-    const transcriptText = view.transcriptLines.map(stripAnsi).join('\n');
-    const bottomText = view.bottomLines.map(stripAnsi).join('\n');
+    const renderedTranscriptLines = transcriptLines(view);
+    const renderedBottomLines = bottomLines(view);
+    const transcriptText = renderedTranscriptLines.map(stripAnsi).join('\n');
+    const bottomText = renderedBottomLines.map(stripAnsi).join('\n');
 
-    expect(view.transcriptLines.length + view.bottomLines.length).toBeLessThanOrEqual(12);
+    expect(renderedTranscriptLines.length + renderedBottomLines.length).toBeLessThanOrEqual(12);
     expect(bottomText).toContain('❯ ');
     expect(bottomText).toContain('esc to interrupt');
     expect(transcriptText).toContain('● ls(dir-7)');

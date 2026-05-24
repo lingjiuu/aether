@@ -1,4 +1,4 @@
-import type { ToolPresenter, ToolResultView } from './types.js';
+import type { ToolPresentationDefinition, ToolPresenter, ToolResultView } from './types.js';
 import { clean, numberField, plural, searchSummary, stringField } from './utils.js';
 
 export const lsPresenter: ToolPresenter = {
@@ -35,6 +35,12 @@ export const findPresenter: ToolPresenter = {
   useSummary: (args, toolCall) => searchSummary(args, clean(toolCall?.displaySummary)),
   resultView: details => countResultView(details, 'resultCount', 'Found', 'file', 'files', 'Found results'),
 };
+
+export const searchToolPresentations: ToolPresentationDefinition[] = [
+  { names: ['ls'], presenter: lsPresenter },
+  { names: ['grep'], presenter: grepPresenter },
+  { names: ['find'], presenter: findPresenter },
+];
 
 function countResultView(
   details: Record<string, unknown>,
