@@ -78,6 +78,7 @@ export class TerminalApp {
       await this.commandPanel.handleKey(key, this.state, {
         dispatch: action => this.dispatch(action),
         resumeSession: sessionId => this.resumeSession(sessionId),
+        setModel: (providerId, modelId, reasoningEffort) => this.setModel(providerId, modelId, reasoningEffort),
       });
       return;
     }
@@ -122,6 +123,19 @@ export class TerminalApp {
       } else {
         this.dispatch({ type: 'commandPanelClosed', output: ack.message ?? `Resumed ${sessionId}` });
       }
+      if (ack.message) {
+        this.dispatch({ type: 'notice', message: ack.message });
+      }
+      this.dispatch({ type: 'sessionState', session: await this.client.currentSession() });
+    } catch (error) {
+      this.dispatch({ type: 'notice', message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private async setModel(providerId: string | undefined, modelId: string, reasoningEffort?: string): Promise<void> {
+    try {
+      const ack = await this.client.setModel(providerId, modelId, reasoningEffort);
+      this.dispatch({ type: 'commandPanelClosed', output: ack.message ?? `Set model to ${modelId}` });
       if (ack.message) {
         this.dispatch({ type: 'notice', message: ack.message });
       }

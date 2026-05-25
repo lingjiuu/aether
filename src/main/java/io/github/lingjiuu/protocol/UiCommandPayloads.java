@@ -17,6 +17,13 @@ public final class UiCommandPayloads {
     public record ResumeSession(String sessionId) implements UiCommandPayload {
     }
 
+    public record SetModel(
+            String providerId,
+            String modelId,
+            String reasoningEffort
+    ) implements UiCommandPayload {
+    }
+
     public record ApprovalResponse(
             String approvalId,
             boolean approved,

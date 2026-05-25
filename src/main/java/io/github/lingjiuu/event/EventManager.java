@@ -162,7 +162,8 @@ public class EventManager implements AutoCloseable {
                     TOOL_EXECUTION_END,
                     APPROVAL_REQUESTED,
                     APPROVAL_RESOLVED,
-                    COMPACT_STARTED -> false;
+                    COMPACT_STARTED,
+                    MODEL_CHANGED -> false;
         };
     }
 

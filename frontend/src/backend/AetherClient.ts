@@ -5,6 +5,7 @@ import type {
   UiEvent,
   UiEventPage,
   UiHistory,
+  UiModelCatalog,
   UiSessionState,
   UiSessionSummary,
 } from '../protocol/wire.js';
@@ -71,6 +72,14 @@ export class AetherClient {
 
   compact(): Promise<UiCommandAck> {
     return this.transport.request('compact/run');
+  }
+
+  listModels(): Promise<UiModelCatalog> {
+    return this.transport.request('model/list');
+  }
+
+  setModel(providerId: string | undefined, modelId: string, reasoningEffort?: string): Promise<UiCommandAck> {
+    return this.transport.request('model/set', { providerId, modelId, reasoningEffort });
   }
 
   newSession(cwd: string): Promise<UiCommandAck> {

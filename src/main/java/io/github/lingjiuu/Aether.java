@@ -11,6 +11,7 @@ import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiEventPage;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiHistory;
+import io.github.lingjiuu.protocol.UiModelCatalog;
 import io.github.lingjiuu.protocol.UiSessionState;
 import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.protocol.UiTokenCount;
@@ -105,7 +106,7 @@ public class Aether implements AutoCloseable {
 
     public UiSessionState currentSessionState() {
         Session session = currentSession();
-        LlmModel model = session.config().model();
+        LlmModel model = session.activeModelSelection() == null ? null : session.activeModelSelection().model();
         UiSessionSummary summary = new UiSessionSummary(
                 session.sessionId(),
                 session.sessionName(),
@@ -139,6 +140,10 @@ public class Aether implements AutoCloseable {
 
     public List<Skill> availableSkills() {
         return currentSession().availableSkills();
+    }
+
+    public UiModelCatalog modelCatalog() {
+        return commands.modelCatalog();
     }
 
     public void waitForIdle() {
@@ -181,7 +186,7 @@ public class Aether implements AutoCloseable {
     }
 
     private Long autoCompactTokenLimit(Session session) {
-        LlmModel model = session.config().model();
+        LlmModel model = session.activeModelSelection() == null ? null : session.activeModelSelection().model();
         return model == null ? null : model.resolvedAutoCompactTokenLimit();
     }
 

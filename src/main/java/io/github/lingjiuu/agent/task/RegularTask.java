@@ -11,6 +11,7 @@ import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.prompt.Prompt;
 import io.github.lingjiuu.prompt.PromptBuildInput;
 import io.github.lingjiuu.session.Session;
+import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.skill.SkillInjection;
 
@@ -47,6 +48,7 @@ public class RegularTask implements SessionTask {
 
         List<Skill> turnSkills = session.availableSkills();
         session.recordInitialContextIfChanged(turnContext);
+        SessionConfig turnConfig = context.sessionConfig();
         recordMaterializedInput(session, context.materializedInput(), turnContext);
         recordSkillInjections(session, context.materializedInput(), turnContext, turnSkills);
 
@@ -63,9 +65,9 @@ public class RegularTask implements SessionTask {
             }
 
             List<Message> messages = session.contextManager()
-                    .normalizeMessagesForModel(session.config().model().getInput());
+                    .normalizeMessagesForModel(turnConfig.model().getInput());
             Prompt prompt = session.promptBuilder().build(new PromptBuildInput(
-                    session.config(),
+                    turnConfig,
                     messages,
                     session.activeTools(),
                     turnSkills

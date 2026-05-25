@@ -9,6 +9,7 @@ public enum UiCommandType {
     COMPACT,
     CONTINUE,
     CANCEL_TURN,
+    SET_MODEL,
     APPROVAL_RESPONSE,
     RELOAD_SKILLS
 }

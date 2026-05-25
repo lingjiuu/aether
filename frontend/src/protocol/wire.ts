@@ -31,6 +31,7 @@ export type UiEventType =
   | 'COMPACT_FINISHED'
   | 'COMPACT_SKIPPED'
   | 'SESSION_RESET'
+  | 'MODEL_CHANGED'
   | 'SKILLS_CHANGED'
   | 'ERROR';
 
@@ -124,6 +125,30 @@ export type UiTokenUsage = {
   autoCompactTokenLimit?: number | null;
 };
 
+export type UiModelSelection = {
+  providerId?: string | null;
+  modelId?: string | null;
+  name?: string | null;
+  reasoningEffort?: string | null;
+};
+
+export type UiModelInfo = {
+  providerId?: string | null;
+  modelId?: string | null;
+  name?: string | null;
+  api?: string | null;
+  contextWindowTokens?: number | null;
+  autoCompactTokenLimit?: number | null;
+  input?: string[] | null;
+  current?: boolean;
+};
+
+export type UiModelCatalog = {
+  current?: UiModelSelection | null;
+  models?: UiModelInfo[] | null;
+  reasoningEfforts?: string[] | null;
+};
+
 export type UiEventPayload =
   | { payloadType: 'text'; text?: string | null }
   | { payloadType: 'sessionName'; sessionId?: string | null; name?: string | null }
@@ -162,6 +187,7 @@ export type UiEventPayload =
   | { payloadType: 'toolResult'; item?: UiItem | null }
   | { payloadType: 'approval'; request?: UiApprovalRequest | null; response?: UiApprovalResponse | null }
   | { payloadType: 'tokenUsage'; tokenUsage?: UiTokenUsage | null }
+  | { payloadType: 'modelSelection'; modelSelection?: UiModelSelection | null }
   | {
       payloadType: 'compact';
       text?: string | null;

@@ -4,6 +4,7 @@ import {
   appendLocalCommand,
   commandPanelClosed,
   commandPanelOpened,
+  commandPanelReasoningMoved,
   commandPanelQueryChanged,
   commandPanelSelectionMoved,
   composerChanged,
@@ -64,6 +65,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return commandPanelOpened(state, action.panel);
     case 'commandPanelSelectionMoved':
       return commandPanelSelectionMoved(state, action.delta, action.count);
+    case 'commandPanelReasoningMoved':
+      return commandPanelReasoningMoved(state, action.delta, action.count);
     case 'commandPanelQueryChanged':
       return commandPanelQueryChanged(state, action.query);
     case 'commandPanelClosed':

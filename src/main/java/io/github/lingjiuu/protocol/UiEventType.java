@@ -25,6 +25,7 @@ public enum UiEventType {
     COMPACT_FINISHED,
     COMPACT_SKIPPED,
     SESSION_RESET,
+    MODEL_CHANGED,
     SKILLS_CHANGED,
     ERROR
 }

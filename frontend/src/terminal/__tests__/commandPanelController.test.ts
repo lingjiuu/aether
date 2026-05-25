@@ -13,6 +13,7 @@ describe('CommandPanelController', () => {
     await new CommandPanelController().handleKey({ kind: 'escape' }, state, {
       dispatch: action => actions.push(action),
       resumeSession: vi.fn(),
+      setModel: vi.fn(),
     });
 
     expect(actions).toEqual([{ type: 'commandPanelClosed', output: 'Help dialog dismissed' }]);
@@ -38,8 +39,66 @@ describe('CommandPanelController', () => {
     await new CommandPanelController().handleKey({ kind: 'return' }, state, {
       dispatch: vi.fn(),
       resumeSession,
+      setModel: vi.fn(),
     });
 
     expect(resumeSession).toHaveBeenCalledWith('two');
+  });
+
+  it('submits the selected model with reasoning effort', async () => {
+    const state = reducer(initialState, {
+      type: 'commandPanelOpened',
+      panel: {
+        kind: 'model',
+        id: 'model-1',
+        command: '/model',
+        catalog: {
+          current: { providerId: 'fake', modelId: 'first', reasoningEffort: 'HIGH' },
+          models: [
+            { providerId: 'fake', modelId: 'first', current: true },
+            { providerId: 'fake', modelId: 'second' },
+          ],
+          reasoningEfforts: ['LOW', 'HIGH'],
+        },
+        selectedIndex: 1,
+        reasoningIndex: 0,
+      },
+    });
+    const setModel = vi.fn<(_: string | undefined, __: string, ___?: string) => Promise<void>>().mockResolvedValue(undefined);
+
+    await new CommandPanelController().handleKey({ kind: 'return' }, state, {
+      dispatch: vi.fn(),
+      resumeSession: vi.fn(),
+      setModel,
+    });
+
+    expect(setModel).toHaveBeenCalledWith('fake', 'second', 'LOW');
+  });
+
+  it('cancels model panels with the current model output', async () => {
+    const state = reducer(initialState, {
+      type: 'commandPanelOpened',
+      panel: {
+        kind: 'model',
+        id: 'model-1',
+        command: '/model',
+        catalog: {
+          current: { providerId: 'fake', modelId: 'first', reasoningEffort: 'HIGH' },
+          models: [{ providerId: 'fake', modelId: 'first', current: true }],
+          reasoningEfforts: ['HIGH'],
+        },
+        selectedIndex: 0,
+        reasoningIndex: 0,
+      },
+    });
+    const actions: AppAction[] = [];
+
+    await new CommandPanelController().handleKey({ kind: 'escape' }, state, {
+      dispatch: action => actions.push(action),
+      resumeSession: vi.fn(),
+      setModel: vi.fn(),
+    });
+
+    expect(actions).toEqual([{ type: 'commandPanelClosed', output: 'Kept model as fake/first' }]);
   });
 });

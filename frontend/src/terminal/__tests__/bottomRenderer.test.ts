@@ -68,6 +68,36 @@ describe('bottom renderer', () => {
     expect(text).not.toContain('/deny');
   });
 
+  it('renders the model panel in the Claude-style command area', () => {
+    const state = reducer(initialState, {
+      type: 'commandPanelOpened',
+      panel: {
+        kind: 'model',
+        id: 'model-1',
+        command: '/model',
+        catalog: {
+          current: { providerId: 'fake', modelId: 'second', reasoningEffort: 'XHIGH' },
+          models: [
+            { providerId: 'fake', modelId: 'first', name: 'Custom Opus model' },
+            { providerId: 'fake', modelId: 'second', name: 'Custom Sonnet model', current: true },
+          ],
+          reasoningEfforts: ['LOW', 'HIGH', 'XHIGH'],
+        },
+        selectedIndex: 1,
+        reasoningIndex: 2,
+      },
+    });
+
+    const view = renderView(state, { columns: 100, rows: 30 });
+    const text = activeLines(view).map(stripAnsi).join('\n');
+
+    expect(text).toContain('❯ /model');
+    expect(text).toContain('Select model');
+    expect(text).toContain('❯ 2. fake/second ✔');
+    expect(text).toContain('xHigh effort ←/→ to adjust');
+    expect(text).toContain('Enter to confirm · Esc to cancel');
+  });
+
   it('keeps local command backgrounds tight to the command text', () => {
     const localEntry: LocalCommandEntry = {
       id: 'local-1',

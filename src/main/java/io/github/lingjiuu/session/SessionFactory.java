@@ -8,6 +8,7 @@ import io.github.lingjiuu.infra.config.ConfigValueResolver;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.ReasoningOptions;
+import io.github.lingjiuu.model.ModelOption;
 import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.provider.RequestAuth;
 import io.github.lingjiuu.resource.PromptResources;
@@ -49,20 +50,22 @@ public class SessionFactory {
     private final SkillsManager skillsManager;
     private final Path agentDir;
     private final boolean workspaceConfigurable;
+    private final AetherConfig aetherConfig;
 
     public SessionFactory(SessionConfig config) {
         this(config, null);
     }
 
     public SessionFactory(SessionConfig config, SkillsManager skillsManager) {
-        this(config, skillsManager, null, false);
+        this(config, skillsManager, null, false, null);
     }
 
     private SessionFactory(
             SessionConfig config,
             SkillsManager skillsManager,
             Path agentDir,
-            boolean workspaceConfigurable
+            boolean workspaceConfigurable,
+            AetherConfig aetherConfig
     ) {
         if (config == null) {
             throw new IllegalArgumentException("config must not be null");
@@ -71,6 +74,7 @@ public class SessionFactory {
         this.skillsManager = skillsManager == null ? SkillsManager.empty(config.cwd()) : skillsManager;
         this.agentDir = agentDir == null ? null : agentDir.toAbsolutePath().normalize();
         this.workspaceConfigurable = workspaceConfigurable;
+        this.aetherConfig = aetherConfig;
     }
 
     public static SessionFactory createDefault() {
@@ -137,7 +141,7 @@ public class SessionFactory {
                 resolvedAgentDir
         );
 
-        return new SessionFactory(bundle.config(), bundle.skillsManager(), resolvedAgentDir, true);
+        return new SessionFactory(bundle.config(), bundle.skillsManager(), resolvedAgentDir, true, aetherConfig);
     }
 
     private static SessionBundle buildWorkspaceBundle(
@@ -226,6 +230,46 @@ public class SessionFactory {
         return config;
     }
 
+    public List<ModelOption> modelOptions() {
+        if (aetherConfig == null) {
+            ModelOption option = modelOption(config.model());
+            return option == null ? List.of() : List.of(option);
+        }
+        List<ModelOption> options = new ArrayList<>();
+        for (Map.Entry<String, AetherConfig.ModelProviderConfig> entry : aetherConfig.modelProviders().entrySet()) {
+            String providerId = entry.getKey();
+            AetherConfig.ModelProviderConfig provider = entry.getValue();
+            if (provider == null || provider.models() == null) {
+                continue;
+            }
+            for (AetherConfig.ModelDefinition model : provider.models()) {
+                if (model != null) {
+                    options.add(modelOption(providerId, provider, model));
+                }
+            }
+        }
+        return List.copyOf(options);
+    }
+
+    public List<String> reasoningEfforts() {
+        List<String> efforts = new ArrayList<>();
+        for (ReasoningOptions.ReasoningEffort effort : ReasoningOptions.ReasoningEffort.values()) {
+            efforts.add(effort.name());
+        }
+        return List.copyOf(efforts);
+    }
+
+    public ModelSelection resolveModelSelection(
+            String explicitProvider,
+            String explicitModel,
+            String explicitReasoningEffort
+    ) {
+        if (aetherConfig != null) {
+            return resolveModelSelection(aetherConfig, explicitProvider, explicitModel, explicitReasoningEffort);
+        }
+        return resolveConfiguredModelSelection(explicitProvider, explicitModel, explicitReasoningEffort);
+    }
+
     private SessionBundle sessionBundle(SessionOptions options) {
         if (!workspaceConfigurable) {
             return new SessionBundle(config, skillsManager);
@@ -277,6 +321,15 @@ public class SessionFactory {
             String explicitProvider,
             String explicitModel
     ) {
+        return resolveModelSelection(config, explicitProvider, explicitModel, null);
+    }
+
+    private static ModelSelection resolveModelSelection(
+            AetherConfig config,
+            String explicitProvider,
+            String explicitModel,
+            String explicitReasoningEffort
+    ) {
         String providerId = blankToNull(explicitProvider);
         String modelId = blankToNull(explicitModel);
         if (modelId != null) {
@@ -317,7 +370,41 @@ public class SessionFactory {
         return new ModelSelection(
                 model,
                 resolveRequestAuth(providerId, provider, modelDefinition),
-                reasoningFrom(config.defaultThinkingLevel())
+                reasoningFrom(selectedReasoningValue(config, explicitReasoningEffort))
+        );
+    }
+
+    private ModelSelection resolveConfiguredModelSelection(
+            String explicitProvider,
+            String explicitModel,
+            String explicitReasoningEffort
+    ) {
+        LlmModel model = config.model();
+        if (model == null) {
+            throw new AetherConfigException("No model is configured for this session.");
+        }
+        String providerId = blankToNull(explicitProvider);
+        String modelId = blankToNull(explicitModel);
+        if (modelId != null) {
+            int slash = modelId.indexOf('/');
+            if (slash > 0 && slash < modelId.length() - 1) {
+                providerId = modelId.substring(0, slash);
+                modelId = modelId.substring(slash + 1);
+            }
+        }
+        if (providerId == null) {
+            providerId = model.getProvider();
+        }
+        if (modelId == null) {
+            modelId = model.getId();
+        }
+        if (!Objects.equals(providerId, model.getProvider()) || !Objects.equals(modelId, model.getId())) {
+            throw new AetherConfigException("Model \"" + providerId + "/" + modelId + "\" is not configured.");
+        }
+        return new ModelSelection(
+                model,
+                config.requestAuth(),
+                reasoningFromOrDefault(explicitReasoningEffort, config.reasoning())
         );
     }
 
@@ -405,6 +492,54 @@ public class SessionFactory {
         return ReasoningOptions.builder()
                 .reasoningEffort(effort)
                 .build();
+    }
+
+    private static ReasoningOptions reasoningFromOrDefault(String value, ReasoningOptions defaultReasoning) {
+        String normalized = blankToNull(value);
+        if (normalized == null || "default".equalsIgnoreCase(normalized)) {
+            return defaultReasoning;
+        }
+        return reasoningFrom(normalized);
+    }
+
+    private static String selectedReasoningValue(AetherConfig config, String explicitReasoningEffort) {
+        String normalized = blankToNull(explicitReasoningEffort);
+        if (normalized == null || "default".equalsIgnoreCase(normalized)) {
+            return config.defaultThinkingLevel();
+        }
+        return normalized;
+    }
+
+    private static ModelOption modelOption(LlmModel model) {
+        if (model == null) {
+            return null;
+        }
+        return new ModelOption(
+                model.getProvider(),
+                model.getId(),
+                model.getName(),
+                model.getApi(),
+                model.getContextWindowTokens(),
+                model.getAutoCompactTokenLimit(),
+                model.getInput()
+        );
+    }
+
+    private static ModelOption modelOption(
+            String providerId,
+            AetherConfig.ModelProviderConfig provider,
+            AetherConfig.ModelDefinition model
+    ) {
+        String api = firstNonBlank(model.api(), provider.api());
+        return new ModelOption(
+                providerId,
+                model.id(),
+                firstNonBlank(model.name(), model.id()),
+                api,
+                model.contextWindowTokens(),
+                model.autoCompactTokenLimit(),
+                model.input()
+        );
     }
 
     private static String firstNonBlank(String... values) {

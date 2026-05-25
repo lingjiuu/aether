@@ -145,6 +145,8 @@ public class StdioAetherServer implements AutoCloseable {
             case "turn/cancel" -> submitSimple(id, UiCommandType.CANCEL_TURN);
             case "turn/continue" -> submitSimple(id, UiCommandType.CONTINUE);
             case "compact/run" -> submitSimple(id, UiCommandType.COMPACT);
+            case "model/list" -> uiRuntime.modelCatalog();
+            case "model/set" -> submitSetModel(id, params);
             case "skills/list" -> skillsList();
             case "skills/reload" -> submitSimple(id, UiCommandType.RELOAD_SKILLS);
             case "approval/respond" -> submitApprovalResponse(id, params);
@@ -167,7 +169,8 @@ public class StdioAetherServer implements AutoCloseable {
                         "sessions", true,
                         "sessionName", true,
                         "sessionState", true,
-                        "eventPaging", true
+                        "eventPaging", true,
+                        "modelSelection", true
                 )
         );
     }
@@ -232,6 +235,22 @@ public class StdioAetherServer implements AutoCloseable {
                         approvalId,
                         booleanParam(params, "approved"),
                         textParam(params, "reason")
+                ))
+                .build());
+    }
+
+    private UiCommandAck submitSetModel(JsonNode id, JsonNode params) {
+        String modelId = firstNonBlank(textParam(params, "modelId"), textParam(params, "model"));
+        if (modelId == null) {
+            throw new ProtocolException(INVALID_PARAMS, "model/set requires params.modelId.");
+        }
+        return uiRuntime.submit(UiCommand.builder()
+                .commandId(commandId(id))
+                .type(UiCommandType.SET_MODEL)
+                .payload(new UiCommandPayloads.SetModel(
+                        textParam(params, "providerId"),
+                        modelId,
+                        textParam(params, "reasoningEffort")
                 ))
                 .build());
     }
@@ -313,6 +332,18 @@ public class StdioAetherServer implements AutoCloseable {
         JsonNode value = params.get("limit");
         int limit = value == null ? 200 : value.asInt(200);
         return Math.max(1, Math.min(limit, 1000));
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private record SkillInfo(

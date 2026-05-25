@@ -60,6 +60,11 @@ export function applyEvent(state: AppState, event: UiEvent): AppState {
       const data = payload(event, 'tokenUsage');
       return { ...state, tokenUsage: data?.tokenUsage ?? state.tokenUsage, lastSequence };
     }
+    case 'MODEL_CHANGED': {
+      const modelSelection = payload(event, 'modelSelection')?.modelSelection;
+      const model = [modelSelection?.providerId, modelSelection?.modelId].filter(Boolean).join('/') || state.session.model;
+      return { ...state, session: { ...state.session, model }, lastSequence };
+    }
     case 'APPROVAL_REQUESTED': {
       const data = payload(event, 'approval');
       return {

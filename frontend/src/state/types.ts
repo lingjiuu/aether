@@ -4,6 +4,7 @@ import type { TimelineTurn } from '../domain/timeline.js';
 import type {
   UiEvent,
   UiHistory,
+  UiModelCatalog,
   UiSessionState,
   UiSessionSummary,
   UiTokenUsage,
@@ -45,6 +46,14 @@ export type CommandPanel =
       sessions: UiSessionSummary[];
       selectedIndex: number;
       query: string;
+    }
+  | {
+      kind: 'model';
+      id: string;
+      command: '/model';
+      catalog: UiModelCatalog;
+      selectedIndex: number;
+      reasoningIndex: number;
     };
 
 export type AppAction =
@@ -59,6 +68,7 @@ export type AppAction =
   | { type: 'composerSuggestionSelected'; index: number }
   | { type: 'commandPanelOpened'; panel: CommandPanel }
   | { type: 'commandPanelSelectionMoved'; delta: -1 | 1; count: number }
+  | { type: 'commandPanelReasoningMoved'; delta: -1 | 1; count: number }
   | { type: 'commandPanelQueryChanged'; query: string }
   | { type: 'commandPanelClosed'; output: string }
   | { type: 'localCommandCompleted'; id: string; command: string; output: string }

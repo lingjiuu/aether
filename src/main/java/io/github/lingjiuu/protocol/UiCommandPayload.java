@@ -9,6 +9,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = UiCommandPayloads.NewSession.class, name = "newSession"),
         @JsonSubTypes.Type(value = UiCommandPayloads.SetSessionName.class, name = "setSessionName"),
         @JsonSubTypes.Type(value = UiCommandPayloads.ResumeSession.class, name = "resumeSession"),
+        @JsonSubTypes.Type(value = UiCommandPayloads.SetModel.class, name = "setModel"),
         @JsonSubTypes.Type(value = UiCommandPayloads.ApprovalResponse.class, name = "approvalResponse")
 })
 public sealed interface UiCommandPayload permits
@@ -16,5 +17,6 @@ public sealed interface UiCommandPayload permits
         UiCommandPayloads.NewSession,
         UiCommandPayloads.SetSessionName,
         UiCommandPayloads.ResumeSession,
+        UiCommandPayloads.SetModel,
         UiCommandPayloads.ApprovalResponse {
 }

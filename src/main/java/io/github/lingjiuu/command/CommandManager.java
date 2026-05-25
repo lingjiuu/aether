@@ -1,16 +1,24 @@
 package io.github.lingjiuu.command;
 
 import io.github.lingjiuu.event.EventSink;
+import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.llm.ReasoningOptions;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
+import io.github.lingjiuu.model.ModelOption;
+import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiCommandPayloads;
 import io.github.lingjiuu.protocol.UiCommandType;
+import io.github.lingjiuu.protocol.UiModelCatalog;
+import io.github.lingjiuu.protocol.UiModelInfo;
+import io.github.lingjiuu.protocol.UiModelSelection;
 import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.session.SessionOptions;
+import io.github.lingjiuu.session.SessionStatus;
 import io.github.lingjiuu.tool.permission.ApprovalHandler;
 import io.github.lingjiuu.transcript.TranscriptRecord;
 import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
@@ -136,6 +144,7 @@ public class CommandManager implements AutoCloseable {
                 case COMPACT -> compact(commandId);
                 case CONTINUE -> continueSession(commandId);
                 case CANCEL_TURN -> cancelTurn(commandId);
+                case SET_MODEL -> setModel(command, commandId);
                 case APPROVAL_RESPONSE -> approvalResponse(command, commandId);
                 case RELOAD_SKILLS -> reloadSkills(commandId);
             };
@@ -207,6 +216,40 @@ public class CommandManager implements AutoCloseable {
     private UiCommandAck reloadSkills(String commandId) {
         session.reloadSkills();
         return UiCommandAck.accepted(commandId, sessionId(), "skills reloaded");
+    }
+
+    private UiCommandAck setModel(UiCommand command, String commandId) {
+        if (!(command.getPayload() instanceof UiCommandPayloads.SetModel input)
+                || input.modelId() == null
+                || input.modelId().isBlank()) {
+            return UiCommandAck.rejected(commandId, sessionId(), "model/set requires modelId.");
+        }
+        if (session.status() == SessionStatus.RUNNING) {
+            return UiCommandAck.rejected(commandId, sessionId(), "'/model' is disabled while a task is in progress.");
+        }
+        ModelSelection selection = sessionFactory.resolveModelSelection(
+                input.providerId(),
+                input.modelId(),
+                input.reasoningEffort()
+        );
+        boolean changed = session.setActiveModelSelection(selection);
+        String label = modelLabel(selection);
+        if (!changed) {
+            return UiCommandAck.accepted(commandId, sessionId(), "Kept model as " + label);
+        }
+        return UiCommandAck.accepted(commandId, sessionId(), "Set model to " + label);
+    }
+
+    public synchronized UiModelCatalog modelCatalog() {
+        ModelSelection current = session == null ? null : session.activeModelSelection();
+        return new UiModelCatalog(
+                uiModelSelection(current),
+                sessionFactory.modelOptions()
+                        .stream()
+                        .map(option -> uiModelInfo(option, current))
+                        .toList(),
+                sessionFactory.reasoningEfforts()
+        );
     }
 
     private SessionOptions newSessionOptions(UiCommand command) {
@@ -320,5 +363,49 @@ public class CommandManager implements AutoCloseable {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private UiModelInfo uiModelInfo(ModelOption option, ModelSelection current) {
+        return new UiModelInfo(
+                option.providerId(),
+                option.modelId(),
+                option.name(),
+                option.api(),
+                option.contextWindowTokens(),
+                option.autoCompactTokenLimit(),
+                option.input(),
+                sameModel(option, current)
+        );
+    }
+
+    private UiModelSelection uiModelSelection(ModelSelection selection) {
+        LlmModel model = selection == null ? null : selection.model();
+        return new UiModelSelection(
+                model == null ? null : model.getProvider(),
+                model == null ? null : model.getId(),
+                model == null ? null : model.getName(),
+                reasoningEffort(selection)
+        );
+    }
+
+    private boolean sameModel(ModelOption option, ModelSelection selection) {
+        LlmModel model = selection == null ? null : selection.model();
+        return model != null
+                && java.util.Objects.equals(option.providerId(), model.getProvider())
+                && java.util.Objects.equals(option.modelId(), model.getId());
+    }
+
+    private String modelLabel(ModelSelection selection) {
+        LlmModel model = selection == null ? null : selection.model();
+        String provider = model == null ? null : model.getProvider();
+        String id = model == null ? null : model.getId();
+        String effort = reasoningEffort(selection);
+        String label = (provider == null || provider.isBlank() ? "" : provider + "/") + (id == null ? "" : id);
+        return effort == null ? label : label + " " + effort.toLowerCase();
+    }
+
+    private String reasoningEffort(ModelSelection selection) {
+        ReasoningOptions reasoning = selection == null ? null : selection.reasoning();
+        return reasoning == null || reasoning.getReasoningEffort() == null ? null : reasoning.getReasoningEffort().name();
     }
 }

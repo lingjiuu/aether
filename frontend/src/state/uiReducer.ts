@@ -46,7 +46,7 @@ export function commandPanelOpened(state: AppState, panel: CommandPanel): AppSta
 }
 
 export function commandPanelSelectionMoved(state: AppState, delta: -1 | 1, count: number): AppState {
-  if (state.commandPanel?.kind !== 'resume') {
+  if (state.commandPanel?.kind !== 'resume' && state.commandPanel?.kind !== 'model') {
     return state;
   }
   return {
@@ -56,6 +56,12 @@ export function commandPanelSelectionMoved(state: AppState, delta: -1 | 1, count
       selectedIndex: moveIndex(state.commandPanel.selectedIndex, delta, count),
     },
   };
+}
+
+export function commandPanelReasoningMoved(state: AppState, delta: -1 | 1, count: number): AppState {
+  return state.commandPanel?.kind === 'model'
+    ? { ...state, commandPanel: { ...state.commandPanel, reasoningIndex: moveIndex(state.commandPanel.reasoningIndex, delta, count) } }
+    : state;
 }
 
 export function commandPanelQueryChanged(state: AppState, query: string): AppState {

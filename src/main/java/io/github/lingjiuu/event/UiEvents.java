@@ -1,6 +1,7 @@
 package io.github.lingjiuu.event;
 
 import io.github.lingjiuu.agent.turn.TurnContext;
+import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.TokenUsage;
 import io.github.lingjiuu.llm.TokenUsageInfo;
 import io.github.lingjiuu.message.ContextMessage;
@@ -11,6 +12,7 @@ import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import com.fasterxml.jackson.databind.JsonNode;
+import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.protocol.UiApprovalRequest;
 import io.github.lingjiuu.protocol.UiApprovalResponse;
 import io.github.lingjiuu.protocol.UiEvent;
@@ -19,6 +21,7 @@ import io.github.lingjiuu.protocol.UiEventType;
 import io.github.lingjiuu.protocol.UiItem;
 import io.github.lingjiuu.protocol.UiItemBodies;
 import io.github.lingjiuu.protocol.UiItemKind;
+import io.github.lingjiuu.protocol.UiModelSelection;
 import io.github.lingjiuu.protocol.UiTokenCount;
 import io.github.lingjiuu.protocol.UiTokenUsage;
 import io.github.lingjiuu.protocol.UiToolCall;
@@ -61,6 +64,12 @@ public final class UiEvents {
     public static UiEvent skillsChanged(String sessionId, int availableSkillCount) {
         return event(UiEventType.SKILLS_CHANGED, sessionId, null)
                 .payload(new UiEventPayloads.Text("skills changed: " + availableSkillCount))
+                .build();
+    }
+
+    public static UiEvent modelChanged(String sessionId, ModelSelection selection) {
+        return event(UiEventType.MODEL_CHANGED, sessionId, null)
+                .payload(new UiEventPayloads.ModelSelection(uiModelSelection(selection)))
                 .build();
     }
 
@@ -685,6 +694,18 @@ public final class UiEvents {
                 .contextTokenUsage(contextTokenUsage)
                 .autoCompactTokenLimit(autoCompactTokenLimit)
                 .build();
+    }
+
+    private static UiModelSelection uiModelSelection(ModelSelection selection) {
+        LlmModel model = selection == null ? null : selection.model();
+        return new UiModelSelection(
+                model == null ? null : model.getProvider(),
+                model == null ? null : model.getId(),
+                model == null ? null : model.getName(),
+                selection == null || selection.reasoning() == null || selection.reasoning().getReasoningEffort() == null
+                        ? null
+                        : selection.reasoning().getReasoningEffort().name()
+        );
     }
 
     private static UiTokenCount uiTokenCount(TokenUsage usage) {

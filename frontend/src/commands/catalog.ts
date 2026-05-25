@@ -11,6 +11,7 @@ const slashCommands: SlashCommandInfo[] = [
   { usage: '/sessions', description: 'List known sessions' },
   { usage: '/compact', description: 'Compact the current conversation context' },
   { usage: '/cancel', description: 'Interrupt the running turn' },
+  { usage: '/model', description: 'Choose what model and reasoning effort to use' },
   { usage: '/skills', description: 'List loaded skills' },
   { usage: '/reload-skills', description: 'Reload skills from disk' },
   { usage: '/rename', description: 'Rename the current session', placeholder: 'name', aliases: ['/name'] },

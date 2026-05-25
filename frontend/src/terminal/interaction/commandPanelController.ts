@@ -6,6 +6,7 @@ import { clampIndex } from '../shared/terminalMath.js';
 type CommandPanelCallbacks = {
   dispatch: (action: AppAction) => void;
   resumeSession: (sessionId: string) => Promise<void>;
+  setModel: (providerId: string | undefined, modelId: string, reasoningEffort?: string) => Promise<void>;
 };
 
 export class CommandPanelController {
@@ -21,6 +22,10 @@ export class CommandPanelController {
         output: commandPanelCancelOutput(panel),
       });
       return true;
+    }
+
+    if (panel.kind === 'model') {
+      return this.handleModelKey(key, panel, callbacks);
     }
 
     if (panel.kind !== 'resume') {
@@ -52,8 +57,53 @@ export class CommandPanelController {
         return true;
     }
   }
+
+  private async handleModelKey(key: Key, panel: Extract<CommandPanel, { kind: 'model' }>, callbacks: CommandPanelCallbacks): Promise<boolean> {
+    const models = panel.catalog.models ?? [];
+    const efforts = panel.catalog.reasoningEfforts ?? [];
+    switch (key.kind) {
+      case 'up':
+        callbacks.dispatch({ type: 'commandPanelSelectionMoved', delta: -1, count: models.length });
+        return true;
+      case 'down':
+        callbacks.dispatch({ type: 'commandPanelSelectionMoved', delta: 1, count: models.length });
+        return true;
+      case 'left':
+        callbacks.dispatch({ type: 'commandPanelReasoningMoved', delta: -1, count: efforts.length });
+        return true;
+      case 'right':
+        callbacks.dispatch({ type: 'commandPanelReasoningMoved', delta: 1, count: efforts.length });
+        return true;
+      case 'return': {
+        const selected = models[clampIndex(panel.selectedIndex, models.length)];
+        if (selected?.modelId) {
+          await callbacks.setModel(
+            selected.providerId ?? undefined,
+            selected.modelId,
+            efforts[clampIndex(panel.reasoningIndex, efforts.length)],
+          );
+        }
+        return true;
+      }
+      default:
+        return true;
+    }
+  }
 }
 
 function commandPanelCancelOutput(panel: CommandPanel): string {
-  return panel.kind === 'help' ? 'Help dialog dismissed' : 'Resume cancelled';
+  switch (panel.kind) {
+    case 'help':
+      return 'Help dialog dismissed';
+    case 'resume':
+      return 'Resume cancelled';
+    case 'model':
+      return `Kept model as ${modelSelectionLabel(panel.catalog.current)}`;
+  }
+}
+
+function modelSelectionLabel(selection: Extract<CommandPanel, { kind: 'model' }>['catalog']['current']): string {
+  const provider = selection?.providerId?.trim();
+  const model = selection?.modelId?.trim();
+  return [provider, model].filter(Boolean).join('/') || model || 'current model';
 }

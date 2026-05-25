@@ -69,6 +69,9 @@ public final class UiEventPayloads {
     public record TokenUsage(UiTokenUsage tokenUsage) implements UiEventPayload {
     }
 
+    public record ModelSelection(UiModelSelection modelSelection) implements UiEventPayload {
+    }
+
     public record Compact(
             String text,
             Integer originalMessageCount,

@@ -51,6 +51,14 @@ public class UiCommand {
                 .build();
     }
 
+    public static UiCommand setModel(String providerId, String modelId, String reasoningEffort) {
+        return UiCommand.builder()
+                .commandId(newCommandId())
+                .type(UiCommandType.SET_MODEL)
+                .payload(new UiCommandPayloads.SetModel(providerId, modelId, reasoningEffort))
+                .build();
+    }
+
     public static UiCommand simple(UiCommandType type) {
         return UiCommand.builder()
                 .commandId(newCommandId())

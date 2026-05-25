@@ -11,6 +11,7 @@ import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.prompt.Prompt;
 import io.github.lingjiuu.session.Session;
+import io.github.lingjiuu.session.SessionConfig;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -129,14 +130,15 @@ public class CompactTask implements SessionTask {
             TurnContext turnContext,
             List<Message> originalMessages
     ) {
+        SessionConfig turnConfig = context.sessionConfig();
         List<Message> compactInput = originalMessages;
         int retries = 0;
         while (true) {
             List<Message> normalizedCompactInput = session.contextManager().normalizeMessagesForModel(
                     compactInput,
-                    session.config().model().getInput()
+                    turnConfig.model().getInput()
             );
-            Prompt prompt = promptBuilder.build(session.config(), normalizedCompactInput);
+            Prompt prompt = promptBuilder.build(turnConfig, normalizedCompactInput);
             AssistantMessage assistantMessage = session.sampleModel(
                     context.modelSession(),
                     prompt,

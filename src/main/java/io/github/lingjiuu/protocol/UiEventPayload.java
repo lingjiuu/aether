@@ -19,6 +19,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = UiEventPayloads.ToolResult.class, name = "toolResult"),
         @JsonSubTypes.Type(value = UiEventPayloads.Approval.class, name = "approval"),
         @JsonSubTypes.Type(value = UiEventPayloads.TokenUsage.class, name = "tokenUsage"),
+        @JsonSubTypes.Type(value = UiEventPayloads.ModelSelection.class, name = "modelSelection"),
         @JsonSubTypes.Type(value = UiEventPayloads.Compact.class, name = "compact"),
         @JsonSubTypes.Type(value = UiEventPayloads.Error.class, name = "error")
 })
@@ -37,6 +38,7 @@ public sealed interface UiEventPayload permits
         UiEventPayloads.ToolResult,
         UiEventPayloads.Approval,
         UiEventPayloads.TokenUsage,
+        UiEventPayloads.ModelSelection,
         UiEventPayloads.Compact,
         UiEventPayloads.Error {
 }

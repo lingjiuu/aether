@@ -31,6 +31,7 @@ import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
+import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.prompt.Prompt;
 import io.github.lingjiuu.prompt.PromptBuilder;
 import io.github.lingjiuu.protocol.UiEvent;
@@ -56,6 +57,7 @@ import io.github.lingjiuu.transcript.item.TurnContextItem;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
 
 public class Session implements AutoCloseable {
@@ -75,6 +77,7 @@ public class Session implements AutoCloseable {
     private final TaskRunner taskRunner = new TaskRunner();
     private final InputMaterializer inputMaterializer;
     private volatile List<String> activeToolNames;
+    private volatile ModelSelection activeModelSelection;
     private volatile ApprovalHandler approvalHandler = new DenyAllApprovalHandler();
     private volatile String sessionName;
 
@@ -104,6 +107,7 @@ public class Session implements AutoCloseable {
         this.toolRegistry = toolRegistry;
         this.skillsManager = skillsManager == null ? SkillsManager.empty(config.cwd()) : skillsManager;
         this.activeToolNames = config.activeToolNames();
+        this.activeModelSelection = config.modelSelection();
         this.sessionName = normalizeSessionName(sessionName);
         this.inputMaterializer = new InputMaterializer(config.cwd());
         TranscriptRecorder transcriptRecorder = config.transcriptStore() == null
@@ -297,6 +301,27 @@ public class Session implements AutoCloseable {
 
     public SessionConfig config() {
         return config;
+    }
+
+    public ModelSelection activeModelSelection() {
+        return activeModelSelection;
+    }
+
+    public synchronized boolean setActiveModelSelection(ModelSelection selection) {
+        ensureIdle();
+        if (selection == null) {
+            throw new IllegalArgumentException("model selection must not be null");
+        }
+        ModelSelection previous = activeModelSelection;
+        boolean changed = !sameModelSelection(previous, selection);
+        if (!changed) {
+            return false;
+        }
+        activeModelSelection = selection;
+        recomputeTokenUsageFromHistory();
+        state.touch();
+        eventManager.emit(UiEvents.modelChanged(sessionId(), selection));
+        return true;
     }
 
     public ContextManager contextManager() {
@@ -535,7 +560,7 @@ public class Session implements AutoCloseable {
         }
 
         AssistantMessage assistantMessage;
-        try (AssistantStream stream = modelSession.stream(prompt.toLlmRequest(config.requestAuth()), token)) {
+        try (AssistantStream stream = modelSession.stream(prompt.toLlmRequest(null), token)) {
             AutoCloseable cancelRegistration = token.onCancel(() -> closeQuietly(stream));
             try {
                 assistantMessage = stream.consume(event -> {
@@ -671,8 +696,10 @@ public class Session implements AutoCloseable {
             MaterializedInput materializedInput,
             ToolCancellationSource cancellationSource
     ) {
-        try (LlmClientSession modelSession = config.llmClient().openSession(config.model(), config.requestAuth())) {
-            TaskContext context = taskContext(modelSession, cancellationSource, turnContext, materializedInput);
+        ModelSelection modelSelection = activeModelSelection();
+        SessionConfig turnConfig = config.withModelSelection(modelSelection);
+        try (LlmClientSession modelSession = config.llmClient().openSession(modelSelection.model(), modelSelection.auth())) {
+            TaskContext context = taskContext(modelSession, modelSelection, turnConfig, cancellationSource, turnContext, materializedInput);
             task.run(context);
         } catch (RuntimeException e) {
             if (!cancellationSource.token().isCancellationRequested()) {
@@ -719,6 +746,8 @@ public class Session implements AutoCloseable {
 
     private TaskContext taskContext(
             LlmClientSession modelSession,
+            ModelSelection modelSelection,
+            SessionConfig turnConfig,
             ToolCancellationSource cancellationSource,
             TurnContext turnContext,
             MaterializedInput materializedInput
@@ -728,7 +757,9 @@ public class Session implements AutoCloseable {
                 turnContext,
                 materializedInput,
                 cancellationSource.token(),
-                modelSession
+                modelSession,
+                modelSelection,
+                turnConfig
         );
     }
 
@@ -754,13 +785,35 @@ public class Session implements AutoCloseable {
     }
 
     private Long modelContextWindowTokens() {
-        LlmModel model = config.model();
+        ModelSelection selection = activeModelSelection();
+        LlmModel model = selection == null ? null : selection.model();
         return model == null ? null : model.getContextWindowTokens();
     }
 
     private Long autoCompactTokenLimit() {
-        LlmModel model = config.model();
+        ModelSelection selection = activeModelSelection();
+        LlmModel model = selection == null ? null : selection.model();
         return model == null ? null : model.resolvedAutoCompactTokenLimit();
+    }
+
+    private boolean sameModelSelection(ModelSelection left, ModelSelection right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null) {
+            return false;
+        }
+        LlmModel leftModel = left.model();
+        LlmModel rightModel = right.model();
+        return Objects.equals(leftModel == null ? null : leftModel.getProvider(), rightModel == null ? null : rightModel.getProvider())
+                && Objects.equals(leftModel == null ? null : leftModel.getId(), rightModel == null ? null : rightModel.getId())
+                && Objects.equals(reasoningEffort(left), reasoningEffort(right));
+    }
+
+    private String reasoningEffort(ModelSelection selection) {
+        return selection == null || selection.reasoning() == null || selection.reasoning().getReasoningEffort() == null
+                ? null
+                : selection.reasoning().getReasoningEffort().name();
     }
 
     private AssistantMessage abortedMessage() {

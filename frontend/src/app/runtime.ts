@@ -1,6 +1,7 @@
 import type { AetherClient } from '../backend/AetherClient.js';
 import type { AppAction, AppState } from '../state/reducer.js';
 import { parseCommand } from '../protocol/commands.js';
+import { selectIsRunning } from '../state/selectors.js';
 
 export async function boot(client: AetherClient, dispatch: (action: AppAction) => void): Promise<void> {
   client.start();
@@ -91,6 +92,25 @@ export async function handleInput(
     case 'reloadSkills':
       await client.reloadSkills();
       break;
+    case 'model': {
+      if (selectIsRunning(state) || state.session.status === 'RUNNING') {
+        recordLocalCommand(input, "'/model' is disabled while a task is in progress.", dispatch);
+        break;
+      }
+      const catalog = await client.listModels();
+      dispatch({
+        type: 'commandPanelOpened',
+        panel: {
+          kind: 'model',
+          id: localCommandId('model'),
+          command: '/model',
+          catalog,
+          selectedIndex: selectedModelIndex(catalog),
+          reasoningIndex: selectedReasoningIndex(catalog),
+        },
+      });
+      break;
+    }
     case 'name': {
       if (!command.name.trim()) {
         recordLocalCommand(input, 'Session name is required. Usage: /rename [name]', dispatch);
@@ -121,6 +141,25 @@ export async function handleInput(
       recordLocalCommand(input, `Unknown command: /${command.name}`, dispatch);
       break;
   }
+}
+
+type ModelCatalog = Awaited<ReturnType<AetherClient['listModels']>>;
+
+function selectedModelIndex(catalog: ModelCatalog): number {
+  const models = catalog.models ?? [];
+  const current = catalog.current;
+  const index = models.findIndex(model =>
+    model.current
+    || (model.providerId === current?.providerId && model.modelId === current?.modelId),
+  );
+  return Math.max(0, index);
+}
+
+function selectedReasoningIndex(catalog: ModelCatalog): number {
+  const efforts = catalog.reasoningEfforts ?? [];
+  const current = catalog.current?.reasoningEffort;
+  const index = efforts.findIndex(effort => effort.toLowerCase() === current?.toLowerCase());
+  return Math.max(0, index);
 }
 
 function localCommandId(name: string): string {

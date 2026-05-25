@@ -7,9 +7,12 @@ import io.github.lingjiuu.llm.AssistantStream;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiEvent;
+import io.github.lingjiuu.protocol.UiEventType;
+import io.github.lingjiuu.protocol.UiModelCatalog;
 import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
@@ -26,6 +29,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
@@ -74,6 +79,74 @@ public class CommandManagerTest extends TestCase {
         }
     }
 
+    public void testSetModelUpdatesActiveSelection() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-command-set-model-test");
+        try (CommandManager commandManager = new CommandManager(new SessionFactory(sessionConfig(tempDir)), null, null)) {
+            UiCommandAck result = commandManager.handle(UiCommand.setModel(null, "fake-model", "HIGH"));
+
+            assertTrue(result.accepted());
+            assertTrue(result.message().contains("Set model to fake/fake-model high"));
+            assertEquals(
+                    io.github.lingjiuu.llm.ReasoningOptions.ReasoningEffort.HIGH,
+                    commandManager.currentSession().activeModelSelection().reasoning().getReasoningEffort()
+            );
+
+            commandManager.currentSession().waitForIdle();
+            assertTrue(commandManager.currentSession()
+                    .eventsAfter(0)
+                    .stream()
+                    .anyMatch(event -> event.getType() == UiEventType.MODEL_CHANGED));
+        }
+    }
+
+    public void testModelCatalogMarksCurrentModel() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-command-model-catalog-test");
+        try (CommandManager commandManager = new CommandManager(new SessionFactory(sessionConfig(tempDir)), null, null)) {
+            UiModelCatalog catalog = commandManager.modelCatalog();
+
+            assertEquals("fake", catalog.current().providerId());
+            assertEquals("fake-model", catalog.current().modelId());
+            assertEquals(1, catalog.models().size());
+            assertTrue(catalog.models().getFirst().current());
+            assertTrue(catalog.reasoningEfforts().contains("HIGH"));
+        }
+    }
+
+    public void testSetModelAffectsNextTurnRequest() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-command-set-model-turn-test");
+        CapturingProvider provider = new CapturingProvider();
+        try (CommandManager commandManager = new CommandManager(new SessionFactory(sessionConfig(tempDir, provider)), null, null)) {
+            commandManager.handle(UiCommand.setModel(null, "fake-model", "HIGH"));
+            commandManager.handle(UiCommand.submitUserInput("hello"));
+            commandManager.currentSession().waitForIdle();
+
+            assertNotNull(provider.lastRequest);
+            assertEquals("fake-model", provider.lastRequest.getModel().getId());
+            assertEquals(
+                    io.github.lingjiuu.llm.ReasoningOptions.ReasoningEffort.HIGH,
+                    provider.lastRequest.getCallOptions().getReasoning().getReasoningEffort()
+            );
+        }
+    }
+
+    public void testSetModelIsDisabledWhileTurnRuns() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-command-set-model-running-test");
+        BlockingProvider provider = new BlockingProvider();
+        CommandManager commandManager = new CommandManager(new SessionFactory(sessionConfig(tempDir, provider)), null, null);
+        try {
+            commandManager.handle(UiCommand.submitUserInput("hello"));
+            assertTrue(provider.started.await(2, TimeUnit.SECONDS));
+
+            UiCommandAck result = commandManager.handle(UiCommand.setModel(null, "fake-model", "HIGH"));
+
+            assertFalse(result.accepted());
+            assertTrue(result.message().contains("disabled while a task is in progress"));
+        } finally {
+            provider.release.countDown();
+            commandManager.close();
+        }
+    }
+
     public void testResumeCommandReplaysRestoredTimelineWithoutReemitting() throws Exception {
         Path tempDir = Files.createTempDirectory("aether-command-test");
         SessionFactory sessionFactory = new SessionFactory(sessionConfig(tempDir));
@@ -104,8 +177,12 @@ public class CommandManagerTest extends TestCase {
     }
 
     private SessionConfig sessionConfig(Path cwd) {
+        return sessionConfig(cwd, new NoopProvider());
+    }
+
+    private SessionConfig sessionConfig(Path cwd, Provider provider) {
         return new SessionConfig(
-                new LlmClient(new ProviderRegistry().register(new NoopProvider())),
+                new LlmClient(new ProviderRegistry().register(provider)),
                 "You are a test agent.",
                 cwd.toAbsolutePath().normalize(),
                 LlmModel.builder()
@@ -124,7 +201,48 @@ public class CommandManagerTest extends TestCase {
         );
     }
 
-    private static final class NoopProvider implements Provider {
+    private static class CapturingProvider extends NoopProvider {
+        private volatile LlmRequest lastRequest;
+
+        @Override
+        public ProviderSession openSession(LlmModel model, RequestAuth auth) {
+            ProviderSession delegate = super.openSession(model, auth);
+            return (request, cancellationToken) -> {
+                lastRequest = request;
+                return delegate.stream(request, cancellationToken);
+            };
+        }
+    }
+
+    private static class BlockingProvider extends NoopProvider {
+        private final CountDownLatch started = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        @Override
+        public ProviderSession openSession(LlmModel model, RequestAuth auth) {
+            return (request, cancellationToken) -> new AssistantStream() {
+                @Override
+                public io.github.lingjiuu.message.AssistantMessage consume(Consumer<AssistantStreamEvent> consumer) {
+                    started.countDown();
+                    try {
+                        release.await(2, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return result();
+                }
+
+                @Override
+                public io.github.lingjiuu.message.AssistantMessage result() {
+                    return io.github.lingjiuu.message.AssistantMessage.builder()
+                            .stopReason(io.github.lingjiuu.message.AssistantMessage.StopReason.STOP)
+                            .build();
+                }
+            };
+        }
+    }
+
+    private static class NoopProvider implements Provider {
         @Override
         public String name() {
             return "fake";

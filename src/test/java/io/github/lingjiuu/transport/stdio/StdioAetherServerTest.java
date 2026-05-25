@@ -121,6 +121,34 @@ public class StdioAetherServerTest extends TestCase {
         assertEquals(0, page.get("result").get("events").size());
     }
 
+    public void testModelListResponseIncludesCurrentSelection() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-stdio-model-list-test");
+        String output = runServer(tempDir, """
+                {"id":"1","method":"model/list"}
+                """);
+
+        JsonNode response = objectMapper.readTree(output);
+        assertEquals("1", response.get("id").asText());
+        JsonNode result = response.get("result");
+        assertEquals("fake", result.get("current").get("providerId").asText());
+        assertEquals("fake-model", result.get("current").get("modelId").asText());
+        assertEquals(1, result.get("models").size());
+        assertTrue(result.get("models").get(0).get("current").asBoolean());
+        assertTrue(result.get("reasoningEfforts").isArray());
+    }
+
+    public void testModelSetRequiresModelId() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-stdio-model-set-test");
+        String output = runServer(tempDir, """
+                {"id":"1","method":"model/set","params":{}}
+                """);
+
+        JsonNode response = objectMapper.readTree(output);
+        assertEquals("1", response.get("id").asText());
+        assertEquals(-32602, response.get("error").get("code").asInt());
+        assertTrue(response.get("error").get("message").asText().contains("modelId"));
+    }
+
     public void testSessionNewRequiresExplicitCwd() throws Exception {
         Path tempDir = Files.createTempDirectory("aether-stdio-new-session-test");
         String output = runServer(tempDir, """
