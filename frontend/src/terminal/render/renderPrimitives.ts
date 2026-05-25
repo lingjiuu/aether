@@ -1,4 +1,4 @@
-import { accent, bold, dim, userLine } from '../shared/ansi.js';
+import { accent, bold, dim, userLine, userMessageLine as userMessageLineStyle } from '../shared/ansi.js';
 import { padPlain, truncatePlain, visualWidth } from '../shared/text.js';
 import type { RenderBlock, RenderNode, RenderedLine } from './viewModel.js';
 
@@ -27,7 +27,7 @@ export function commandLine(command: string, width: number): RenderedLine {
 
 export function userMessageLine(message: string, width: number): RenderedLine {
   const raw = truncatePlain(`${PROMPT}${message}`, width);
-  return renderLine(userLine(padPlain(raw, width)), raw, width, 'user-message');
+  return renderLine(userMessageLineStyle(padPlain(raw, width)), raw, width, 'user-message');
 }
 
 export function separator(width: number): RenderedLine {

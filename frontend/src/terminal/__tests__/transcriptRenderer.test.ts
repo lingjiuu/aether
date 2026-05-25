@@ -65,7 +65,8 @@ describe('transcript renderer', () => {
     const view = renderView(state, { columns: 20 });
     const userLine = historyLines(view).find(line => stripAnsi(line).startsWith('❯ 你好啊')) ?? '';
 
-    expect(userLine).toContain('\x1b[48;2;48;50;58m');
+    expect(userLine).toContain('\x1b[48;2;67;70;86m');
+    expect(userLine).not.toContain('\x1b[1m');
     expect(visualWidth(stripAnsi(userLine))).toBe(20);
   });
 

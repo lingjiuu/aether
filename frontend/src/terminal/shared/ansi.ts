@@ -16,6 +16,7 @@ export const ansi = {
   yellow: '\x1b[33m',
   red: '\x1b[31m',
   userBackground: '\x1b[48;2;48;50;58m',
+  userMessageBackground: '\x1b[48;2;67;70;86m',
 };
 
 export function cursorTo(x: number, y: number): string {
@@ -59,4 +60,8 @@ export function error(text: string): string {
 
 export function userLine(text: string): string {
   return `${ansi.userBackground}${text}${ansi.reset}`;
+}
+
+export function userMessageLine(text: string): string {
+  return `${ansi.userMessageBackground}${text}${ansi.reset}`;
 }
