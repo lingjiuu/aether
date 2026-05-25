@@ -7,10 +7,18 @@ import { selectIsRunning } from '../state/selectors.js';
 export async function boot(client: AetherClient, dispatch: (action: AppAction) => void): Promise<void> {
   client.start();
   client.onEvent(event => dispatch({ type: 'event', event }));
+  let suppressInterruptedStackTrace = false;
   client.onStderr(text => {
-    const trimmed = text.trim();
-    if (trimmed) {
-      dispatch({ type: 'notice', message: trimmed });
+    for (const line of text.split(/\r?\n/)) {
+      if (shouldSuppressBackendStderrLine(line, suppressInterruptedStackTrace)) {
+        suppressInterruptedStackTrace = true;
+        continue;
+      }
+      suppressInterruptedStackTrace = false;
+      const trimmed = line.trim();
+      if (trimmed) {
+        dispatch({ type: 'notice', message: trimmed });
+      }
     }
   });
 
@@ -23,6 +31,17 @@ export async function boot(client: AetherClient, dispatch: (action: AppAction) =
     dispatch({ type: 'sessionState', session: await client.currentSession() });
   }
   await client.initialized();
+}
+
+function shouldSuppressBackendStderrLine(line: string, suppressingInterruptedStackTrace: boolean): boolean {
+  if (/^Exception in thread "aether-/.test(line)) {
+    return true;
+  }
+  if (line.includes('java.lang.InterruptedException')) {
+    return true;
+  }
+  return suppressingInterruptedStackTrace
+    && (/^\s+at\s/.test(line) || /^\s*Caused by:/.test(line) || /^\s*\.\.\.\s+\d+\s+more/.test(line) || line.trim() === '');
 }
 
 export async function handleInput(

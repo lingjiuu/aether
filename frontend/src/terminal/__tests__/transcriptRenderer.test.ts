@@ -95,6 +95,35 @@ describe('transcript renderer', () => {
     expect(text).toContain('print("helloworld")');
     expect(text).not.toContain('``');
   });
+
+  it('does not render interrupted-turn context guidance', () => {
+    const state = reducer(initialState, {
+      type: 'history',
+      history: {
+        sessionId: 'session-1',
+        turns: [
+          {
+            turnId: 'turn-1',
+            status: 'ABORTED',
+            items: [
+              {
+                id: 'context-1',
+                kind: 'CONTEXT_MESSAGE',
+                status: 'COMPLETED',
+                text: '<turn_aborted>\nThe previous turn was interrupted by the user.\n</turn_aborted>',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const view = renderView(state);
+    const text = [...historyLines(view), ...activeLines(view)].map(stripAnsi).join('\n');
+
+    expect(text).not.toContain('<turn_aborted>');
+    expect(text).not.toContain('The previous turn was interrupted by the user.');
+    expect(text).toContain('✻ Worked interrupted');
+  });
 });
 
 function assistantHistory(

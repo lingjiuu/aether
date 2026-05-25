@@ -24,5 +24,13 @@ export type TimelineTurn = {
 };
 
 export function isVisibleTimelineItem(item: TimelineItem): boolean {
-  return !(item.kind === 'CONTEXT_MESSAGE' && item.text.startsWith('Environment context:'));
+  return item.kind !== 'CONTEXT_MESSAGE' || !isInternalContextText(item.text);
+}
+
+function isInternalContextText(text: string): boolean {
+  const trimmed = text.trimStart();
+  return trimmed.startsWith('Environment context:')
+    || trimmed.startsWith('Environment context update:')
+    || trimmed.startsWith('<turn_aborted>')
+    || trimmed.startsWith('<skill>');
 }

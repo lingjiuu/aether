@@ -44,4 +44,31 @@ describe('reducer command panels', () => {
     expect(nextState.session.availableSkillCount).toBe(3);
     expect(nextState.notices).toEqual([]);
   });
+
+  it('tracks session running status from turn lifecycle events', () => {
+    const runningState = reducer(initialState, {
+      type: 'event',
+      event: {
+        type: 'TURN_STARTED',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        turn: 1,
+        sequence: 1,
+      },
+    });
+    const abortedState = reducer(runningState, {
+      type: 'event',
+      event: {
+        type: 'TURN_ABORTED',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        turn: 1,
+        sequence: 2,
+      },
+    });
+
+    expect(runningState.session.status).toBe('RUNNING');
+    expect(abortedState.session.status).toBe('IDLE');
+    expect(abortedState.turns['turn-1']?.status).toBe('ABORTED');
+  });
 });

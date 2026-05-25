@@ -97,20 +97,20 @@ export function applyEvent(state: AppState, event: UiEvent): AppState {
 function applyTimelineEvent(state: AppState, event: UiEvent): AppState {
   switch (event.type) {
     case 'TURN_STARTED':
-      return updateTurn(state, event, turn => ({
+      return updateTurn(withSessionStatus(state, 'RUNNING'), event, turn => ({
         ...turn,
         status: 'RUNNING',
         startedAtMs: turn.startedAtMs ?? event.timestampMs,
         endedAtMs: undefined,
       }));
     case 'TURN_COMPLETED':
-      return updateTurn(state, event, turn => ({
+      return updateTurn(withSessionStatus(state, 'IDLE'), event, turn => ({
         ...turn,
         status: 'COMPLETED',
         endedAtMs: event.timestampMs ?? turn.endedAtMs,
       }));
     case 'TURN_ABORTED':
-      return updateTurn(state, event, turn => ({
+      return updateTurn(withSessionStatus(state, 'IDLE'), event, turn => ({
         ...turn,
         status: 'ABORTED',
         endedAtMs: event.timestampMs ?? turn.endedAtMs,
@@ -198,6 +198,16 @@ function applyTimelineEvent(state: AppState, event: UiEvent): AppState {
     default:
       return state;
   }
+}
+
+function withSessionStatus(state: AppState, status: string): AppState {
+  return {
+    ...state,
+    session: {
+      ...state.session,
+      status,
+    },
+  };
 }
 
 function applyToolCall(state: AppState, event: UiEvent, toolCall?: UiToolCall | null): AppState {

@@ -1,6 +1,7 @@
 import type { AetherClient } from '../../backend/AetherClient.js';
 import { boot, handleInput } from '../../app/runtime.js';
 import { initialState, reducer, type AppAction, type AppState } from '../../state/reducer.js';
+import { selectIsRunning } from '../../state/selectors.js';
 import { ApprovalController } from '../interaction/approvalController.js';
 import { CommandPanelController } from '../interaction/commandPanelController.js';
 import { ComposerController } from '../input/composerController.js';
@@ -91,6 +92,11 @@ export class TerminalApp {
       return;
     }
 
+    if (key.kind === 'escape' && !this.state.composer.commandPaletteOpen && selectIsRunning(this.state)) {
+      await this.cancelTurn();
+      return;
+    }
+
     this.handleComposerKey(key);
   }
 
@@ -137,6 +143,17 @@ export class TerminalApp {
       const ack = await this.client.setModel(providerId, modelId, reasoningEffort);
       this.dispatch({ type: 'commandPanelClosed', output: ack.message ?? `Set model to ${modelId}` });
       this.dispatch({ type: 'sessionState', session: await this.client.currentSession() });
+    } catch (error) {
+      this.dispatch({ type: 'notice', message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private async cancelTurn(): Promise<void> {
+    try {
+      const ack = await this.client.cancelTurn();
+      if (ack.message && !ack.accepted) {
+        this.dispatch({ type: 'notice', message: ack.message });
+      }
     } catch (error) {
       this.dispatch({ type: 'notice', message: error instanceof Error ? error.message : String(error) });
     }

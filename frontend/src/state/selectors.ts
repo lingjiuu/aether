@@ -5,7 +5,7 @@ export function selectTurns(state: AppState) {
 }
 
 export function selectIsRunning(state: AppState): boolean {
-  return selectTurns(state).some(turn => turn.status === 'RUNNING');
+  return state.session.status === 'RUNNING' || selectTurns(state).some(turn => turn.status === 'RUNNING');
 }
 
 export function selectStatusText(state: AppState): string {

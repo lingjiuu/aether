@@ -26,6 +26,10 @@ public class TaskRunner {
                 .unstarted(() -> {
                     try {
                         body.run();
+                    } catch (Throwable t) {
+                        if (!cancellationSource.token().isCancellationRequested()) {
+                            throw t;
+                        }
                     } finally {
                         clearIfCurrent(Thread.currentThread());
                     }
