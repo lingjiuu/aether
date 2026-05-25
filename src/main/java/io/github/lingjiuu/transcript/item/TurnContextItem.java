@@ -1,6 +1,6 @@
 package io.github.lingjiuu.transcript.item;
 
-import io.github.lingjiuu.context.InitialContextSnapshot;
+import io.github.lingjiuu.context.EnvironmentContext;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -16,7 +16,7 @@ public class TurnContextItem implements TranscriptItem {
 
     private int turn;
 
-    private InitialContextSnapshot initialContextBaseline;
+    private EnvironmentContext initialContextBaseline;
 
     @Override
     public TranscriptItemType type() {

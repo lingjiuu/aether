@@ -1,6 +1,6 @@
 package io.github.lingjiuu.session;
 
-import io.github.lingjiuu.context.InitialContextSnapshot;
+import io.github.lingjiuu.context.EnvironmentContext;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.skill.SkillsManager;
@@ -21,7 +21,7 @@ public class SessionBuilder {
     private SessionMetaItem sessionMeta;
     private String sessionName;
     private boolean recordSessionMeta;
-    private InitialContextSnapshot initialContextBaseline;
+    private EnvironmentContext initialContextBaseline;
     private SkillsManager skillsManager;
     private List<UiEvent> initialTimelineEvents = List.of();
     private long initialEventSequence;
@@ -66,7 +66,7 @@ public class SessionBuilder {
         return this;
     }
 
-    public SessionBuilder initialContextBaseline(InitialContextSnapshot initialContextBaseline) {
+    public SessionBuilder initialContextBaseline(EnvironmentContext initialContextBaseline) {
         this.initialContextBaseline = initialContextBaseline;
         return this;
     }

@@ -188,12 +188,12 @@ public class RegularTask implements SessionTask {
     }
 
     private void completeTextItem(Session session, TurnContext turnContext, AssistantStreamEvent event) {
-        AssistantMessage assistantItem = session.contextBuilder().assistantTextItem(
+        AssistantMessage assistantMessage = session.contextBuilder().assistantTextMessage(
                 event.getPartial(),
                 event.getContent(),
                 event.getProviderState()
         );
-        session.recordAssistant(assistantItem, turnContext);
+        session.recordAssistant(assistantMessage, turnContext);
         session.events().emit(UiEvents.itemCompleted(
                 turnContext,
                 UiItemKind.ASSISTANT_TEXT,
@@ -206,12 +206,12 @@ public class RegularTask implements SessionTask {
     }
 
     private void completeThinkingItem(Session session, TurnContext turnContext, AssistantStreamEvent event) {
-        AssistantMessage assistantItem = session.contextBuilder().assistantThinkingItem(
+        AssistantMessage assistantMessage = session.contextBuilder().assistantThinkingMessage(
                 event.getPartial(),
                 event.getContent(),
                 event.getProviderState()
         );
-        session.recordAssistant(assistantItem, turnContext);
+        session.recordAssistant(assistantMessage, turnContext);
         session.events().emit(UiEvents.itemCompleted(
                 turnContext,
                 UiItemKind.REASONING,
@@ -234,12 +234,12 @@ public class RegularTask implements SessionTask {
             return;
         }
 
-        AssistantMessage assistantItem = session.contextBuilder().assistantToolCallItem(
+        AssistantMessage assistantMessage = session.contextBuilder().assistantToolCallMessage(
                 event.getPartial(),
                 event.getToolCall(),
                 event.getProviderState()
         );
-        session.recordAssistant(assistantItem, turnContext);
+        session.recordAssistant(assistantMessage, turnContext);
         session.events().emit(UiEvents.toolArgumentsDone(
                 turnContext,
                 event.getItemId(),
@@ -256,7 +256,7 @@ public class RegularTask implements SessionTask {
                 session.toolRegistry().findDefinition(event.getToolName()),
                 event.getToolCall().getArgumentsJson()
         ));
-        toolScope.fork(assistantItem, new ToolCallRef(
+        toolScope.fork(assistantMessage, new ToolCallRef(
                 event.getItemId(),
                 event.getContentIndex(),
                 event.getToolCall()

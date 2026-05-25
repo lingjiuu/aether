@@ -23,18 +23,17 @@ import java.util.Set;
 public class ContextManager {
 
     private static final String MISSING_TOOL_RESULT_TEXT = "aborted";
+    private static final int MAX_TOOL_RESULT_CHARS = 16_000;
     private static final String IMAGE_CONTENT_OMITTED_PLACEHOLDER =
             "image content omitted because you do not support image input";
 
     private final List<Message> messages = new ArrayList<>();
-    private final ContextPolicy policy;
 
     public ContextManager() {
-        this(ContextPolicy.defaults(), List.of());
+        this(List.of());
     }
 
-    public ContextManager(ContextPolicy policy, Collection<? extends Message> initialMessages) {
-        this.policy = policy == null ? ContextPolicy.defaults() : policy;
+    public ContextManager(Collection<? extends Message> initialMessages) {
         recordAll(initialMessages);
     }
 
@@ -87,10 +86,6 @@ public class ContextManager {
         return stripImagesWhenUnsupported(withoutOrphanToolResults, inputModalities);
     }
 
-    public ContextPolicy policy() {
-        return policy;
-    }
-
     public synchronized long estimateTokensForModel(String baseInstructions) {
         long chars = visibleChars(baseInstructions);
         for (Message message : messages) {
@@ -127,11 +122,11 @@ public class ContextManager {
         }
 
         String text = MessageContents.text(toolResultMessage);
-        if (text == null || text.length() <= policy.maxToolResultChars()) {
+        if (text == null || text.length() <= MAX_TOOL_RESULT_CHARS) {
             return message;
         }
 
-        String truncatedText = text.substring(0, policy.maxToolResultChars())
+        String truncatedText = text.substring(0, MAX_TOOL_RESULT_CHARS)
                 + "\n\n[tool result truncated by context policy]";
         List<MessageContent> contents = List.of(TextContent.builder()
                 .text(truncatedText)

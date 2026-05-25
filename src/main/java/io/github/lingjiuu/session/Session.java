@@ -11,7 +11,7 @@ import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.agent.turn.TurnId;
 import io.github.lingjiuu.context.ContextBuilder;
 import io.github.lingjiuu.context.ContextManager;
-import io.github.lingjiuu.context.InitialContextSnapshot;
+import io.github.lingjiuu.context.EnvironmentContext;
 import io.github.lingjiuu.event.EventManager;
 import io.github.lingjiuu.event.EventSink;
 import io.github.lingjiuu.event.EventSubscription;
@@ -90,7 +90,7 @@ public class Session implements AutoCloseable {
             SessionMetaItem sessionMeta,
             String sessionName,
             boolean recordSessionMeta,
-            InitialContextSnapshot initialContextBaseline,
+            EnvironmentContext initialContextBaseline,
             SkillsManager skillsManager,
             List<UiEvent> initialTimelineEvents,
             long initialEventSequence
@@ -103,7 +103,7 @@ public class Session implements AutoCloseable {
         }
         this.config = config;
         this.state = new SessionState(sessionId);
-        this.contextManager = new ContextManager(null, initialMessages);
+        this.contextManager = new ContextManager(initialMessages);
         this.toolRegistry = toolRegistry;
         this.skillsManager = skillsManager == null ? SkillsManager.empty(config.cwd()) : skillsManager;
         this.activeToolNames = config.activeToolNames();
@@ -381,9 +381,6 @@ public class Session implements AutoCloseable {
     }
 
     public boolean shouldAutoCompact() {
-        if (!contextManager.policy().autoCompactEnabled()) {
-            return false;
-        }
         Long limit = autoCompactTokenLimit();
         return limit != null
                 && limit > 0
@@ -501,17 +498,18 @@ public class Session implements AutoCloseable {
     }
 
     public void recordInitialContextIfChanged(TurnContext turnContext) {
-        InitialContextSnapshot previous = state.initialContextBaseline();
-        InitialContextSnapshot current = contextBuilder.initialContextSnapshot(config, turnContext);
-        contextBuilder.initialContextMessages(previous, current)
-                .forEach(message -> recordContextMessage(message, turnContext));
+        EnvironmentContext previous = state.initialContextBaseline();
+        EnvironmentContext current = environmentContext(turnContext);
+        List<EnvironmentContext.Field> fields = current.diffFields(previous);
+        if (!fields.isEmpty()) {
+            recordContextMessage(contextBuilder.environmentContextMessage(fields), turnContext);
+        }
         state.setInitialContextBaseline(current);
         recordTurnContextBaseline(turnContext, current);
     }
 
     public List<ContextMessage> fullInitialContextMessages(TurnContext turnContext) {
-        InitialContextSnapshot current = contextBuilder.initialContextSnapshot(config, turnContext);
-        return contextBuilder.fullInitialContextMessages(current);
+        return List.of(contextBuilder.environmentContextMessage(environmentContext(turnContext).fullFields()));
     }
 
     public void clearInitialContextBaseline() {
@@ -519,14 +517,14 @@ public class Session implements AutoCloseable {
     }
 
     public void markInitialContextBaseline(TurnContext turnContext) {
-        InitialContextSnapshot current = contextBuilder.initialContextSnapshot(config, turnContext);
+        EnvironmentContext current = environmentContext(turnContext);
         state.setInitialContextBaseline(current);
         recordTurnContextBaseline(turnContext, current);
     }
 
     private void recordTurnContextBaseline(
             TurnContext turnContext,
-            InitialContextSnapshot initialContextBaseline
+            EnvironmentContext initialContextBaseline
     ) {
         if (turnContext == null || initialContextBaseline == null) {
             return;
@@ -536,6 +534,12 @@ public class Session implements AutoCloseable {
                 .turn(turnContext.turn())
                 .initialContextBaseline(initialContextBaseline)
                 .build());
+    }
+
+    private EnvironmentContext environmentContext(TurnContext turnContext) {
+        return EnvironmentContext.from(turnContext != null && turnContext.cwd() != null
+                ? turnContext.cwd()
+                : config.cwd());
     }
 
     public AssistantMessage sampleModel(

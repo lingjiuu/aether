@@ -7,37 +7,41 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-public record EnvironmentContext(Path cwd, LocalDate currentDate, ZoneId timezone) {
+public record EnvironmentContext(Path cwd, String shell, LocalDate currentDate, ZoneId timezone) {
 
     public static EnvironmentContext from(Path cwd) {
         ZoneId timezone = ZoneId.systemDefault();
-        return new EnvironmentContext(normalize(cwd), LocalDate.now(timezone), timezone);
+        return new EnvironmentContext(normalize(cwd), defaultShell(), LocalDate.now(timezone), timezone);
     }
 
-    public List<String> fullLines() {
+    public List<Field> fullFields() {
         return List.of(
-                "- cwd: " + renderPath(cwd),
-                "- current_date: " + currentDate,
-                "- timezone: " + timezone.getId()
+                new Field("cwd", renderPath(cwd)),
+                new Field("shell", nullToDefault(shell, "sh")),
+                new Field("current_date", currentDate == null ? "" : currentDate.toString()),
+                new Field("timezone", timezone == null ? "" : timezone.getId())
         );
     }
 
-    public List<String> diffLines(EnvironmentContext previous) {
+    public List<Field> diffFields(EnvironmentContext previous) {
         if (previous == null) {
-            return fullLines();
+            return fullFields();
         }
 
-        List<String> lines = new ArrayList<>();
+        List<Field> fields = new ArrayList<>();
         if (!Objects.equals(cwd, previous.cwd())) {
-            lines.add("- cwd: " + renderPath(cwd));
+            fields.add(new Field("cwd", renderPath(cwd)));
+        }
+        if (!Objects.equals(shell, previous.shell())) {
+            fields.add(new Field("shell", nullToDefault(shell, "sh")));
         }
         if (!Objects.equals(currentDate, previous.currentDate())) {
-            lines.add("- current_date: " + currentDate);
+            fields.add(new Field("current_date", currentDate == null ? "" : currentDate.toString()));
         }
         if (!Objects.equals(timezone, previous.timezone())) {
-            lines.add("- timezone: " + timezone.getId());
+            fields.add(new Field("timezone", timezone == null ? "" : timezone.getId()));
         }
-        return lines;
+        return fields;
     }
 
     private static Path normalize(Path path) {
@@ -46,5 +50,22 @@ public record EnvironmentContext(Path cwd, LocalDate currentDate, ZoneId timezon
 
     private static String renderPath(Path path) {
         return path == null ? "<unknown>" : path.toString();
+    }
+
+    private static String defaultShell() {
+        String shell = System.getenv("SHELL");
+        if (shell == null || shell.isBlank()) {
+            return "sh";
+        }
+        Path shellPath = Path.of(shell);
+        Path fileName = shellPath.getFileName();
+        return fileName == null ? shell : fileName.toString();
+    }
+
+    private static String nullToDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    public record Field(String name, String value) {
     }
 }

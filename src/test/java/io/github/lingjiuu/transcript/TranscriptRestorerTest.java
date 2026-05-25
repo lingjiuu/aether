@@ -1,7 +1,6 @@
 package io.github.lingjiuu.transcript;
 
 import io.github.lingjiuu.context.EnvironmentContext;
-import io.github.lingjiuu.context.InitialContextSnapshot;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
@@ -25,8 +24,8 @@ public class TranscriptRestorerTest extends TestCase {
     public void testRestoreUsesLatestCompactionCheckpointAndReplaysSuffix() throws Exception {
         String sessionId = UUID.randomUUID().toString();
         TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-transcript-test"));
-        InitialContextSnapshot oldBaseline = snapshot("/tmp/old");
-        InitialContextSnapshot restoredBaseline = snapshot("/tmp/new");
+        EnvironmentContext oldBaseline = environmentContext("/tmp/old");
+        EnvironmentContext restoredBaseline = environmentContext("/tmp/new");
 
         append(store, sessionId, messageItem("old message"), 1);
         append(store, sessionId, turnContextItem("turn-1", 1, oldBaseline), 1);
@@ -46,7 +45,7 @@ public class TranscriptRestorerTest extends TestCase {
         String sessionId = UUID.randomUUID().toString();
         TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-transcript-test"));
 
-        append(store, sessionId, turnContextItem("turn-1", 1, snapshot("/tmp/old")), 1);
+        append(store, sessionId, turnContextItem("turn-1", 1, environmentContext("/tmp/old")), 1);
         append(store, sessionId, compactedItem("summary", List.of(userMessage("summary message"))), 2);
 
         TranscriptReconstruction reconstruction = new TranscriptRestorer(store).restore(sessionId);
@@ -91,7 +90,7 @@ public class TranscriptRestorerTest extends TestCase {
     private TurnContextItem turnContextItem(
             String turnId,
             int turn,
-            InitialContextSnapshot initialContextBaseline
+            EnvironmentContext initialContextBaseline
     ) {
         return TurnContextItem.builder()
                 .turnId(turnId)
@@ -120,12 +119,13 @@ public class TranscriptRestorerTest extends TestCase {
                 .build();
     }
 
-    private InitialContextSnapshot snapshot(String cwd) {
-        return new InitialContextSnapshot(new EnvironmentContext(
+    private EnvironmentContext environmentContext(String cwd) {
+        return new EnvironmentContext(
                 Path.of(cwd),
+                "zsh",
                 LocalDate.parse("2026-05-20"),
                 ZoneId.of("UTC")
-        ));
+        );
     }
 
     private void append(

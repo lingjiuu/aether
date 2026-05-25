@@ -1,6 +1,6 @@
 package io.github.lingjiuu.transcript;
 
-import io.github.lingjiuu.context.InitialContextSnapshot;
+import io.github.lingjiuu.context.EnvironmentContext;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
@@ -13,7 +13,7 @@ public record TranscriptReconstruction(
         TranscriptModelSelection modelSelection,
         String sessionName,
         List<Message> messages,
-        InitialContextSnapshot initialContextBaseline,
+        EnvironmentContext initialContextBaseline,
         List<UiEvent> timelineEvents,
         long lastEventSequence,
         String lastRecordId

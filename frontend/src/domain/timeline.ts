@@ -31,6 +31,7 @@ function isInternalContextText(text: string): boolean {
   const trimmed = text.trimStart();
   return trimmed.startsWith('Environment context:')
     || trimmed.startsWith('Environment context update:')
+    || trimmed.startsWith('<environment_context>')
     || trimmed.startsWith('<turn_aborted>')
     || trimmed.startsWith('<skill>');
 }

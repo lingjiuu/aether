@@ -1,6 +1,6 @@
 package io.github.lingjiuu.transcript;
 
-import io.github.lingjiuu.context.InitialContextSnapshot;
+import io.github.lingjiuu.context.EnvironmentContext;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiEventPayloads;
@@ -96,7 +96,7 @@ public class TranscriptRestorer {
     private ReconstructionState reconstructFromLatestCheckpoint(List<TranscriptRecord> records) {
         int compactIndex = latestCompactionIndex(records);
         List<Message> messages = new ArrayList<>();
-        InitialContextSnapshot initialContextBaseline = null;
+        EnvironmentContext initialContextBaseline = null;
         int startIndex = 0;
 
         if (compactIndex >= 0) {
@@ -128,9 +128,9 @@ public class TranscriptRestorer {
         return -1;
     }
 
-    private InitialContextSnapshot replay(
+    private EnvironmentContext replay(
             List<Message> messages,
-            InitialContextSnapshot initialContextBaseline,
+            EnvironmentContext initialContextBaseline,
             TranscriptItem item
     ) {
         if (item instanceof MessageTranscriptItem messageItem) {
@@ -185,7 +185,7 @@ public class TranscriptRestorer {
 
     private record ReconstructionState(
             List<Message> messages,
-            InitialContextSnapshot initialContextBaseline
+            EnvironmentContext initialContextBaseline
     ) {
     }
 }

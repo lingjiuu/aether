@@ -125,6 +125,34 @@ describe('transcript renderer', () => {
     expect(text).not.toContain('The previous turn was interrupted by the user.');
     expect(text).toContain('✻ Worked interrupted');
   });
+
+  it('does not render environment context guidance', () => {
+    const state = reducer(initialState, {
+      type: 'history',
+      history: {
+        sessionId: 'session-1',
+        turns: [
+          {
+            turnId: 'turn-1',
+            status: 'COMPLETED',
+            items: [
+              {
+                id: 'context-1',
+                kind: 'CONTEXT_MESSAGE',
+                status: 'COMPLETED',
+                text: '<environment_context>\n  <cwd>/tmp/aether</cwd>\n</environment_context>',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const view = renderView(state);
+    const text = [...historyLines(view), ...activeLines(view)].map(stripAnsi).join('\n');
+
+    expect(text).not.toContain('<environment_context>');
+    expect(text).not.toContain('/tmp/aether');
+  });
 });
 
 function assistantHistory(
