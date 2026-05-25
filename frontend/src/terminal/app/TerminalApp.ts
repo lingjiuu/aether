@@ -136,9 +136,6 @@ export class TerminalApp {
     try {
       const ack = await this.client.setModel(providerId, modelId, reasoningEffort);
       this.dispatch({ type: 'commandPanelClosed', output: ack.message ?? `Set model to ${modelId}` });
-      if (ack.message) {
-        this.dispatch({ type: 'notice', message: ack.message });
-      }
       this.dispatch({ type: 'sessionState', session: await this.client.currentSession() });
     } catch (error) {
       this.dispatch({ type: 'notice', message: error instanceof Error ? error.message : String(error) });
