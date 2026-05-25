@@ -6,6 +6,7 @@ import io.github.lingjiuu.event.EventSubscription;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.TokenUsage;
 import io.github.lingjiuu.llm.TokenUsageInfo;
+import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiEventPage;
@@ -106,7 +107,8 @@ public class Aether implements AutoCloseable {
 
     public UiSessionState currentSessionState() {
         Session session = currentSession();
-        LlmModel model = session.activeModelSelection() == null ? null : session.activeModelSelection().model();
+        ModelSelection selection = session.activeModelSelection();
+        LlmModel model = selection == null ? null : selection.model();
         UiSessionSummary summary = new UiSessionSummary(
                 session.sessionId(),
                 session.sessionName(),
@@ -126,6 +128,7 @@ public class Aether implements AutoCloseable {
                 session.canContinue(),
                 session.activeToolNames(),
                 summary,
+                reasoningEffort(selection),
                 tokenUsage(session)
         );
     }
@@ -196,6 +199,12 @@ public class Aether implements AutoCloseable {
     private Long autoCompactTokenLimit(Session session) {
         LlmModel model = session.activeModelSelection() == null ? null : session.activeModelSelection().model();
         return model == null ? null : model.resolvedAutoCompactTokenLimit();
+    }
+
+    private String reasoningEffort(ModelSelection selection) {
+        return selection == null || selection.reasoning() == null || selection.reasoning().getReasoningEffort() == null
+                ? null
+                : selection.reasoning().getReasoningEffort().name();
     }
 
     private void dispatch(UiEvent event) {

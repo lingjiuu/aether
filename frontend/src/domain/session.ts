@@ -8,6 +8,7 @@ export type SessionView = {
   name?: string;
   cwd?: string;
   model?: string;
+  reasoningEffort?: string;
   messageCount: number;
   availableSkillCount: number;
   canContinue: boolean;
@@ -23,6 +24,7 @@ export function sessionViewFromWire(session?: UiSessionState | null): Partial<Se
     name: session?.summary?.name ?? undefined,
     cwd: session?.summary?.cwd ?? undefined,
     model: [modelProvider, modelId].filter(Boolean).join('/') || undefined,
+    reasoningEffort: session?.reasoningEffort ?? undefined,
     messageCount: session?.messageCount ?? 0,
     availableSkillCount: session?.availableSkillCount ?? 0,
     canContinue: Boolean(session?.canContinue),

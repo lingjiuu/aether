@@ -64,6 +64,8 @@ public class StdioAetherServerTest extends TestCase {
         assertEquals(0, currentSession.get("result").get("messageCount").asInt());
         assertEquals("fake", currentSession.get("result").get("summary").get("modelProvider").asText());
         assertEquals("fake-model", currentSession.get("result").get("summary").get("modelId").asText());
+        assertTrue(currentSession.get("result").has("reasoningEffort"));
+        assertTrue(currentSession.get("result").get("reasoningEffort").isNull());
         assertEquals(100000L, currentSession.get("result").get("tokenUsage").get("modelContextWindow").asLong());
     }
 
@@ -147,6 +149,18 @@ public class StdioAetherServerTest extends TestCase {
         assertEquals("1", response.get("id").asText());
         assertEquals(-32602, response.get("error").get("code").asInt());
         assertTrue(response.get("error").get("message").asText().contains("modelId"));
+    }
+
+    public void testSessionCurrentIncludesReasoningEffortAfterModelSet() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-stdio-reasoning-test");
+        String output = runServer(tempDir, """
+                {"id":"1","method":"model/set","params":{"providerId":"fake","modelId":"fake-model","reasoningEffort":"HIGH"}}
+                {"id":"2","method":"session/current"}
+                """);
+
+        JsonNode currentSession = responseById(output, "2");
+        assertEquals("2", currentSession.get("id").asText());
+        assertEquals("HIGH", currentSession.get("result").get("reasoningEffort").asText());
     }
 
     public void testSkillsListCanForceReloadFromDisk() throws Exception {
@@ -245,6 +259,16 @@ public class StdioAetherServerTest extends TestCase {
 
                 # Skill
                 """.formatted(name, description));
+    }
+
+    private JsonNode responseById(String output, String id) throws Exception {
+        for (String line : output.lines().toList()) {
+            JsonNode response = objectMapper.readTree(line);
+            if (id.equals(response.path("id").asText(null))) {
+                return response;
+            }
+        }
+        throw new AssertionError("missing response id=" + id + " in output:\n" + output);
     }
 
     private static final class NoopProvider implements Provider {

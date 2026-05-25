@@ -10,6 +10,7 @@ public record UiSessionState(
         boolean canContinue,
         List<String> activeToolNames,
         UiSessionSummary summary,
+        String reasoningEffort,
         UiTokenUsage tokenUsage
 ) {
 

@@ -251,6 +251,7 @@ export type UiSessionState = {
   canContinue?: boolean;
   activeToolNames?: string[] | null;
   summary?: UiSessionSummary | null;
+  reasoningEffort?: string | null;
   tokenUsage?: UiTokenUsage | null;
 };
 

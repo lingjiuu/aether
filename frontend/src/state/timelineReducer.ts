@@ -63,7 +63,15 @@ export function applyEvent(state: AppState, event: UiEvent): AppState {
     case 'MODEL_CHANGED': {
       const modelSelection = payload(event, 'modelSelection')?.modelSelection;
       const model = [modelSelection?.providerId, modelSelection?.modelId].filter(Boolean).join('/') || state.session.model;
-      return { ...state, session: { ...state.session, model }, lastSequence };
+      return {
+        ...state,
+        session: {
+          ...state.session,
+          model,
+          reasoningEffort: modelSelection?.reasoningEffort ?? state.session.reasoningEffort,
+        },
+        lastSequence,
+      };
     }
     case 'APPROVAL_REQUESTED': {
       const data = payload(event, 'approval');

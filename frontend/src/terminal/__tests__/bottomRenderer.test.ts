@@ -55,6 +55,75 @@ describe('bottom renderer', () => {
     expect(suggestionIndex).toBeGreaterThan(promptIndex);
   });
 
+  it('hides the footer while slash command suggestions are open', () => {
+    const home = process.env.HOME ?? '/Users/Apple';
+    const state = reducer(
+      {
+        ...initialState,
+        session: {
+          ...initialState.session,
+          model: 'gpt-5.5',
+          reasoningEffort: 'HIGH',
+          cwd: `${home}/code/MyProjects/test0`,
+        },
+      },
+      { type: 'composerChanged', value: '/' },
+    );
+    const view = renderView(state, { columns: 100, rows: 30, composerCursorOffset: 1 });
+    const text = activeLines(view).map(stripAnsi).join('\n');
+
+    expect(text).toContain('/model');
+    expect(text).not.toContain('gpt-5.5 high · ~/code/MyProjects/test0');
+  });
+
+  it('renders model and cwd in the footer instead of shortcuts', () => {
+    const home = process.env.HOME ?? '/Users/Apple';
+    const state: AppState = {
+      ...initialState,
+      session: {
+        ...initialState.session,
+        model: 'ikun-openai/gpt-5.5',
+        reasoningEffort: 'HIGH',
+        cwd: `${home}/code/MyProjects/test0`,
+      },
+    };
+
+    const view = renderView(state, { columns: 100, rows: 30 });
+    const text = activeLines(view).map(stripAnsi).join('\n');
+
+    expect(text).toContain('gpt-5.5 high · ~/code/MyProjects/test0');
+    expect(text).not.toContain('ikun-openai/gpt-5.5');
+    expect(text).not.toContain('? for shortcuts');
+  });
+
+  it('renders transient footer status on the right without replacing model context', () => {
+    const home = process.env.HOME ?? '/Users/Apple';
+    const state: AppState = {
+      ...initialState,
+      session: {
+        ...initialState.session,
+        model: 'ikun-openai/gpt-5.4-mini',
+        reasoningEffort: 'XHIGH',
+        cwd: `${home}/code/MyProjects/test0`,
+      },
+      turns: {
+        running: {
+          turnId: 'running',
+          status: 'RUNNING',
+          items: [],
+        },
+      },
+      turnOrder: ['running'],
+    };
+
+    const view = renderView(state, { columns: 100, rows: 30 });
+    const footer = activeLines(view).map(stripAnsi).at(-1) ?? '';
+
+    expect(footer).toContain('gpt-5.4-mini xhigh · ~/code/MyProjects/test0');
+    expect(footer).toContain('esc to interrupt');
+    expect(footer.indexOf('esc to interrupt')).toBeGreaterThan(footer.indexOf('~/code/MyProjects/test0'));
+  });
+
   it('renders approval requests as a focused choice panel', () => {
     const state: AppState = {
       ...initialState,
