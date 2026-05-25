@@ -129,9 +129,6 @@ export class TerminalApp {
       } else {
         this.dispatch({ type: 'commandPanelClosed', output: ack.message ?? `Resumed ${sessionId}` });
       }
-      if (ack.message) {
-        this.dispatch({ type: 'notice', message: ack.message });
-      }
       this.dispatch({ type: 'sessionState', session: await this.client.currentSession() });
     } catch (error) {
       this.dispatch({ type: 'notice', message: error instanceof Error ? error.message : String(error) });

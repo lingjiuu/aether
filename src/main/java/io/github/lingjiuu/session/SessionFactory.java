@@ -25,6 +25,7 @@ import io.github.lingjiuu.tool.tools.ReadTool;
 import io.github.lingjiuu.tool.tools.WriteTool;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import io.github.lingjiuu.transcript.TranscriptReconstruction;
+import io.github.lingjiuu.transcript.TranscriptModelSelection;
 import io.github.lingjiuu.transcript.TranscriptRestorer;
 import io.github.lingjiuu.transcript.TranscriptStore;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
@@ -209,8 +210,8 @@ public class SessionFactory {
         }
 
         TranscriptReconstruction reconstruction = new TranscriptRestorer(config.transcriptStore()).restore(sessionId);
-        SessionBundle bundle = sessionBundle(resumeOptions(reconstruction));
-        validateResumeMetadata(reconstruction, bundle.config());
+        validateResumeMetadata(reconstruction);
+        SessionBundle bundle = resumeSessionBundle(sessionId, resumeOptions(reconstruction));
         return new SessionBuilder()
                 .config(bundle.config())
                 .toolRegistry(buildToolRegistry(bundle.config()))
@@ -271,27 +272,70 @@ public class SessionFactory {
     }
 
     private SessionBundle sessionBundle(SessionOptions options) {
+        ModelSelection selection = modelSelection(options);
         if (!workspaceConfigurable) {
-            return new SessionBundle(config, skillsManager);
+            return new SessionBundle(config.withModelSelection(selection), skillsManager);
         }
         Path cwd = options == null || options.cwd() == null ? config.cwd() : options.cwd();
         return buildWorkspaceBundle(
                 config.llmClient(),
-                config.model(),
-                config.requestAuth(),
-                config.reasoning(),
+                selection.model(),
+                selection.auth(),
+                selection.reasoning(),
                 config.transcriptStore(),
                 cwd,
                 agentDir
         );
     }
 
+    private SessionBundle resumeSessionBundle(String sessionId, SessionOptions options) {
+        try {
+            return sessionBundle(options);
+        } catch (AetherConfigException e) {
+            throw new IllegalStateException("Cannot resume session " + sessionId + ": " + e.getMessage(), e);
+        }
+    }
+
+    private ModelSelection modelSelection(SessionOptions options) {
+        if (!hasModelSelection(options)) {
+            return config.modelSelection();
+        }
+        String provider = firstNonBlank(options.modelProvider(), config.model() == null ? null : config.model().getProvider());
+        String modelId = firstNonBlank(options.modelId(), config.model() == null ? null : config.model().getId());
+        if (aetherConfig != null) {
+            return resolveModelSelection(
+                    aetherConfig,
+                    provider,
+                    modelId,
+                    options.reasoningEffort()
+            );
+        }
+        return resolveConfiguredModelSelection(
+                provider,
+                modelId,
+                options.reasoningEffort()
+        );
+    }
+
+    private boolean hasModelSelection(SessionOptions options) {
+        return options != null
+                && (!isBlank(options.modelProvider())
+                || !isBlank(options.modelId())
+                || !isBlank(options.reasoningEffort()));
+    }
+
     private SessionOptions resumeOptions(TranscriptReconstruction reconstruction) {
         SessionMetaItem meta = reconstruction == null ? null : reconstruction.sessionMeta();
-        if (meta == null || meta.getCwd() == null || meta.getCwd().isBlank()) {
-            return SessionOptions.defaults();
-        }
-        return SessionOptions.cwd(Path.of(meta.getCwd()));
+        TranscriptModelSelection selection = reconstruction == null ? null : reconstruction.modelSelection();
+        Path cwd = meta == null || meta.getCwd() == null || meta.getCwd().isBlank()
+                ? null
+                : Path.of(meta.getCwd());
+        return SessionOptions.resume(
+                cwd,
+                selection == null ? null : selection.providerId(),
+                selection == null ? null : selection.modelId(),
+                selection == null ? null : selection.reasoningEffort()
+        );
     }
 
     private ToolRegistry buildToolRegistry(SessionConfig config) {
@@ -573,6 +617,7 @@ public class SessionFactory {
                 .modelBaseUrl(model == null ? null : model.getBaseUrl())
                 .modelContextWindowTokens(model == null ? null : model.getContextWindowTokens())
                 .modelAutoCompactTokenLimit(model == null ? null : model.getAutoCompactTokenLimit())
+                .reasoningEffort(reasoningEffort(config.reasoning()))
                 .systemPromptHash(systemPromptHash)
                 .activeToolNames(activeTools)
                 .configFingerprint(configFingerprint(config, systemPromptHash, activeTools))
@@ -590,42 +635,29 @@ public class SessionFactory {
         joiner.add("modelBaseUrl=" + nullToEmpty(model == null ? null : model.getBaseUrl()));
         joiner.add("modelContextWindowTokens=" + nullToEmpty(model == null ? null : String.valueOf(model.getContextWindowTokens())));
         joiner.add("modelAutoCompactTokenLimit=" + nullToEmpty(model == null ? null : String.valueOf(model.getAutoCompactTokenLimit())));
+        joiner.add("reasoningEffort=" + nullToEmpty(reasoningEffort(config.reasoning())));
         joiner.add("systemPromptHash=" + nullToEmpty(systemPromptHash));
         joiner.add("activeToolNames=" + String.join(",", activeToolNames == null ? List.of() : activeToolNames));
         return sha256(joiner.toString());
     }
 
-    private void validateResumeMetadata(TranscriptReconstruction reconstruction, SessionConfig config) {
+    private void validateResumeMetadata(TranscriptReconstruction reconstruction) {
         SessionMetaItem actual = reconstruction.sessionMeta();
         if (actual == null) {
             throw new IllegalStateException("Cannot resume session " + reconstruction.sessionId() + " because transcript has no session metadata.");
         }
-
-        SessionMetaItem expected = buildSessionMeta(reconstruction.sessionId(), config);
-        List<String> differences = new ArrayList<>();
-        compare(differences, "sessionId", actual.getSessionId(), expected.getSessionId());
-        compare(differences, "cwd", actual.getCwd(), expected.getCwd());
-        compare(differences, "modelProvider", actual.getModelProvider(), expected.getModelProvider());
-        compare(differences, "modelId", actual.getModelId(), expected.getModelId());
-        compare(differences, "modelApi", actual.getModelApi(), expected.getModelApi());
-        compare(differences, "modelBaseUrl", actual.getModelBaseUrl(), expected.getModelBaseUrl());
-        compare(differences, "modelContextWindowTokens", actual.getModelContextWindowTokens(), expected.getModelContextWindowTokens());
-        compare(differences, "modelAutoCompactTokenLimit", actual.getModelAutoCompactTokenLimit(), expected.getModelAutoCompactTokenLimit());
-        compare(differences, "systemPromptHash", actual.getSystemPromptHash(), expected.getSystemPromptHash());
-        compare(differences, "activeToolNames", actual.getActiveToolNames(), expected.getActiveToolNames());
-        compare(differences, "configFingerprint", actual.getConfigFingerprint(), expected.getConfigFingerprint());
-        if (!differences.isEmpty()) {
+        if (actual.getSessionId() != null && !Objects.equals(actual.getSessionId(), reconstruction.sessionId())) {
             throw new IllegalStateException(
-                    "Cannot resume session " + reconstruction.sessionId() + " because transcript metadata does not match current session config:\n- "
-                            + String.join("\n- ", differences)
+                    "Cannot resume session " + reconstruction.sessionId() + " because transcript metadata belongs to session "
+                            + actual.getSessionId() + "."
             );
         }
     }
 
-    private void compare(List<String> differences, String field, Object actual, Object expected) {
-        if (!Objects.equals(actual, expected)) {
-            differences.add(field + " transcript=" + actual + " current=" + expected);
-        }
+    private static String reasoningEffort(ReasoningOptions reasoning) {
+        return reasoning == null || reasoning.getReasoningEffort() == null
+                ? null
+                : reasoning.getReasoningEffort().name();
     }
 
     private String aetherVersion() {

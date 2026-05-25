@@ -146,6 +146,7 @@ public class EventManager implements AutoCloseable {
                     ITEM_COMPLETED,
                     TOOL_RESULT,
                     TOKEN_USAGE,
+                    MODEL_CHANGED,
                     COMPACT_FINISHED,
                     COMPACT_SKIPPED,
                     SESSION_RESET,
@@ -162,8 +163,7 @@ public class EventManager implements AutoCloseable {
                     TOOL_EXECUTION_END,
                     APPROVAL_REQUESTED,
                     APPROVAL_RESOLVED,
-                    COMPACT_STARTED,
-                    MODEL_CHANGED -> false;
+                    COMPACT_STARTED -> false;
         };
     }
 

@@ -31,6 +31,8 @@ public class SessionMetaItem implements TranscriptItem {
 
     private Long modelAutoCompactTokenLimit;
 
+    private String reasoningEffort;
+
     private String systemPromptHash;
 
     @Builder.Default

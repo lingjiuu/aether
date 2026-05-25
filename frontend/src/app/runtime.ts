@@ -88,6 +88,8 @@ export async function handleInput(
       const ack = await client.resume(command.sessionId);
       if (ack.history) {
         dispatch({ type: 'history', history: ack.history });
+      } else if (ack.message) {
+        recordLocalCommand(input, ack.message, dispatch);
       }
       dispatch({ type: 'sessionState', session: await client.currentSession() });
       break;

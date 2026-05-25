@@ -3,6 +3,9 @@ package io.github.lingjiuu.transcript;
 import io.github.lingjiuu.context.InitialContextSnapshot;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.protocol.UiEvent;
+import io.github.lingjiuu.protocol.UiEventPayloads;
+import io.github.lingjiuu.protocol.UiEventType;
+import io.github.lingjiuu.protocol.UiModelSelection;
 import io.github.lingjiuu.transcript.item.CompactedTranscriptItem;
 import io.github.lingjiuu.transcript.item.EventTranscriptItem;
 import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
@@ -50,6 +53,7 @@ public class TranscriptRestorer {
         return new TranscriptReconstruction(
                 sessionId,
                 sessionMeta,
+                latestModelSelection(records, sessionMeta),
                 sessionName == null ? null : sessionName.getName(),
                 state.messages(),
                 state.initialContextBaseline(),
@@ -57,6 +61,36 @@ public class TranscriptRestorer {
                 lastEventSequence(timelineEvents),
                 lastRecordId
         );
+    }
+
+    private TranscriptModelSelection latestModelSelection(List<TranscriptRecord> records, SessionMetaItem sessionMeta) {
+        TranscriptModelSelection selection = sessionMeta == null
+                ? null
+                : new TranscriptModelSelection(
+                        sessionMeta.getModelProvider(),
+                        sessionMeta.getModelId(),
+                        sessionMeta.getReasoningEffort()
+                );
+        for (TranscriptRecord record : records) {
+            if (!(record.getItem() instanceof EventTranscriptItem eventItem)) {
+                continue;
+            }
+            UiEvent event = eventItem.getEvent();
+            if (event == null || event.getType() != UiEventType.MODEL_CHANGED) {
+                continue;
+            }
+            if (event.getPayload() instanceof UiEventPayloads.ModelSelection modelPayload) {
+                UiModelSelection modelSelection = modelPayload.modelSelection();
+                if (modelSelection != null) {
+                    selection = new TranscriptModelSelection(
+                            modelSelection.providerId(),
+                            modelSelection.modelId(),
+                            modelSelection.reasoningEffort()
+                    );
+                }
+            }
+        }
+        return selection;
     }
 
     private ReconstructionState reconstructFromLatestCheckpoint(List<TranscriptRecord> records) {
