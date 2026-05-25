@@ -44,6 +44,17 @@ describe('bottom renderer', () => {
     expect(activeLines(view).map(stripAnsi).join('\n')).toContain('❯ /rename [name]');
   });
 
+  it('renders slash command suggestions under the composer', () => {
+    const state = reducer(initialState, { type: 'composerChanged', value: '/' });
+    const view = renderView(state, { columns: 100, rows: 30, composerCursorOffset: 1 });
+    const lines = activeLines(view).map(stripAnsi);
+    const promptIndex = lines.findIndex(renderedLine => renderedLine === '❯ /');
+    const suggestionIndex = lines.findIndex(renderedLine => renderedLine.includes('/new'));
+
+    expect(promptIndex).toBeGreaterThan(-1);
+    expect(suggestionIndex).toBeGreaterThan(promptIndex);
+  });
+
   it('renders approval requests as a focused choice panel', () => {
     const state: AppState = {
       ...initialState,
@@ -81,7 +92,7 @@ describe('bottom renderer', () => {
             { providerId: 'fake', modelId: 'first', name: 'Custom Opus model' },
             { providerId: 'fake', modelId: 'second', name: 'Custom Sonnet model', current: true },
           ],
-          reasoningEfforts: ['LOW', 'HIGH', 'XHIGH'],
+          reasoningEfforts: ['NONE', 'XHIGH', 'HIGH', 'LOW'],
         },
         selectedIndex: 1,
         reasoningIndex: 2,
@@ -95,6 +106,7 @@ describe('bottom renderer', () => {
     expect(text).toContain('Select model');
     expect(text).toContain('❯ 2. fake/second ✔');
     expect(text).toContain('xHigh effort ←/→ to adjust');
+    expect(text).not.toContain('None effort');
     expect(text).toContain('Enter to confirm · Esc to cancel');
   });
 

@@ -75,6 +75,33 @@ describe('CommandPanelController', () => {
     expect(setModel).toHaveBeenCalledWith('fake', 'second', 'LOW');
   });
 
+  it('moves reasoning effort to a larger value with the right arrow', async () => {
+    const state = reducer(initialState, {
+      type: 'commandPanelOpened',
+      panel: {
+        kind: 'model',
+        id: 'model-1',
+        command: '/model',
+        catalog: {
+          current: { providerId: 'fake', modelId: 'first', reasoningEffort: 'HIGH' },
+          models: [{ providerId: 'fake', modelId: 'first', current: true }],
+          reasoningEfforts: ['NONE', 'XHIGH', 'HIGH', 'LOW'],
+        },
+        selectedIndex: 0,
+        reasoningIndex: 2,
+      },
+    });
+    const actions: AppAction[] = [];
+
+    await new CommandPanelController().handleKey({ kind: 'right' }, state, {
+      dispatch: action => actions.push(action),
+      resumeSession: vi.fn(),
+      setModel: vi.fn(),
+    });
+
+    expect(actions).toEqual([{ type: 'commandPanelReasoningMoved', delta: 1, count: 3 }]);
+  });
+
   it('cancels model panels with the current model output', async () => {
     const state = reducer(initialState, {
       type: 'commandPanelOpened',

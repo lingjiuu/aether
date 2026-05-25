@@ -1,6 +1,7 @@
 import type { AetherClient } from '../backend/AetherClient.js';
 import type { AppAction, AppState } from '../state/reducer.js';
 import { parseCommand } from '../protocol/commands.js';
+import { selectableReasoningEfforts } from '../domain/modelCatalog.js';
 import { selectIsRunning } from '../state/selectors.js';
 
 export async function boot(client: AetherClient, dispatch: (action: AppAction) => void): Promise<void> {
@@ -156,7 +157,7 @@ function selectedModelIndex(catalog: ModelCatalog): number {
 }
 
 function selectedReasoningIndex(catalog: ModelCatalog): number {
-  const efforts = catalog.reasoningEfforts ?? [];
+  const efforts = selectableReasoningEfforts(catalog.reasoningEfforts);
   const current = catalog.current?.reasoningEffort;
   const index = efforts.findIndex(effort => effort.toLowerCase() === current?.toLowerCase());
   return Math.max(0, index);

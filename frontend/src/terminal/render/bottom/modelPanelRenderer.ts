@@ -1,4 +1,5 @@
 import type { UiModelInfo, UiModelSelection } from '../../../protocol/wire.js';
+import { selectableReasoningEfforts } from '../../../domain/modelCatalog.js';
 import { accent, bold, dim, success } from '../../shared/ansi.js';
 import { clampIndex } from '../../shared/terminalMath.js';
 import { padPlain, truncatePlain, visualWidth, wrapPlain } from '../../shared/text.js';
@@ -40,8 +41,9 @@ export function renderModelPanel(presentation: TerminalPresentation, width: numb
   }
 
   lines.push(blankLine());
-  if ((panel.catalog.reasoningEfforts ?? []).length) {
-    lines.push(reasoningLine(panel.catalog.reasoningEfforts ?? [], panel.reasoningIndex, width));
+  const efforts = selectableReasoningEfforts(panel.catalog.reasoningEfforts);
+  if (efforts.length) {
+    lines.push(reasoningLine(efforts, panel.reasoningIndex, width));
     lines.push(blankLine());
   }
   lines.push(line(`  ${dim('Enter to confirm · Esc to cancel')}`, '  Enter to confirm · Esc to cancel', width));

@@ -1,4 +1,5 @@
 import { filterSessions } from '../../domain/sessionSummary.js';
+import { selectableReasoningEfforts } from '../../domain/modelCatalog.js';
 import type { AppAction, AppState, CommandPanel } from '../../state/reducer.js';
 import type { Key } from '../input/inputParser.js';
 import { clampIndex } from '../shared/terminalMath.js';
@@ -60,7 +61,7 @@ export class CommandPanelController {
 
   private async handleModelKey(key: Key, panel: Extract<CommandPanel, { kind: 'model' }>, callbacks: CommandPanelCallbacks): Promise<boolean> {
     const models = panel.catalog.models ?? [];
-    const efforts = panel.catalog.reasoningEfforts ?? [];
+    const efforts = selectableReasoningEfforts(panel.catalog.reasoningEfforts);
     switch (key.kind) {
       case 'up':
         callbacks.dispatch({ type: 'commandPanelSelectionMoved', delta: -1, count: models.length });

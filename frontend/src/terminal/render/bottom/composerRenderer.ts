@@ -17,16 +17,6 @@ export function renderComposer(
   const usageWidth = Math.max(0, ...suggestions.map(command => command.usage.length));
   const lines: RenderedLine[] = [];
 
-  if (suggestions.length) {
-    for (const [index, command] of suggestions.entries()) {
-      const marker = index === selectedIndex ? '› ' : '  ';
-      const usage = `${marker}${command.usage.padEnd(usageWidth)}`;
-      const raw = `${usage} ${command.description}`;
-      const styledUsage = index === selectedIndex ? accent(usage) : dim(usage);
-      lines.push(line(`${styledUsage} ${dim(command.description)}`, raw, width));
-    }
-  }
-
   lines.push(separator(width));
   const cursorOffset = clampIndex(composerCursorOffset, value.length + 1);
   const beforeCursor = value.slice(0, cursorOffset);
@@ -36,6 +26,15 @@ export function renderComposer(
   const renderedPromptLine = `${accent(PROMPT)}${beforeCursor}${placeholder ? dim(`[${placeholder}]`) : ''}${afterCursor}`;
   lines.push(line(renderedPromptLine, rawPromptLine, width));
   lines.push(separator(width));
+  if (suggestions.length) {
+    for (const [index, command] of suggestions.entries()) {
+      const marker = index === selectedIndex ? '› ' : '  ';
+      const usage = `${marker}${command.usage.padEnd(usageWidth)}`;
+      const raw = `${usage} ${command.description}`;
+      const styledUsage = index === selectedIndex ? accent(usage) : dim(usage);
+      lines.push(line(`${styledUsage} ${dim(command.description)}`, raw, width));
+    }
+  }
   const cursorX = visualWidth(`${PROMPT}${beforeCursor}`);
-  return block('composer', lines, { x: Math.min(cursorX, width - 1), y: lines.length - 2 });
+  return block('composer', lines, { x: Math.min(cursorX, width - 1), y: 1 });
 }
