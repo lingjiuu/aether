@@ -1,4 +1,3 @@
-import { formatSessionList } from '../domain/sessionSummary.js';
 import type { AppState, CommandPanel, LocalCommandEntry } from './types.js';
 
 export function composerChanged(state: AppState, value: string): AppState {
@@ -81,18 +80,6 @@ export function commandPanelClosed(state: AppState, output: string): AppState {
       id: panel.id,
       command: panel.command,
       output,
-    },
-    undefined,
-  );
-}
-
-export function sessionsListed(state: AppState, sessions: Parameters<typeof formatSessionList>[0]): AppState {
-  return appendLocalCommand(
-    state,
-    {
-      id: localCommandId('sessions'),
-      command: '/sessions',
-      output: formatSessionList(sessions),
     },
     undefined,
   );

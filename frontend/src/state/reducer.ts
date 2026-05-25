@@ -11,7 +11,6 @@ import {
   composerSuggestionMoved,
   composerSuggestionSelected,
   noticeAdded,
-  sessionsListed,
 } from './uiReducer.js';
 import type { AppAction, AppState } from './types.js';
 
@@ -53,8 +52,6 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return applyHistory(state, action.history);
     case 'event':
       return applyEvent(state, action.event);
-    case 'sessions':
-      return sessionsListed(state, action.sessions);
     case 'composerChanged':
       return composerChanged(state, action.value);
     case 'composerSuggestionMoved':

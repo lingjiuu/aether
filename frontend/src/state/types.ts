@@ -71,7 +71,6 @@ export type AppAction =
   | { type: 'sessionState'; session: UiSessionState }
   | { type: 'history'; history: UiHistory }
   | { type: 'event'; event: UiEvent }
-  | { type: 'sessions'; sessions: UiSessionSummary[] }
   | { type: 'composerChanged'; value: string }
   | { type: 'composerSuggestionMoved'; delta: -1 | 1; count: number }
   | { type: 'composerSuggestionSelected'; index: number }

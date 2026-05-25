@@ -8,9 +8,7 @@ export type SlashCommandInfo = {
 const slashCommands: SlashCommandInfo[] = [
   { usage: '/new', description: 'Start a new session in the current working directory' },
   { usage: '/resume', description: 'Browse previous sessions; add an id to resume directly' },
-  { usage: '/sessions', description: 'List known sessions' },
   { usage: '/compact', description: 'Compact the current conversation context' },
-  { usage: '/cancel', description: 'Interrupt the running turn' },
   { usage: '/model', description: 'Choose what model and reasoning effort to use' },
   { usage: '/skills', description: 'List loaded skills' },
   { usage: '/rename', description: 'Rename the current session', placeholder: 'name', aliases: ['/name'] },

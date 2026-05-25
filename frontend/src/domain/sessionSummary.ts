@@ -1,5 +1,3 @@
-import type { UiSessionSummary } from '../protocol/wire.js';
-
 export type SessionSearchItem = {
   name?: string | null;
   preview?: string | null;
@@ -21,22 +19,6 @@ export function filterSessions<T extends SessionSearchItem>(sessions: T[], query
       .filter(Boolean)
       .some(value => value?.toLowerCase().includes(normalizedQuery)),
   );
-}
-
-export function formatSessionList(sessions: UiSessionSummary[]): string {
-  if (!sessions.length) {
-    return 'No sessions found.';
-  }
-  return sessions
-    .slice(0, 8)
-    .map(session => {
-      const title = session.name?.trim() || session.preview?.trim() || session.sessionId || 'Untitled session';
-      const details = [formatRelativeSessionTime(session.updatedAt ?? session.createdAt), sessionBasename(session.cwd), session.modelId]
-        .filter(Boolean)
-        .join(' · ');
-      return details ? `${title}\n    ${details}` : title;
-    })
-    .join('\n');
 }
 
 export function sessionBasename(path?: string | null): string {

@@ -92,14 +92,8 @@ export async function handleInput(
       dispatch({ type: 'sessionState', session: await client.currentSession() });
       break;
     }
-    case 'sessions':
-      dispatch({ type: 'sessions', sessions: await client.listSessions() });
-      break;
     case 'compact':
       await client.compact();
-      break;
-    case 'cancel':
-      await client.cancelTurn();
       break;
     case 'skills': {
       dispatch({
