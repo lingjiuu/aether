@@ -8,6 +8,7 @@ import type {
   UiSessionState,
   UiSessionSummary,
   UiTokenUsage,
+  SkillInfo,
 } from '../protocol/wire.js';
 
 export type AppState = {
@@ -54,6 +55,14 @@ export type CommandPanel =
       catalog: UiModelCatalog;
       selectedIndex: number;
       reasoningIndex: number;
+    }
+  | {
+      kind: 'skills';
+      id: string;
+      command: '/skills';
+      skills: SkillInfo[];
+      selectedIndex: number;
+      query: string;
     };
 
 export type AppAction =

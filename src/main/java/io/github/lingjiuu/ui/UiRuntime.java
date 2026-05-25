@@ -83,6 +83,10 @@ public class UiRuntime implements AutoCloseable {
         return aether.availableSkills();
     }
 
+    public List<Skill> availableSkills(boolean forceReload) {
+        return aether.availableSkills(forceReload);
+    }
+
     public String sessionId() {
         return aether.sessionId();
     }

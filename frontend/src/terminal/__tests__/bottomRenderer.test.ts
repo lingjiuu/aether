@@ -110,6 +110,36 @@ describe('bottom renderer', () => {
     expect(text).toContain('Enter to confirm · Esc to cancel');
   });
 
+  it('renders the skills panel in the Claude-style command area', () => {
+    const state = reducer({ ...initialState, session: { ...initialState.session, cwd: '/Users/Apple/code/MyProjects/test0' } }, {
+      type: 'commandPanelOpened',
+      panel: {
+        kind: 'skills',
+        id: 'skills-1',
+        command: '/skills',
+        skills: [
+          {
+            name: 'codex-token-usage',
+            description: 'Show token usage',
+            location: '/Users/Apple/code/MyProjects/test0/.aether/skills/codex-token-usage/SKILL.md',
+          },
+        ],
+        selectedIndex: 0,
+        query: '',
+      },
+    });
+
+    const view = renderView(state, { columns: 100, rows: 30 });
+    const text = activeLines(view).map(stripAnsi).join('\n');
+
+    expect(text).toContain('❯ /skills');
+    expect(text).toContain('Skills');
+    expect(text).toContain('1 skill · / to search · Enter to close · Esc to cancel');
+    expect(text).toContain('⌕ Search skills…');
+    expect(text).toContain('❯ ✓ on  codex-token-usage · project');
+    expect(text).not.toContain('? for shortcuts');
+  });
+
   it('keeps local command backgrounds tight to the command text', () => {
     const localEntry: LocalCommandEntry = {
       id: 'local-1',

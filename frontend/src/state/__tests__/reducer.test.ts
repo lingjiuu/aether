@@ -30,4 +30,18 @@ describe('reducer command panels', () => {
       },
     ]);
   });
+
+  it('updates skill count without surfacing watcher events as notices', () => {
+    const nextState = reducer(initialState, {
+      type: 'event',
+      event: {
+        type: 'SKILLS_CHANGED',
+        sequence: 1,
+        payload: { payloadType: 'text', text: 'skills changed: 3' },
+      },
+    });
+
+    expect(nextState.session.availableSkillCount).toBe(3);
+    expect(nextState.notices).toEqual([]);
+  });
 });

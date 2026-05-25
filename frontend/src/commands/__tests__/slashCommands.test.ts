@@ -27,6 +27,12 @@ describe('parseCommand', () => {
     expect(getSlashCommandSuggestions('/cont')).toEqual([]);
   });
 
+  it('does not expose reload-skills as a user command', () => {
+    expect(parseCommand('/reload-skills')).toEqual({ kind: 'unknown', name: 'reload-skills' });
+    expect(parseCommand('/skills-reload')).toEqual({ kind: 'unknown', name: 'skills-reload' });
+    expect(getSlashCommandSuggestions('/reload')).toEqual([]);
+  });
+
   it('provides insert text for slash suggestions without argument placeholders', () => {
     const [resume] = getSlashCommandSuggestions('/res');
     expect(resume?.usage).toBe('/resume');
@@ -63,6 +69,7 @@ describe('parseCommand', () => {
     expect(usages).toContain('/help');
     expect(usages).toContain('/model');
     expect(usages).toContain('/rename');
+    expect(usages).not.toContain('/reload-skills');
     expect(usages).not.toContain('/name');
     expect(usages).not.toContain('/approve');
     expect(usages).not.toContain('/deny');

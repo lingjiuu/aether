@@ -1,4 +1,5 @@
 import { filterSessions } from '../../domain/sessionSummary.js';
+import { filterSkills } from '../../domain/skills.js';
 import { selectableReasoningEfforts } from '../../domain/modelCatalog.js';
 import type { AppAction, AppState, CommandPanel } from '../../state/reducer.js';
 import type { Key } from '../input/inputParser.js';
@@ -27,6 +28,10 @@ export class CommandPanelController {
 
     if (panel.kind === 'model') {
       return this.handleModelKey(key, panel, callbacks);
+    }
+
+    if (panel.kind === 'skills') {
+      return this.handleSkillsKey(key, panel, callbacks);
     }
 
     if (panel.kind !== 'resume') {
@@ -90,6 +95,32 @@ export class CommandPanelController {
         return true;
     }
   }
+
+  private handleSkillsKey(key: Key, panel: Extract<CommandPanel, { kind: 'skills' }>, callbacks: CommandPanelCallbacks): boolean {
+    const skills = filterSkills(panel.skills, panel.query);
+    switch (key.kind) {
+      case 'up':
+        callbacks.dispatch({ type: 'commandPanelSelectionMoved', delta: -1, count: skills.length });
+        return true;
+      case 'down':
+        callbacks.dispatch({ type: 'commandPanelSelectionMoved', delta: 1, count: skills.length });
+        return true;
+      case 'backspace':
+        callbacks.dispatch({ type: 'commandPanelQueryChanged', query: panel.query.slice(0, -1) });
+        return true;
+      case 'return':
+        callbacks.dispatch({ type: 'commandPanelClosed', output: 'No changes' });
+        return true;
+      case 'text':
+        if (key.value === '/' && !panel.query) {
+          return true;
+        }
+        callbacks.dispatch({ type: 'commandPanelQueryChanged', query: `${panel.query}${key.value}` });
+        return true;
+      default:
+        return true;
+    }
+  }
 }
 
 function commandPanelCancelOutput(panel: CommandPanel): string {
@@ -100,6 +131,8 @@ function commandPanelCancelOutput(panel: CommandPanel): string {
       return 'Resume cancelled';
     case 'model':
       return `Kept model as ${modelSelectionLabel(panel.catalog.current)}`;
+    case 'skills':
+      return 'Skills dialog dismissed';
   }
 }
 

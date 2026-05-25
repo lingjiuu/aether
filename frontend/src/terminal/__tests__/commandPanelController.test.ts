@@ -128,4 +128,56 @@ describe('CommandPanelController', () => {
 
     expect(actions).toEqual([{ type: 'commandPanelClosed', output: 'Kept model as fake/first' }]);
   });
+
+  it('closes skills panels with Claude-style command outputs', async () => {
+    const state = reducer(initialState, {
+      type: 'commandPanelOpened',
+      panel: {
+        kind: 'skills',
+        id: 'skills-1',
+        command: '/skills',
+        skills: [{ name: 'demo', description: 'Demo skill' }],
+        selectedIndex: 0,
+        query: '',
+      },
+    });
+    const actions: AppAction[] = [];
+
+    await new CommandPanelController().handleKey({ kind: 'return' }, state, {
+      dispatch: action => actions.push(action),
+      resumeSession: vi.fn(),
+      setModel: vi.fn(),
+    });
+
+    expect(actions).toEqual([{ type: 'commandPanelClosed', output: 'No changes' }]);
+  });
+
+  it('filters skills without adding the search hotkey to the query', async () => {
+    const state = reducer(initialState, {
+      type: 'commandPanelOpened',
+      panel: {
+        kind: 'skills',
+        id: 'skills-1',
+        command: '/skills',
+        skills: [{ name: 'demo', description: 'Demo skill' }],
+        selectedIndex: 0,
+        query: '',
+      },
+    });
+    const actions: AppAction[] = [];
+    const controller = new CommandPanelController();
+
+    await controller.handleKey({ kind: 'text', value: '/' }, state, {
+      dispatch: action => actions.push(action),
+      resumeSession: vi.fn(),
+      setModel: vi.fn(),
+    });
+    await controller.handleKey({ kind: 'text', value: 'd' }, state, {
+      dispatch: action => actions.push(action),
+      resumeSession: vi.fn(),
+      setModel: vi.fn(),
+    });
+
+    expect(actions).toEqual([{ type: 'commandPanelQueryChanged', query: 'd' }]);
+  });
 });

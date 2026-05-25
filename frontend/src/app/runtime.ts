@@ -83,16 +83,19 @@ export async function handleInput(
       await client.cancelTurn();
       break;
     case 'skills': {
-      const skills = await client.listSkills();
       dispatch({
-        type: 'notice',
-        message: skills.length ? skills.map(skill => skill.name).filter(Boolean).join(', ') : 'No skills found.',
+        type: 'commandPanelOpened',
+        panel: {
+          kind: 'skills',
+          id: localCommandId('skills'),
+          command: '/skills',
+          skills: await client.listSkills(true),
+          selectedIndex: 0,
+          query: '',
+        },
       });
       break;
     }
-    case 'reloadSkills':
-      await client.reloadSkills();
-      break;
     case 'model': {
       if (selectIsRunning(state) || state.session.status === 'RUNNING') {
         recordLocalCommand(input, "'/model' is disabled while a task is in progress.", dispatch);

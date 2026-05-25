@@ -13,7 +13,6 @@ const slashCommands: SlashCommandInfo[] = [
   { usage: '/cancel', description: 'Interrupt the running turn' },
   { usage: '/model', description: 'Choose what model and reasoning effort to use' },
   { usage: '/skills', description: 'List loaded skills' },
-  { usage: '/reload-skills', description: 'Reload skills from disk' },
   { usage: '/rename', description: 'Rename the current session', placeholder: 'name', aliases: ['/name'] },
   { usage: '/help', description: 'Open command help' },
   { usage: '/quit', description: 'Exit Aether' },

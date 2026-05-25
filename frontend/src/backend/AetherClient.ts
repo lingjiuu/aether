@@ -98,12 +98,8 @@ export class AetherClient {
     return this.transport.request('session/name/set', { name });
   }
 
-  listSkills(): Promise<SkillInfo[]> {
-    return this.transport.request('skills/list');
-  }
-
-  reloadSkills(): Promise<UiCommandAck> {
-    return this.transport.request('skills/reload');
+  listSkills(forceReload = false): Promise<SkillInfo[]> {
+    return this.transport.request('skills/list', { forceReload });
   }
 
   respondToApproval(approvalId: string, approved: boolean, reason?: string): Promise<UiCommandAck> {

@@ -10,6 +10,5 @@ public enum UiCommandType {
     CONTINUE,
     CANCEL_TURN,
     SET_MODEL,
-    APPROVAL_RESPONSE,
-    RELOAD_SKILLS
+    APPROVAL_RESPONSE
 }

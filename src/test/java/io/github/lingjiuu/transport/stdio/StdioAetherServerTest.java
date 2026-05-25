@@ -149,6 +149,33 @@ public class StdioAetherServerTest extends TestCase {
         assertTrue(response.get("error").get("message").asText().contains("modelId"));
     }
 
+    public void testSkillsListCanForceReloadFromDisk() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-stdio-skills-reload-test");
+        SessionFactory sessionFactory = new SessionFactory(sessionConfig(tempDir));
+
+        String firstOutput = runServer(sessionFactory, """
+                {"id":"1","method":"skills/list"}
+                """);
+        JsonNode firstResponse = objectMapper.readTree(firstOutput);
+        assertEquals(0, firstResponse.get("result").size());
+
+        Path skillPath = tempDir.resolve(".aether/skills/demo/SKILL.md");
+        writeSkill(skillPath, "demo", "Demo skill");
+
+        String cachedOutput = runServer(sessionFactory, """
+                {"id":"2","method":"skills/list","params":{"forceReload":false}}
+                """);
+        JsonNode cachedResponse = objectMapper.readTree(cachedOutput);
+        assertEquals(0, cachedResponse.get("result").size());
+
+        String reloadedOutput = runServer(sessionFactory, """
+                {"id":"3","method":"skills/list","params":{"forceReload":true}}
+                """);
+        JsonNode reloadedResponse = objectMapper.readTree(reloadedOutput);
+        assertEquals(1, reloadedResponse.get("result").size());
+        assertEquals("demo", reloadedResponse.get("result").get(0).get("name").asText());
+    }
+
     public void testSessionNewRequiresExplicitCwd() throws Exception {
         Path tempDir = Files.createTempDirectory("aether-stdio-new-session-test");
         String output = runServer(tempDir, """
@@ -206,6 +233,18 @@ public class StdioAetherServerTest extends TestCase {
                 PromptResources.empty(),
                 List.of()
         );
+    }
+
+    private void writeSkill(Path path, String name, String description) throws Exception {
+        Files.createDirectories(path.getParent());
+        Files.writeString(path, """
+                ---
+                name: %s
+                description: %s
+                ---
+
+                # Skill
+                """.formatted(name, description));
     }
 
     private static final class NoopProvider implements Provider {

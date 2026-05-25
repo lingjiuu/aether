@@ -46,7 +46,7 @@ export function commandPanelOpened(state: AppState, panel: CommandPanel): AppSta
 }
 
 export function commandPanelSelectionMoved(state: AppState, delta: -1 | 1, count: number): AppState {
-  if (state.commandPanel?.kind !== 'resume' && state.commandPanel?.kind !== 'model') {
+  if (state.commandPanel?.kind !== 'resume' && state.commandPanel?.kind !== 'model' && state.commandPanel?.kind !== 'skills') {
     return state;
   }
   return {
@@ -65,7 +65,7 @@ export function commandPanelReasoningMoved(state: AppState, delta: -1 | 1, count
 }
 
 export function commandPanelQueryChanged(state: AppState, query: string): AppState {
-  return state.commandPanel?.kind === 'resume'
+  return state.commandPanel?.kind === 'resume' || state.commandPanel?.kind === 'skills'
     ? { ...state, commandPanel: { ...state.commandPanel, query, selectedIndex: 0 } }
     : state;
 }

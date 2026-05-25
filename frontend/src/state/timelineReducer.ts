@@ -76,8 +76,10 @@ export function applyEvent(state: AppState, event: UiEvent): AppState {
     case 'APPROVAL_RESOLVED':
       return { ...state, pendingApproval: undefined, lastSequence };
     case 'SKILLS_CHANGED': {
-      const text = payload(event, 'text')?.text ?? 'skills changed';
-      return { ...state, notices: [...state.notices.slice(-4), text], lastSequence };
+      const text = payload(event, 'text')?.text;
+      const match = text?.match(/skills changed:\s*(\d+)/i);
+      const availableSkillCount = match ? Number(match[1]) : state.session.availableSkillCount;
+      return { ...state, session: { ...state.session, availableSkillCount }, lastSequence };
     }
     default:
       return applyTimelineEvent({ ...state, lastSequence }, event);

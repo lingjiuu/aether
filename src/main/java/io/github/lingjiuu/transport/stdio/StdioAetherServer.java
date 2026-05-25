@@ -147,8 +147,7 @@ public class StdioAetherServer implements AutoCloseable {
             case "compact/run" -> submitSimple(id, UiCommandType.COMPACT);
             case "model/list" -> uiRuntime.modelCatalog();
             case "model/set" -> submitSetModel(id, params);
-            case "skills/list" -> skillsList();
-            case "skills/reload" -> submitSimple(id, UiCommandType.RELOAD_SKILLS);
+            case "skills/list" -> skillsList(params);
             case "approval/respond" -> submitApprovalResponse(id, params);
             case "initialized" -> Map.of("ok", true);
             default -> throw new ProtocolException(METHOD_NOT_FOUND, "Unknown method: " + method);
@@ -262,8 +261,8 @@ public class StdioAetherServer implements AutoCloseable {
                 .build());
     }
 
-    private List<SkillInfo> skillsList() {
-        return uiRuntime.availableSkills()
+    private List<SkillInfo> skillsList(JsonNode params) {
+        return uiRuntime.availableSkills(booleanParam(params, "forceReload"))
                 .stream()
                 .map(SkillInfo::from)
                 .toList();

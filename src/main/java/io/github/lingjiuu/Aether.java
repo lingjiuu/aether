@@ -142,6 +142,14 @@ public class Aether implements AutoCloseable {
         return currentSession().availableSkills();
     }
 
+    public List<Skill> availableSkills(boolean forceReload) {
+        Session session = currentSession();
+        if (forceReload) {
+            session.reloadSkills();
+        }
+        return session.availableSkills();
+    }
+
     public UiModelCatalog modelCatalog() {
         return commands.modelCatalog();
     }

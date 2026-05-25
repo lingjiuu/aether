@@ -146,7 +146,6 @@ public class CommandManager implements AutoCloseable {
                 case CANCEL_TURN -> cancelTurn(commandId);
                 case SET_MODEL -> setModel(command, commandId);
                 case APPROVAL_RESPONSE -> approvalResponse(command, commandId);
-                case RELOAD_SKILLS -> reloadSkills(commandId);
             };
         } catch (RuntimeException e) {
             return UiCommandAck.rejected(commandId, sessionId(), e.getMessage());
@@ -211,11 +210,6 @@ public class CommandManager implements AutoCloseable {
         return session.cancelRunningTask()
                 ? UiCommandAck.accepted(commandId, sessionId(), "cancel requested")
                 : UiCommandAck.rejected(commandId, sessionId(), "no running turn to cancel");
-    }
-
-    private UiCommandAck reloadSkills(String commandId) {
-        session.reloadSkills();
-        return UiCommandAck.accepted(commandId, sessionId(), "skills reloaded");
     }
 
     private UiCommandAck setModel(UiCommand command, String commandId) {

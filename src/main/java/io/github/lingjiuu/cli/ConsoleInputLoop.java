@@ -150,9 +150,6 @@ public class ConsoleInputLoop {
     }
 
     private void skills(String argument) {
-        if ("reload".equals(argument)) {
-            handleAck(uiRuntime.submit(UiCommand.simple(UiCommandType.RELOAD_SKILLS)));
-        }
         var skills = uiRuntime.availableSkills();
         if (skills.isEmpty()) {
             System.out.println("[SKILLS] none");
@@ -193,6 +190,6 @@ public class ConsoleInputLoop {
     }
 
     private void printHelp() {
-        System.out.println("Commands: /session, /resume <id>, /new, /compact, /continue, /skills, /skills reload, /exit");
+        System.out.println("Commands: /session, /resume <id>, /new, /compact, /continue, /skills, /exit");
     }
 }

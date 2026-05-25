@@ -282,5 +282,7 @@ export type InitializeResult = {
 export type SkillInfo = {
   name?: string;
   description?: string;
+  location?: string;
   path?: string;
+  disableModelInvocation?: boolean;
 };
