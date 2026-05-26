@@ -180,7 +180,7 @@ public class SessionFactoryTest extends TestCase {
         String sessionId;
         try (Session session = factory.openSession(SessionOptions.cwd(cwd))) {
             sessionId = session.sessionId();
-            session.setActiveModelSelection(factory.resolveModelSelection("other", "other-model", "HIGH"));
+            session.setActiveModelSelection(factory.selectModel("other", "other-model", "HIGH"));
             session.waitForIdle();
         }
 

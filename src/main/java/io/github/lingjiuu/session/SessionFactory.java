@@ -4,15 +4,14 @@ import io.github.lingjiuu.infra.config.AetherConfig;
 import io.github.lingjiuu.infra.config.AetherConfigException;
 import io.github.lingjiuu.infra.config.AetherConfigLoader;
 import io.github.lingjiuu.infra.config.AetherPaths;
-import io.github.lingjiuu.infra.config.ConfigValueResolver;
 import io.github.lingjiuu.instructions.AgentsMdInstructions;
 import io.github.lingjiuu.instructions.AgentsMdManager;
 import io.github.lingjiuu.instructions.BaseInstructions;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.llm.ReasoningOptions;
 import io.github.lingjiuu.llm.ModelOption;
 import io.github.lingjiuu.llm.ModelSelection;
+import io.github.lingjiuu.llm.ReasoningOptions;
 import io.github.lingjiuu.provider.RequestAuth;
 import io.github.lingjiuu.skill.SkillsManager;
 import io.github.lingjiuu.tool.ToolDefinition;
@@ -39,9 +38,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.StringJoiner;
 import java.util.UUID;
@@ -128,8 +125,8 @@ public class SessionFactory {
             Path agentDir,
             TranscriptStore transcriptStore
     ) {
-        AetherConfig aetherConfig = new AetherConfigLoader().load(configPath);
-        ModelSelection modelSelection = resolveModelSelection(aetherConfig, provider, modelId);
+        AetherConfig aetherConfig = new AetherConfigLoader().load(configPath, provider, modelId);
+        ModelSelection modelSelection = aetherConfig.modelSelection();
         LlmClient llmClient = new LlmClient();
         Path defaultCwd = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();
         Path resolvedAgentDir = agentDir == null
@@ -274,20 +271,7 @@ public class SessionFactory {
             ModelOption option = modelOption(config.model());
             return option == null ? List.of() : List.of(option);
         }
-        List<ModelOption> options = new ArrayList<>();
-        for (Map.Entry<String, AetherConfig.ModelProviderConfig> entry : aetherConfig.modelProviders().entrySet()) {
-            String providerId = entry.getKey();
-            AetherConfig.ModelProviderConfig provider = entry.getValue();
-            if (provider == null || provider.models() == null) {
-                continue;
-            }
-            for (AetherConfig.ModelDefinition model : provider.models()) {
-                if (model != null) {
-                    options.add(modelOption(providerId, provider, model));
-                }
-            }
-        }
-        return List.copyOf(options);
+        return aetherConfig.modelOptions();
     }
 
     public List<String> reasoningEfforts() {
@@ -298,15 +282,15 @@ public class SessionFactory {
         return List.copyOf(efforts);
     }
 
-    public ModelSelection resolveModelSelection(
+    public ModelSelection selectModel(
             String explicitProvider,
             String explicitModel,
             String explicitReasoningEffort
     ) {
         if (aetherConfig != null) {
-            return resolveModelSelection(aetherConfig, explicitProvider, explicitModel, explicitReasoningEffort);
+            return aetherConfig.selectModel(explicitProvider, explicitModel, explicitReasoningEffort);
         }
-        return resolveConfiguredModelSelection(explicitProvider, explicitModel, explicitReasoningEffort);
+        return configOnlyModelSelection(explicitProvider, explicitModel, explicitReasoningEffort);
     }
 
     private SessionBundle sessionBundle(SessionOptions options) {
@@ -341,14 +325,13 @@ public class SessionFactory {
         String provider = firstNonBlank(options.modelProvider(), config.model() == null ? null : config.model().getProvider());
         String modelId = firstNonBlank(options.modelId(), config.model() == null ? null : config.model().getId());
         if (aetherConfig != null) {
-            return resolveModelSelection(
-                    aetherConfig,
+            return aetherConfig.selectModel(
                     provider,
                     modelId,
                     options.reasoningEffort()
             );
         }
-        return resolveConfiguredModelSelection(
+        return configOnlyModelSelection(
                 provider,
                 modelId,
                 options.reasoningEffort()
@@ -398,198 +381,19 @@ public class SessionFactory {
         );
     }
 
-    private static ModelSelection resolveModelSelection(
-            AetherConfig config,
-            String explicitProvider,
-            String explicitModel
-    ) {
-        return resolveModelSelection(config, explicitProvider, explicitModel, null);
-    }
-
-    private static ModelSelection resolveModelSelection(
-            AetherConfig config,
+    private ModelSelection configOnlyModelSelection(
             String explicitProvider,
             String explicitModel,
             String explicitReasoningEffort
     ) {
-        String providerId = blankToNull(explicitProvider);
-        String modelId = blankToNull(explicitModel);
-        if (modelId != null) {
-            int slash = modelId.indexOf('/');
-            if (slash > 0 && slash < modelId.length() - 1) {
-                providerId = modelId.substring(0, slash);
-                modelId = modelId.substring(slash + 1);
-            }
-        } else if (providerId != null) {
-            throw new AetherConfigException("A model id is required when provider \"" + providerId + "\" is specified.");
-        } else {
-            providerId = config.defaultProvider();
-            modelId = config.defaultModel();
-        }
-
-        AetherConfig.ModelProviderConfig provider = config.modelProviders().get(providerId);
-        if (provider == null) {
-            throw new AetherConfigException("Model provider \"" + providerId + "\" is not configured.");
-        }
-        AetherConfig.ModelDefinition modelDefinition = findModel(provider, modelId);
-        if (modelDefinition == null) {
-            throw new AetherConfigException("Model \"" + providerId + "/" + modelId + "\" is not configured.");
-        }
-
-        String api = firstNonBlank(modelDefinition.api(), provider.api());
-        String baseUrl = firstNonBlank(modelDefinition.baseUrl(), provider.baseUrl());
-        LlmModel model = LlmModel.builder()
-                .provider(providerId)
-                .api(api)
-                .id(modelDefinition.id())
-                .name(firstNonBlank(modelDefinition.name(), modelDefinition.id()))
-                .baseUrl(baseUrl)
-                .contextWindowTokens(modelDefinition.contextWindowTokens())
-                .autoCompactTokenLimit(modelDefinition.autoCompactTokenLimit())
-                .headers(mergeHeaders(provider.headers(), modelDefinition.headers()))
-                .input(modelDefinition.input())
-                .build();
-        return new ModelSelection(
-                model,
-                resolveRequestAuth(providerId, provider, modelDefinition),
-                reasoningFrom(selectedReasoningValue(config, explicitReasoningEffort))
-        );
-    }
-
-    private ModelSelection resolveConfiguredModelSelection(
-            String explicitProvider,
-            String explicitModel,
-            String explicitReasoningEffort
-    ) {
-        LlmModel model = config.model();
-        if (model == null) {
-            throw new AetherConfigException("No model is configured for this session.");
-        }
-        String providerId = blankToNull(explicitProvider);
-        String modelId = blankToNull(explicitModel);
-        if (modelId != null) {
-            int slash = modelId.indexOf('/');
-            if (slash > 0 && slash < modelId.length() - 1) {
-                providerId = modelId.substring(0, slash);
-                modelId = modelId.substring(slash + 1);
-            }
-        }
-        if (providerId == null) {
-            providerId = model.getProvider();
-        }
-        if (modelId == null) {
-            modelId = model.getId();
-        }
-        if (!Objects.equals(providerId, model.getProvider()) || !Objects.equals(modelId, model.getId())) {
-            throw new AetherConfigException("Model \"" + providerId + "/" + modelId + "\" is not configured.");
-        }
-        return new ModelSelection(
-                model,
+        return AetherConfig.selectCurrentModel(
+                config.model(),
                 config.requestAuth(),
-                reasoningFromOrDefault(explicitReasoningEffort, config.reasoning())
+                config.reasoning(),
+                explicitProvider,
+                explicitModel,
+                explicitReasoningEffort
         );
-    }
-
-    private static AetherConfig.ModelDefinition findModel(AetherConfig.ModelProviderConfig provider, String modelId) {
-        for (AetherConfig.ModelDefinition model : provider.models()) {
-            if (model != null && model.id().equals(modelId)) {
-                return model;
-            }
-        }
-        return null;
-    }
-
-    private static RequestAuth resolveRequestAuth(
-            String providerId,
-            AetherConfig.ModelProviderConfig provider,
-            AetherConfig.ModelDefinition model
-    ) {
-        String apiKey = null;
-        if (!isBlank(provider.apiKey())) {
-            apiKey = ConfigValueResolver.resolveConfigValueOrThrow(
-                    provider.apiKey(),
-                    "API key for provider \"" + providerId + "\""
-            );
-        }
-
-        Map<String, String> headers = resolveHeaders(providerId, provider, model);
-        if (Boolean.TRUE.equals(provider.authHeader())) {
-            if (isBlank(apiKey)) {
-                throw new AetherConfigException("Provider \"" + providerId + "\" enables auth_header but api_key is missing.");
-            }
-            headers.put("Authorization", "Bearer " + apiKey);
-        }
-
-        if (isBlank(apiKey)) {
-            throw new AetherConfigException("Provider \"" + providerId + "\" must define api_key.");
-        }
-        return RequestAuth.ok(apiKey, headers.isEmpty() ? null : headers);
-    }
-
-    private static Map<String, String> resolveHeaders(
-            String providerId,
-            AetherConfig.ModelProviderConfig provider,
-            AetherConfig.ModelDefinition model
-    ) {
-        Map<String, String> headers = new LinkedHashMap<>();
-        Map<String, String> providerHeaders = ConfigValueResolver.resolveHeadersOrThrow(
-                provider.headers(),
-                "provider \"" + providerId + "\""
-        );
-        if (providerHeaders != null) {
-            headers.putAll(providerHeaders);
-        }
-        Map<String, String> modelHeaders = ConfigValueResolver.resolveHeadersOrThrow(
-                model.headers(),
-                "model \"" + providerId + "/" + model.id() + "\""
-        );
-        if (modelHeaders != null) {
-            headers.putAll(modelHeaders);
-        }
-        return headers;
-    }
-
-    private static Map<String, String> mergeHeaders(Map<String, String> providerHeaders, Map<String, String> modelHeaders) {
-        Map<String, String> headers = new LinkedHashMap<>();
-        if (providerHeaders != null) {
-            headers.putAll(providerHeaders);
-        }
-        if (modelHeaders != null) {
-            headers.putAll(modelHeaders);
-        }
-        return headers;
-    }
-
-    private static ReasoningOptions reasoningFrom(String value) {
-        String normalized = blankToNull(value);
-        if (normalized == null) {
-            return null;
-        }
-        ReasoningOptions.ReasoningEffort effort;
-        try {
-            effort = ReasoningOptions.ReasoningEffort.valueOf(normalized.trim().replace('-', '_').toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new AetherConfigException("Unknown default_thinking_level: " + value, e);
-        }
-        return ReasoningOptions.builder()
-                .reasoningEffort(effort)
-                .build();
-    }
-
-    private static ReasoningOptions reasoningFromOrDefault(String value, ReasoningOptions defaultReasoning) {
-        String normalized = blankToNull(value);
-        if (normalized == null || "default".equalsIgnoreCase(normalized)) {
-            return defaultReasoning;
-        }
-        return reasoningFrom(normalized);
-    }
-
-    private static String selectedReasoningValue(AetherConfig config, String explicitReasoningEffort) {
-        String normalized = blankToNull(explicitReasoningEffort);
-        if (normalized == null || "default".equalsIgnoreCase(normalized)) {
-            return config.defaultThinkingLevel();
-        }
-        return normalized;
     }
 
     private static ModelOption modelOption(LlmModel model) {
@@ -604,23 +408,6 @@ public class SessionFactory {
                 model.getContextWindowTokens(),
                 model.getAutoCompactTokenLimit(),
                 model.getInput()
-        );
-    }
-
-    private static ModelOption modelOption(
-            String providerId,
-            AetherConfig.ModelProviderConfig provider,
-            AetherConfig.ModelDefinition model
-    ) {
-        String api = firstNonBlank(model.api(), provider.api());
-        return new ModelOption(
-                providerId,
-                model.id(),
-                firstNonBlank(model.name(), model.id()),
-                api,
-                model.contextWindowTokens(),
-                model.autoCompactTokenLimit(),
-                model.input()
         );
     }
 

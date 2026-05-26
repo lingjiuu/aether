@@ -22,6 +22,10 @@ public class AetherConfigLoader {
     }
 
     public AetherConfig load(Path configPath) {
+        return load(configPath, null, null);
+    }
+
+    public AetherConfig load(Path configPath, String provider, String model) {
         Path resolvedPath = configPath == null ? AetherPaths.getConfigPath() : configPath.toAbsolutePath().normalize();
         if (!Files.exists(resolvedPath)) {
             throw new AetherConfigException("Aether config not found: " + resolvedPath);
@@ -37,14 +41,20 @@ public class AetherConfigLoader {
             throw new AetherConfigException("Failed to parse Aether config " + resolvedPath + ": " + formatErrors(parsed.errors()));
         }
 
-        AetherConfig config = new AetherConfig(
-                blankToNull(parsed.getString("default_provider")),
-                blankToNull(parsed.getString("default_model")),
-                blankToNull(parsed.getString("default_thinking_level")),
-                readProviders(parsed.getTable("model_providers"))
+        String defaultProvider = blankToNull(parsed.getString("default_provider"));
+        String defaultModel = blankToNull(parsed.getString("default_model"));
+        String defaultThinkingLevel = blankToNull(parsed.getString("default_thinking_level"));
+        Map<String, AetherConfig.ModelProviderConfig> providers = readProviders(parsed.getTable("model_providers"));
+        validate(defaultProvider, defaultModel, providers, resolvedPath);
+        return AetherConfig.selected(
+                defaultProvider,
+                defaultModel,
+                defaultThinkingLevel,
+                providers,
+                provider,
+                model,
+                null
         );
-        validate(config, resolvedPath);
-        return config;
     }
 
     private Map<String, AetherConfig.ModelProviderConfig> readProviders(TomlTable providersTable) {
@@ -134,21 +144,26 @@ public class AetherConfigLoader {
         return value == null || value <= 0 ? null : value;
     }
 
-    private void validate(AetherConfig config, Path configPath) {
-        if (isBlank(config.defaultProvider())) {
+    private void validate(
+            String defaultProvider,
+            String defaultModel,
+            Map<String, AetherConfig.ModelProviderConfig> modelProviders,
+            Path configPath
+    ) {
+        if (isBlank(defaultProvider)) {
             throw new AetherConfigException("Aether config " + configPath + " must define default_provider.");
         }
-        if (isBlank(config.defaultModel())) {
+        if (isBlank(defaultModel)) {
             throw new AetherConfigException("Aether config " + configPath + " must define default_model.");
         }
-        if (config.modelProviders().isEmpty()) {
+        if (modelProviders.isEmpty()) {
             throw new AetherConfigException("Aether config " + configPath + " must define at least one model provider.");
         }
-        if (!config.modelProviders().containsKey(config.defaultProvider())) {
-            throw new AetherConfigException("default_provider \"" + config.defaultProvider() + "\" is not defined in model_providers.");
+        if (!modelProviders.containsKey(defaultProvider)) {
+            throw new AetherConfigException("default_provider \"" + defaultProvider + "\" is not defined in model_providers.");
         }
 
-        for (Map.Entry<String, AetherConfig.ModelProviderConfig> entry : config.modelProviders().entrySet()) {
+        for (Map.Entry<String, AetherConfig.ModelProviderConfig> entry : modelProviders.entrySet()) {
             validateProvider(entry.getKey(), entry.getValue());
         }
     }

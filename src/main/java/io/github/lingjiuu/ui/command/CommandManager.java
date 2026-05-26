@@ -248,7 +248,7 @@ public class CommandManager implements AutoCloseable {
         if (session.status() == SessionStatus.RUNNING) {
             return UiCommandAck.rejected(commandId, sessionId(), "'/model' is disabled while a task is in progress.");
         }
-        ModelSelection selection = sessionFactory.resolveModelSelection(
+        ModelSelection selection = sessionFactory.selectModel(
                 input.providerId(),
                 input.modelId(),
                 input.reasoningEffort()
