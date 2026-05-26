@@ -21,7 +21,19 @@ public record ModelSelection(
         }
         return Objects.equals(providerId(endpoint), providerId(other.endpoint))
                 && Objects.equals(modelId(model), modelId(other.model))
-                && Objects.equals(reasoningEffort(reasoning), reasoningEffort(other.reasoning));
+                && Objects.equals(reasoningEffortName(), other.reasoningEffortName());
+    }
+
+    public Long contextWindowTokens() {
+        return model == null ? null : model.getContextWindowTokens();
+    }
+
+    public Long autoCompactTokenLimit() {
+        return model == null ? null : model.resolvedAutoCompactTokenLimit();
+    }
+
+    public String reasoningEffortName() {
+        return reasoning == null ? null : reasoning.effortName();
     }
 
     private static String providerId(ProviderEndpoint endpoint) {
@@ -32,9 +44,4 @@ public record ModelSelection(
         return model == null ? null : model.getId();
     }
 
-    private static String reasoningEffort(ReasoningOptions reasoning) {
-        return reasoning == null || reasoning.getReasoningEffort() == null
-                ? null
-                : reasoning.getReasoningEffort().name();
-    }
 }

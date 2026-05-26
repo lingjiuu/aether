@@ -3,7 +3,6 @@ package io.github.lingjiuu.ui.command;
 import io.github.lingjiuu.event.EventSink;
 import io.github.lingjiuu.input.TurnInput;
 import io.github.lingjiuu.model.ModelInfo;
-import io.github.lingjiuu.model.ReasoningOptions;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.model.ModelOption;
@@ -406,7 +405,7 @@ public class CommandManager implements AutoCloseable {
                 endpoint == null ? null : endpoint.providerId(),
                 model == null ? null : model.getId(),
                 model == null ? null : model.getName(),
-                reasoningEffort(selection)
+                selection == null ? null : selection.reasoningEffortName()
         );
     }
 
@@ -423,13 +422,8 @@ public class CommandManager implements AutoCloseable {
         var endpoint = selection == null ? null : selection.endpoint();
         String provider = endpoint == null ? null : endpoint.providerId();
         String id = model == null ? null : model.getId();
-        String effort = reasoningEffort(selection);
+        String effort = selection == null ? null : selection.reasoningEffortName();
         String label = (provider == null || provider.isBlank() ? "" : provider + "/") + (id == null ? "" : id);
         return effort == null ? label : label + " " + effort.toLowerCase();
-    }
-
-    private String reasoningEffort(ModelSelection selection) {
-        ReasoningOptions reasoning = selection == null ? null : selection.reasoning();
-        return reasoning == null || reasoning.getReasoningEffort() == null ? null : reasoning.getReasoningEffort().name();
     }
 }

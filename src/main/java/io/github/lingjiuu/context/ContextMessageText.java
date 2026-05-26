@@ -55,11 +55,7 @@ final class ContextMessageText {
 
     static String availableSkills(List<Skill> skills) {
         List<Skill> visibleSkills = skills == null ? List.of() : skills.stream()
-                .filter(skill -> skill != null
-                        && !skill.isDisableModelInvocation()
-                        && normalizeOneLine(skill.getName()) != null
-                        && normalizeOneLine(skill.getDescription()) != null
-                        && skill.getLocation() != null)
+                .filter(skill -> skill != null && skill.isModelVisible())
                 .toList();
 
         StringBuilder text = new StringBuilder();

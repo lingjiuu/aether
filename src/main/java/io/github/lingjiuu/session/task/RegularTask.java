@@ -7,9 +7,13 @@ import io.github.lingjiuu.input.ProcessedTurnInput;
 import io.github.lingjiuu.model.client.AssistantStreamEvent;
 import io.github.lingjiuu.model.client.ModelRequest;
 import io.github.lingjiuu.message.AssistantMessage;
+import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.message.ToolResultMessage;
+import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
+import io.github.lingjiuu.tool.ToolDefinition;
 
 import java.util.List;
 
@@ -74,13 +78,13 @@ public class RegularTask implements SessionTask {
                         context.cancellationToken(),
                         event -> handleStreamItem(session, turnContext, toolScope, event)
                 );
-                if (context.isCancelled() || assistantMessage.getStopReason() == AssistantMessage.StopReason.ABORTED) {
+                if (context.isCancelled() || assistantMessage.isAborted()) {
                     recordToolOutcomes(session, turnContext, toolScope.abortAndDrain());
                     return;
                 }
-                if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ERROR) {
+                if (assistantMessage.isError()) {
                     recordToolOutcomes(session, turnContext, toolScope.abortAndDrain());
-                    if (session.isContextWindowExceeded(assistantMessage)
+                    if (assistantMessage.isContextWindowExceeded()
                             && contextWindowRecoveries < MAX_CONTEXT_WINDOW_RECOVERIES) {
                         contextWindowRecoveries++;
                         session.markContextWindowFull(turnContext);
@@ -89,7 +93,7 @@ public class RegularTask implements SessionTask {
                             continue;
                         }
                     }
-                    session.recordAssistant(assistantMessage, turnContext);
+                    session.recordConversationMessage(assistantMessage, turnContext);
                     session.events().emit(UiEvents.error(turnContext, assistantMessage.getErrorMessage()));
                     return;
                 }
@@ -187,7 +191,7 @@ public class RegularTask implements SessionTask {
                 event.getContent(),
                 event.getProviderState()
         );
-        session.recordAssistant(assistantMessage, turnContext);
+        session.recordConversationMessage(assistantMessage, turnContext);
         session.events().emit(UiEvents.itemCompleted(
                 turnContext,
                 UiItemKind.ASSISTANT_TEXT,
@@ -205,7 +209,7 @@ public class RegularTask implements SessionTask {
                 event.getContent(),
                 event.getProviderState()
         );
-        session.recordAssistant(assistantMessage, turnContext);
+        session.recordConversationMessage(assistantMessage, turnContext);
         session.events().emit(UiEvents.itemCompleted(
                 turnContext,
                 UiItemKind.REASONING,
@@ -233,7 +237,7 @@ public class RegularTask implements SessionTask {
                 event.getToolCall(),
                 event.getProviderState()
         );
-        session.recordAssistant(assistantMessage, turnContext);
+        session.recordConversationMessage(assistantMessage, turnContext);
         session.events().emit(UiEvents.toolArgumentsDone(
                 turnContext,
                 event.getItemId(),
@@ -267,15 +271,36 @@ public class RegularTask implements SessionTask {
                 continue;
             }
             ToolCallRef toolCallRef = outcome.toolCallRef();
-            session.recordToolResult(
+            ToolResultMessage toolResult = session.contextBuilder().toolResultMessage(
+                    toolCallRef.toolCall(),
+                    outcome.executionResult()
+            );
+            if (toolResult == null) {
+                continue;
+            }
+            ToolDefinition toolDefinition = session.toolRegistry().findDefinition(
+                    toolCallRef.toolCall() == null ? null : toolCallRef.toolCall().getToolName()
+            );
+            session.recordConversationMessage(toolResult, turnContext);
+            session.events().emit(UiEvents.toolExecutionEnd(
                     toolCallRef.itemId(),
                     toolCallRef.contentIndex(),
                     toolCallRef.toolCall(),
-                    outcome.executionResult(),
-                    turnContext,
+                    toolDefinition,
+                    toolResult,
                     outcome.status(),
-                    outcome.durationMs()
-            );
+                    outcome.durationMs(),
+                    turnContext
+            ));
+            session.events().emit(UiEvents.toolResult(
+                    toolCallRef.itemId(),
+                    toolCallRef.contentIndex(),
+                    toolCallRef.toolCall(),
+                    toolResult,
+                    outcome.status(),
+                    outcome.durationMs(),
+                    turnContext
+            ));
         }
     }
 
@@ -315,9 +340,13 @@ public class RegularTask implements SessionTask {
             return;
         }
 
-        session.recordUserMessage(processedInput.userMessage(), turnContext);
-        processedInput.contextMessages()
-                .forEach(contextMessage -> session.recordContextMessage(contextMessage, turnContext));
+        UserMessage userMessage = processedInput.userMessage();
+        session.recordConversationMessage(userMessage, turnContext);
+        session.events().emit(UiEvents.userMessage(userMessage, turnContext));
+        for (ContextMessage contextMessage : processedInput.contextMessages()) {
+            session.recordConversationMessage(contextMessage, turnContext);
+            session.events().emit(UiEvents.contextMessage(contextMessage, turnContext));
+        }
     }
 
 }

@@ -14,6 +14,10 @@ public class ReasoningOptions {
     private ReasoningEffort reasoningEffort;
     private ReasoningSummaryEffort reasoningSummaryEffort;
 
+    public String effortName() {
+        return reasoningEffort == null ? null : reasoningEffort.name();
+    }
+
     public enum ReasoningEffort {
 
         XHIGH,

@@ -57,10 +57,10 @@ public class CompactTask implements SessionTask {
             return false;
         }
         AssistantMessage assistantMessage = summarize(context, session, turnContext, originalMessages);
-        if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ABORTED || context.isCancelled()) {
+        if (assistantMessage.isAborted() || context.isCancelled()) {
             return false;
         }
-        if (assistantMessage.getStopReason() == AssistantMessage.StopReason.ERROR) {
+        if (assistantMessage.isError()) {
             session.events().emit(UiEvents.compactSkipped(
                     turnContext,
                     assistantMessage.getErrorMessage(),
@@ -92,7 +92,7 @@ public class CompactTask implements SessionTask {
         if (context.isCancelled()) {
             return false;
         }
-        session.recorder().recordCompaction(
+        session.replaceCompactedHistory(
                 summary,
                 replacementMessages,
                 turnContext.turn(),
@@ -134,7 +134,7 @@ public class CompactTask implements SessionTask {
                     turnContext,
                     context.cancellationToken()
             );
-            if (!session.isContextWindowExceeded(assistantMessage)
+            if (!assistantMessage.isContextWindowExceeded()
                     || retries >= MAX_COMPACT_CONTEXT_RETRIES
                     || compactInput.size() <= 1) {
                 return assistantMessage;

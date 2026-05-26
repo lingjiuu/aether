@@ -70,6 +70,11 @@ public class ContextManager {
         return messages.isEmpty() ? null : messages.getLast();
     }
 
+    public synchronized boolean canContinue() {
+        Message lastMessage = lastMessage();
+        return lastMessage != null && lastMessage.role() != Message.Role.ASSISTANT;
+    }
+
     public synchronized List<Message> normalizeMessagesForModel(List<String> inputModalities) {
         return normalizeMessagesForModel(messages, inputModalities);
     }

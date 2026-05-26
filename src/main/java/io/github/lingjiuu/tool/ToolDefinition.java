@@ -33,5 +33,15 @@ public interface ToolDefinition {
         return List.of();
     }
 
+    default boolean hasModelVisibleInstructions() {
+        List<String> guidelines = promptGuidelines();
+        return hasOneLineText(promptSnippet())
+                || guidelines != null && guidelines.stream().anyMatch(ToolDefinition::hasOneLineText);
+    }
+
     ToolExecutionResult execute(ToolExecutionContext context);
+
+    private static boolean hasOneLineText(String value) {
+        return value != null && !value.replaceAll("[\\r\\n]+", " ").trim().isEmpty();
+    }
 }

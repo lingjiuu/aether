@@ -3,7 +3,6 @@ package io.github.lingjiuu;
 import io.github.lingjiuu.ui.command.CommandManager;
 import io.github.lingjiuu.event.EventSink;
 import io.github.lingjiuu.event.EventSubscription;
-import io.github.lingjiuu.model.ModelInfo;
 import io.github.lingjiuu.model.TokenUsage;
 import io.github.lingjiuu.model.TokenUsageInfo;
 import io.github.lingjiuu.model.ModelSelection;
@@ -108,7 +107,6 @@ public class Aether implements AutoCloseable {
     public UiSessionState currentSessionState() {
         Session session = currentSession();
         ModelSelection selection = session.activeModelSelection();
-        ModelInfo model = selection == null ? null : selection.model();
         var endpoint = selection == null ? null : selection.endpoint();
         UiSessionSummary summary = new UiSessionSummary(
                 session.sessionId(),
@@ -118,7 +116,7 @@ public class Aether implements AutoCloseable {
                 session.updatedAt(),
                 session.config().cwd() == null ? null : session.config().cwd().toString(),
                 endpoint == null ? null : endpoint.providerId(),
-                model == null ? null : model.getId(),
+                selection == null || selection.model() == null ? null : selection.model().getId(),
                 session.messages().size()
         );
         return new UiSessionState(
@@ -129,7 +127,7 @@ public class Aether implements AutoCloseable {
                 session.canContinue(),
                 session.activeToolNames(),
                 summary,
-                reasoningEffort(selection),
+                selection == null ? null : selection.reasoningEffortName(),
                 tokenUsage(session)
         );
     }
@@ -182,7 +180,9 @@ public class Aether implements AutoCloseable {
                 .last(tokenCount(tokenUsageInfo == null ? null : tokenUsageInfo.lastTokenUsage()))
                 .modelContextWindow(tokenUsageInfo == null ? null : tokenUsageInfo.modelContextWindow())
                 .contextTokenUsage(session.currentContextTokenUsage())
-                .autoCompactTokenLimit(autoCompactTokenLimit(session))
+                .autoCompactTokenLimit(session.activeModelSelection() == null
+                        ? null
+                        : session.activeModelSelection().autoCompactTokenLimit())
                 .build();
     }
 
@@ -195,17 +195,6 @@ public class Aether implements AutoCloseable {
                 .reasoningOutputTokens(normalized.reasoningOutputTokens())
                 .totalTokens(normalized.totalTokens())
                 .build();
-    }
-
-    private Long autoCompactTokenLimit(Session session) {
-        ModelInfo model = session.activeModelSelection() == null ? null : session.activeModelSelection().model();
-        return model == null ? null : model.resolvedAutoCompactTokenLimit();
-    }
-
-    private String reasoningEffort(ModelSelection selection) {
-        return selection == null || selection.reasoning() == null || selection.reasoning().getReasoningEffort() == null
-                ? null
-                : selection.reasoning().getReasoningEffort().name();
     }
 
     private void dispatch(UiEvent event) {

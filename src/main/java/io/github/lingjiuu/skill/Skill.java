@@ -20,4 +20,15 @@ public class Skill {
     private Path location;
 
     private boolean disableModelInvocation;
+
+    public boolean isModelVisible() {
+        return !disableModelInvocation
+                && hasOneLineText(name)
+                && hasOneLineText(description)
+                && location != null;
+    }
+
+    private boolean hasOneLineText(String value) {
+        return value != null && !value.replaceAll("[\\r\\n]+", " ").trim().isEmpty();
+    }
 }

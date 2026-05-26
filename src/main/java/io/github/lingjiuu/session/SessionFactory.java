@@ -23,7 +23,6 @@ import io.github.lingjiuu.tool.builtin.ReadTool;
 import io.github.lingjiuu.tool.builtin.WriteTool;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import io.github.lingjiuu.transcript.TranscriptReconstruction;
-import io.github.lingjiuu.transcript.TranscriptModelSelection;
 import io.github.lingjiuu.transcript.TranscriptRestorer;
 import io.github.lingjiuu.transcript.TranscriptStore;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
@@ -35,7 +34,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Objects;
 import java.util.StringJoiner;
 import java.util.UUID;
 
@@ -191,10 +189,10 @@ public class SessionFactory {
         }
 
         TranscriptReconstruction reconstruction = new TranscriptRestorer(config.transcriptStore()).restore(sessionId);
-        validateResumeMetadata(reconstruction);
+        reconstruction.validateSessionMetadata();
         SessionConfig sessionConfig;
         try {
-            sessionConfig = sessionConfig(resumeOptions(reconstruction));
+            sessionConfig = sessionConfig(SessionOptions.resumeFrom(reconstruction));
         } catch (AetherConfigException e) {
             throw new IllegalStateException("Cannot resume session " + sessionId + ": " + e.getMessage(), e);
         }
@@ -211,7 +209,7 @@ public class SessionFactory {
 
     public List<ModelOption> modelOptions() {
         if (aetherConfig == null) {
-            ModelOption option = modelOption(config.modelSelection());
+            ModelOption option = ModelOption.from(config.modelSelection());
             return option == null ? List.of() : List.of(option);
         }
         return aetherConfig.modelOptions();
@@ -259,7 +257,7 @@ public class SessionFactory {
     }
 
     private ModelSelection modelSelection(SessionOptions options) {
-        if (!hasModelSelection(options)) {
+        if (options == null || !options.hasModelOverride()) {
             return config.modelSelection();
         }
         String provider = firstNonBlank(options.modelProvider(), config.endpoint() == null ? null : config.endpoint().providerId());
@@ -275,27 +273,6 @@ public class SessionFactory {
                 provider,
                 modelId,
                 options.reasoningEffort()
-        );
-    }
-
-    private boolean hasModelSelection(SessionOptions options) {
-        return options != null
-                && (!isBlank(options.modelProvider())
-                || !isBlank(options.modelId())
-                || !isBlank(options.reasoningEffort()));
-    }
-
-    private SessionOptions resumeOptions(TranscriptReconstruction reconstruction) {
-        SessionMetaItem meta = reconstruction == null ? null : reconstruction.sessionMeta();
-        TranscriptModelSelection selection = reconstruction == null ? null : reconstruction.modelSelection();
-        Path cwd = meta == null || meta.getCwd() == null || meta.getCwd().isBlank()
-                ? null
-                : Path.of(meta.getCwd());
-        return SessionOptions.resume(
-                cwd,
-                selection == null ? null : selection.providerId(),
-                selection == null ? null : selection.modelId(),
-                selection == null ? null : selection.reasoningEffort()
         );
     }
 
@@ -329,37 +306,13 @@ public class SessionFactory {
         );
     }
 
-    private static ModelOption modelOption(ModelSelection selection) {
-        if (selection == null) {
-            return null;
-        }
-        var model = selection.model();
-        ProviderEndpoint endpoint = selection.endpoint();
-        if (model == null) {
-            return null;
-        }
-        return new ModelOption(
-                endpoint == null ? null : endpoint.providerId(),
-                model.getId(),
-                model.getName(),
-                endpoint == null ? null : endpoint.wireApi(),
-                model.getContextWindowTokens(),
-                model.getAutoCompactTokenLimit(),
-                model.getInput()
-        );
-    }
-
     private static String firstNonBlank(String... values) {
         for (String value : values) {
-            if (!isBlank(value)) {
+            if (value != null && !value.isBlank()) {
                 return value;
             }
         }
         return null;
-    }
-
-    private static boolean isBlank(String value) {
-        return value == null || value.isBlank();
     }
 
     private SessionMetaItem buildSessionMeta(String sessionId, SessionConfig config) {
@@ -377,7 +330,7 @@ public class SessionFactory {
                 .modelBaseUrl(endpoint == null ? null : endpoint.baseUrl())
                 .modelContextWindowTokens(model == null ? null : model.getContextWindowTokens())
                 .modelAutoCompactTokenLimit(model == null ? null : model.getAutoCompactTokenLimit())
-                .reasoningEffort(reasoningEffort(config.reasoning()))
+                .reasoningEffort(config.reasoning() == null ? null : config.reasoning().effortName())
                 .systemPromptHash(systemPromptHash)
                 .activeToolNames(activeTools)
                 .configFingerprint(configFingerprint(config, systemPromptHash, activeTools))
@@ -396,29 +349,10 @@ public class SessionFactory {
         joiner.add("modelBaseUrl=" + nullToEmpty(endpoint == null ? null : endpoint.baseUrl()));
         joiner.add("modelContextWindowTokens=" + nullToEmpty(model == null ? null : String.valueOf(model.getContextWindowTokens())));
         joiner.add("modelAutoCompactTokenLimit=" + nullToEmpty(model == null ? null : String.valueOf(model.getAutoCompactTokenLimit())));
-        joiner.add("reasoningEffort=" + nullToEmpty(reasoningEffort(config.reasoning())));
+        joiner.add("reasoningEffort=" + nullToEmpty(config.reasoning() == null ? null : config.reasoning().effortName()));
         joiner.add("systemPromptHash=" + nullToEmpty(systemPromptHash));
         joiner.add("activeToolNames=" + String.join(",", activeToolNames == null ? List.of() : activeToolNames));
         return sha256(joiner.toString());
-    }
-
-    private void validateResumeMetadata(TranscriptReconstruction reconstruction) {
-        SessionMetaItem actual = reconstruction.sessionMeta();
-        if (actual == null) {
-            throw new IllegalStateException("Cannot resume session " + reconstruction.sessionId() + " because transcript has no session metadata.");
-        }
-        if (actual.getSessionId() != null && !Objects.equals(actual.getSessionId(), reconstruction.sessionId())) {
-            throw new IllegalStateException(
-                    "Cannot resume session " + reconstruction.sessionId() + " because transcript metadata belongs to session "
-                            + actual.getSessionId() + "."
-            );
-        }
-    }
-
-    private static String reasoningEffort(ReasoningOptions reasoning) {
-        return reasoning == null || reasoning.getReasoningEffort() == null
-                ? null
-                : reasoning.getReasoningEffort().name();
     }
 
     private String aetherVersion() {

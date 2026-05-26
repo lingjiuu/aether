@@ -76,6 +76,28 @@ public class AssistantMessage implements Message{
         return timestamp;
     }
 
+    public boolean isAborted() {
+        return stopReason == StopReason.ABORTED;
+    }
+
+    public boolean isError() {
+        return stopReason == StopReason.ERROR;
+    }
+
+    public boolean isContextWindowExceeded() {
+        if (!isError() || errorMessage == null || errorMessage.isBlank()) {
+            return false;
+        }
+
+        String normalized = errorMessage.toLowerCase();
+        return normalized.contains("context_window_exceeded")
+                || normalized.contains("context window")
+                || normalized.contains("maximum context")
+                || normalized.contains("context length")
+                || normalized.contains("too many tokens")
+                || normalized.contains("token limit");
+    }
+
     public enum StopReason{
         STOP,
         LENGTH,

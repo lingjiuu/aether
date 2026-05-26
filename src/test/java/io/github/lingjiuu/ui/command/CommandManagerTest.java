@@ -42,7 +42,7 @@ public class CommandManagerTest extends TestCase {
         try (Session session = sessionFactory.openSession()) {
             sessionId = session.sessionId();
             TurnContext turnContext = new TurnContext(TurnId.create(), sessionId, 1, tempDir);
-            session.recordUserMessage(session.contextBuilder().userMessage("Plan a clean refactor"), turnContext);
+            session.recordConversationMessage(session.contextBuilder().userMessage("Plan a clean refactor"), turnContext);
             session.waitForIdle();
         }
 

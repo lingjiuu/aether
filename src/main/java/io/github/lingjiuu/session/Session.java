@@ -20,27 +20,20 @@ import io.github.lingjiuu.input.TurnInputProcessor;
 import io.github.lingjiuu.model.client.AssistantStream;
 import io.github.lingjiuu.model.client.AssistantStreamEvent;
 import io.github.lingjiuu.model.client.ModelClientSession;
-import io.github.lingjiuu.model.ModelInfo;
 import io.github.lingjiuu.model.client.ModelRequest;
 import io.github.lingjiuu.model.TokenUsage;
 import io.github.lingjiuu.model.TokenUsageInfo;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
-import io.github.lingjiuu.message.MessageContents;
-import io.github.lingjiuu.message.ToolResultMessage;
-import io.github.lingjiuu.message.UserMessage;
-import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.protocol.UiEvent;
-import io.github.lingjiuu.session.recording.MessageRecorder;
 import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.skill.SkillsManager;
 import io.github.lingjiuu.skill.SkillsWatcher;
 import io.github.lingjiuu.tool.ToolCancellationToken;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolCancellationSource;
-import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRegistry;
 import io.github.lingjiuu.tool.ToolRunner;
 import io.github.lingjiuu.tool.permission.ApprovalHandler;
@@ -65,7 +58,7 @@ public class Session implements AutoCloseable {
     private final SessionState state;
     private final ContextManager contextManager;
     private final ContextBuilder contextBuilder = new ContextBuilder();
-    private final MessageRecorder recorder;
+    private final TranscriptRecorder transcriptRecorder;
     private final EventManager eventManager;
     private final ToolRegistry toolRegistry;
     private final ToolRunner toolRunner;
@@ -145,16 +138,12 @@ public class Session implements AutoCloseable {
         this.activeModelSelection = config.modelSelection();
         this.sessionName = normalizeSessionName(sessionName);
         this.turnInputProcessor = new TurnInputProcessor(config.cwd(), this.skillsManager, contextBuilder);
-        TranscriptRecorder transcriptRecorder = config.transcriptStore() == null
+        this.transcriptRecorder = config.transcriptStore() == null
                 ? null
                 : new TranscriptRecorder(config.transcriptStore(), sessionId, lastTranscriptRecordId);
-        this.recorder = new MessageRecorder(
-                contextManager,
-                transcriptRecorder
-        );
         this.eventManager = new EventManager(transcriptRecorder, initialTimelineEvents, initialEventSequence);
-        if (recordSessionMeta && transcriptRecorder != null) {
-            transcriptRecorder.recordSessionMeta(sessionMeta);
+        if (recordSessionMeta && this.transcriptRecorder != null) {
+            this.transcriptRecorder.recordSessionMeta(sessionMeta);
         }
         this.toolRunner = new ToolRunner(toolRegistry);
         state.setInitialContextBaseline(initialContextBaseline);
@@ -170,15 +159,6 @@ public class Session implements AutoCloseable {
         return registry;
     }
 
-    public void prompt(String content) {
-        submit(TurnInput.ofText(content));
-    }
-
-    public void submit(TurnInput input) {
-        submitAsync(input);
-        waitForIdle();
-    }
-
     public void submitAsync(TurnInput input) {
         submitAsync(input, null);
     }
@@ -189,16 +169,7 @@ public class Session implements AutoCloseable {
             ensureIdle();
             state.touch();
         }
-        runRegularTask(processedInput, commandId);
-    }
-
-    public void continueSession() {
-        runContinueAsync();
-        waitForIdle();
-    }
-
-    public void runContinueAsync() {
-        runContinueAsync(null);
+        runSessionTask(new RegularTask(), processedInput, commandId);
     }
 
     public void runContinueAsync(String commandId) {
@@ -208,16 +179,7 @@ public class Session implements AutoCloseable {
                 throw new IllegalStateException("Current session cannot continue without a new user or tool result message.");
             }
         }
-        runRegularTask(null, commandId);
-    }
-
-    public void compact() {
-        compactAsync();
-        waitForIdle();
-    }
-
-    public void compactAsync() {
-        compactAsync(null);
+        runSessionTask(new RegularTask(), null, commandId);
     }
 
     public void compactAsync(String commandId) {
@@ -230,7 +192,7 @@ public class Session implements AutoCloseable {
     public synchronized void reset() {
         ensureIdle();
         int originalMessageCount = contextManager.snapshot().size();
-        recorder.recordCompaction("session reset", List.of(), 0, originalMessageCount, 0);
+        replaceCompactedHistory("session reset", List.of(), 0, originalMessageCount, 0);
         state.clearTokenUsage();
         clearInitialContextBaseline();
         state.touch();
@@ -242,12 +204,6 @@ public class Session implements AutoCloseable {
             throw new IllegalArgumentException("tool definition must not be null");
         }
         toolRegistry.register(definition);
-        state.touch();
-    }
-
-    public synchronized void setActiveToolsByName(List<String> toolNames) {
-        ensureIdle();
-        activeToolNames = toolNames == null ? null : List.copyOf(toolNames);
         state.touch();
     }
 
@@ -268,8 +224,7 @@ public class Session implements AutoCloseable {
     }
 
     public synchronized boolean canContinue() {
-        Message lastMessage = contextManager.lastMessage();
-        return lastMessage != null && lastMessage.role() != Message.Role.ASSISTANT;
+        return contextManager.canContinue();
     }
 
     public List<Message> messages() {
@@ -278,10 +233,6 @@ public class Session implements AutoCloseable {
 
     public List<UiEvent> timelineEvents() {
         return eventManager.timelineEvents();
-    }
-
-    public void abort() {
-        cancelRunningTask();
     }
 
     public boolean cancelRunningTask() {
@@ -330,10 +281,6 @@ public class Session implements AutoCloseable {
         return eventManager.subscribe(sink);
     }
 
-    public void replayTimeline(EventSink sink) {
-        eventManager.replayTimeline(sink);
-    }
-
     public List<UiEvent> eventsAfter(long sequence) {
         return eventManager.eventsAfter(sequence);
     }
@@ -377,10 +324,6 @@ public class Session implements AutoCloseable {
         return contextBuilder;
     }
 
-    public MessageRecorder recorder() {
-        return recorder;
-    }
-
     public ToolRegistry toolRegistry() {
         return toolRegistry;
     }
@@ -394,7 +337,7 @@ public class Session implements AutoCloseable {
     }
 
     public void reloadSkills() {
-        emitSkillsChanged(skillsManager.reload());
+        eventManager.emit(UiEvents.skillsChanged(sessionId(), skillsManager.reload()));
     }
 
     public PermissionManager permissionManager() {
@@ -425,24 +368,6 @@ public class Session implements AutoCloseable {
                 && currentContextTokenUsage() >= limit;
     }
 
-    public boolean isContextWindowExceeded(AssistantMessage assistantMessage) {
-        if (assistantMessage == null || assistantMessage.getStopReason() != AssistantMessage.StopReason.ERROR) {
-            return false;
-        }
-        String errorMessage = assistantMessage.getErrorMessage();
-        if (errorMessage == null || errorMessage.isBlank()) {
-            return false;
-        }
-
-        String normalized = errorMessage.toLowerCase();
-        return normalized.contains("context_window_exceeded")
-                || normalized.contains("context window")
-                || normalized.contains("maximum context")
-                || normalized.contains("context length")
-                || normalized.contains("too many tokens")
-                || normalized.contains("token limit");
-    }
-
     public void markContextWindowFull(TurnContext turnContext) {
         state.setTokenUsageFull(modelContextWindowTokens());
         if (turnContext != null) {
@@ -457,55 +382,33 @@ public class Session implements AutoCloseable {
         }
     }
 
-    public void recordUserMessage(UserMessage userMessage, TurnContext turnContext) {
-        if (userMessage == null) {
+    public synchronized void recordConversationMessage(Message message, TurnContext turnContext) {
+        if (message == null) {
             return;
         }
-        recorder.record(userMessage, turnContext.turn());
-        eventManager.emit(UiEvents.userMessage(userMessage, turnContext));
-    }
-
-    public void recordContextMessage(ContextMessage contextMessage, TurnContext turnContext) {
-        if (contextMessage == null) {
-            return;
+        contextManager.record(message);
+        if (transcriptRecorder != null) {
+            transcriptRecorder.record(message, turnContext.turn());
         }
-        recorder.record(contextMessage, turnContext.turn());
-        eventManager.emit(UiEvents.contextMessage(contextMessage, turnContext));
     }
 
-    public void recordAssistant(AssistantMessage assistantMessage, TurnContext turnContext) {
-        if (assistantMessage == null) {
-            return;
-        }
-        recorder.record(assistantMessage, turnContext.turn());
-    }
-
-    public void recordToolResult(
-            String sourceItemId,
-            Integer contentIndex,
-            ToolCallContent toolCall,
-            ToolExecutionResult result,
-            TurnContext turnContext,
-            String status,
-            Long durationMs
+    public synchronized void replaceCompactedHistory(
+            String summary,
+            List<Message> replacementMessages,
+            int turn,
+            int originalMessageCount,
+            int preservedUserMessageCount
     ) {
-        ToolResultMessage toolResult = contextBuilder.toolResultMessage(toolCall, result);
-        if (toolResult == null) {
-            return;
+        contextManager.replaceAll(replacementMessages);
+        if (transcriptRecorder != null) {
+            transcriptRecorder.recordCompaction(
+                    summary,
+                    replacementMessages,
+                    turn,
+                    originalMessageCount,
+                    preservedUserMessageCount
+            );
         }
-        ToolDefinition toolDefinition = toolRegistry.findDefinition(toolCall == null ? null : toolCall.getToolName());
-        recorder.record(toolResult, turnContext.turn());
-        eventManager.emit(UiEvents.toolExecutionEnd(
-                sourceItemId,
-                contentIndex,
-                toolCall,
-                toolDefinition,
-                toolResult,
-                status,
-                durationMs,
-                turnContext
-        ));
-        eventManager.emit(UiEvents.toolResult(sourceItemId, contentIndex, toolCall, toolResult, status, durationMs, turnContext));
     }
 
     public ApprovalResponse requestApproval(ApprovalRequest request, TurnContext turnContext) {
@@ -530,7 +433,8 @@ public class Session implements AutoCloseable {
                 ? fullInitialContextMessages(turnContext)
                 : environmentContextMessages(current.diffFields(previous));
         for (ContextMessage message : messages) {
-            recordContextMessage(message, turnContext);
+            recordConversationMessage(message, turnContext);
+            eventManager.emit(UiEvents.contextMessage(message, turnContext));
         }
         state.setInitialContextBaseline(current);
         recordTurnContextBaseline(turnContext, current);
@@ -538,10 +442,29 @@ public class Session implements AutoCloseable {
 
     public List<ContextMessage> fullInitialContextMessages(TurnContext turnContext) {
         List<ContextMessage> messages = new ArrayList<>();
-        addInitialContextMessage(messages, additionalInstructionsContextMessage());
-        addInitialContextMessage(messages, toolInstructionsContextMessage());
-        addInitialContextMessage(messages, userInstructionsContextMessage(turnContext));
-        addInitialContextMessage(messages, availableSkillsContextMessage(availableSkills()));
+        String developerInstructions = config.developerInstructions();
+        if (hasOneLineText(developerInstructions)) {
+            messages.add(contextBuilder.additionalInstructionsMessage(developerInstructions));
+        }
+
+        List<ToolDefinition> tools = activeTools();
+        if (tools.stream().anyMatch(tool -> tool != null && tool.hasModelVisibleInstructions())) {
+            messages.add(contextBuilder.toolInstructionsMessage(tools));
+        }
+
+        String userInstructions = config.userInstructions();
+        if (hasOneLineText(userInstructions)) {
+            messages.add(contextBuilder.userInstructionsMessage(
+                    turnContext != null && turnContext.cwd() != null ? turnContext.cwd() : config.cwd(),
+                    userInstructions
+            ));
+        }
+
+        List<Skill> skills = availableSkills();
+        if (skills.stream().anyMatch(Skill::isModelVisible)) {
+            messages.add(contextBuilder.availableSkillsMessage(skills));
+        }
+
         messages.addAll(environmentContextMessages(environmentContext(turnContext).fullFields()));
         return List.copyOf(messages);
     }
@@ -563,11 +486,13 @@ public class Session implements AutoCloseable {
         if (turnContext == null || initialContextBaseline == null) {
             return;
         }
-        recorder.recordTurnContext(TurnContextItem.builder()
-                .turnId(turnContext.turnId() == null ? null : turnContext.turnId().value())
-                .turn(turnContext.turn())
-                .initialContextBaseline(initialContextBaseline)
-                .build());
+        if (transcriptRecorder != null) {
+            transcriptRecorder.recordTurnContext(TurnContextItem.builder()
+                    .turnId(turnContext.turnId() == null ? null : turnContext.turnId().value())
+                    .turn(turnContext.turn())
+                    .initialContextBaseline(initialContextBaseline)
+                    .build());
+        }
     }
 
     private EnvironmentContext environmentContext(TurnContext turnContext) {
@@ -581,75 +506,6 @@ public class Session implements AutoCloseable {
             return List.of();
         }
         return List.of(contextBuilder.environmentContextMessage(fields));
-    }
-
-    private ContextMessage additionalInstructionsContextMessage() {
-        String instructions = config.developerInstructions();
-        if (instructions == null || instructions.isBlank()) {
-            return null;
-        }
-        return contextBuilder.additionalInstructionsMessage(instructions);
-    }
-
-    private ContextMessage toolInstructionsContextMessage() {
-        List<ToolDefinition> tools = activeTools();
-        if (!hasToolContextMessage(tools)) {
-            return null;
-        }
-        return contextBuilder.toolInstructionsMessage(tools);
-    }
-
-    private ContextMessage userInstructionsContextMessage(TurnContext turnContext) {
-        String instructions = config.userInstructions();
-        if (instructions == null || instructions.isBlank()) {
-            return null;
-        }
-        return contextBuilder.userInstructionsMessage(
-                turnContext != null && turnContext.cwd() != null ? turnContext.cwd() : config.cwd(),
-                instructions
-        );
-    }
-
-    private ContextMessage availableSkillsContextMessage(List<Skill> skills) {
-        if (!hasVisibleSkillMessage(skills)) {
-            return null;
-        }
-        return contextBuilder.availableSkillsMessage(skills);
-    }
-
-    private void addInitialContextMessage(List<ContextMessage> messages, ContextMessage message) {
-        if (message == null || MessageContents.text(message).isBlank()) {
-            return;
-        }
-        messages.add(message);
-    }
-
-    private boolean hasToolContextMessage(List<ToolDefinition> tools) {
-        if (tools == null || tools.isEmpty()) {
-            return false;
-        }
-        boolean hasBash = false;
-        for (ToolDefinition tool : tools) {
-            if (tool == null) {
-                continue;
-            }
-            if (hasOneLineText(tool.promptSnippet()) || tool.promptGuidelines().stream().anyMatch(this::hasOneLineText)) {
-                return true;
-            }
-            hasBash = hasBash || "bash".equals(tool.name());
-        }
-        return hasBash;
-    }
-
-    private boolean hasVisibleSkillMessage(List<Skill> skills) {
-        if (skills == null || skills.isEmpty()) {
-            return false;
-        }
-        return skills.stream().anyMatch(skill -> skill != null
-                && !skill.isDisableModelInvocation()
-                && hasOneLineText(skill.getName())
-                && hasOneLineText(skill.getDescription())
-                && skill.getLocation() != null);
     }
 
     private boolean hasOneLineText(String value) {
@@ -727,7 +583,9 @@ public class Session implements AutoCloseable {
             return;
         }
         sessionName = normalized;
-        recorder.recordSessionName(normalized);
+        if (transcriptRecorder != null) {
+            transcriptRecorder.recordSessionName(normalized);
+        }
         state.touch();
         eventManager.emit(UiEvents.sessionNameUpdated(sessionId(), normalized));
     }
@@ -763,10 +621,6 @@ public class Session implements AutoCloseable {
             }
             eventManager.close();
         }
-    }
-
-    private void runRegularTask(ProcessedTurnInput processedInput, String commandId) {
-        runSessionTask(new RegularTask(), processedInput, commandId);
     }
 
     private void runSessionTask(SessionTask task, ProcessedTurnInput processedInput, String commandId) {
@@ -823,7 +677,9 @@ public class Session implements AutoCloseable {
             boolean cancelled = cancellationSource.token().isCancellationRequested();
             if (cancelled) {
                 try {
-                    recordInterruptedTurn(turnContext);
+                    ContextMessage message = contextBuilder.interruptedTurnMessage();
+                    recordConversationMessage(message, turnContext);
+                    eventManager.emit(UiEvents.contextMessage(message, turnContext));
                 } catch (RuntimeException e) {
                     eventManager.emit(UiEvents.error(turnContext, "Failed to record interrupted turn: " + e.getMessage()));
                 }
@@ -840,13 +696,12 @@ public class Session implements AutoCloseable {
         }
     }
 
-    private void recordInterruptedTurn(TurnContext turnContext) {
-        recordContextMessage(contextBuilder.interruptedTurnMessage(), turnContext);
-    }
-
     private SkillsWatcher startSkillsWatcher() {
         try {
-            SkillsWatcher watcher = new SkillsWatcher(skillsManager, this::emitSkillsChanged);
+            SkillsWatcher watcher = new SkillsWatcher(
+                    skillsManager,
+                    availableSkillCount -> eventManager.emit(UiEvents.skillsChanged(sessionId(), availableSkillCount))
+            );
             watcher.start();
             return watcher;
         } catch (RuntimeException e) {
@@ -854,12 +709,8 @@ public class Session implements AutoCloseable {
         }
     }
 
-    private void emitSkillsChanged(int availableSkillCount) {
-        eventManager.emit(UiEvents.skillsChanged(sessionId(), availableSkillCount));
-    }
-
     private void recordTokenUsage(AssistantMessage assistantMessage, TurnContext turnContext) {
-        if (assistantMessage == null || assistantMessage.getStopReason() == AssistantMessage.StopReason.ABORTED) {
+        if (assistantMessage == null || assistantMessage.isAborted()) {
             return;
         }
         TokenUsage usage = TokenUsage.fromUsageMap(assistantMessage.getUsage());
@@ -881,14 +732,12 @@ public class Session implements AutoCloseable {
 
     private Long modelContextWindowTokens() {
         ModelSelection selection = activeModelSelection();
-        ModelInfo model = selection == null ? null : selection.model();
-        return model == null ? null : model.getContextWindowTokens();
+        return selection == null ? null : selection.contextWindowTokens();
     }
 
     private Long autoCompactTokenLimit() {
         ModelSelection selection = activeModelSelection();
-        ModelInfo model = selection == null ? null : selection.model();
-        return model == null ? null : model.resolvedAutoCompactTokenLimit();
+        return selection == null ? null : selection.autoCompactTokenLimit();
     }
 
     private void closeQuietly(AutoCloseable closeable) {

@@ -54,7 +54,7 @@ public class SkillsManager {
 
     public List<Skill> availableSkills() {
         return skills.stream()
-                .filter(skill -> !skill.isDisableModelInvocation())
+                .filter(Skill::isModelVisible)
                 .toList();
     }
 
@@ -196,7 +196,7 @@ public class SkillsManager {
 
     private List<Skill> visibleSkills(List<Skill> skills) {
         return skills == null ? List.of() : skills.stream()
-                .filter(skill -> skill != null && !skill.isDisableModelInvocation())
+                .filter(skill -> skill != null && skill.isModelVisible())
                 .toList();
     }
 
