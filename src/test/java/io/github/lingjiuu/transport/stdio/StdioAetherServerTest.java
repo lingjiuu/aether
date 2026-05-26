@@ -10,7 +10,6 @@ import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.ProviderSession;
 import io.github.lingjiuu.provider.RequestAuth;
-import io.github.lingjiuu.resource.PromptResources;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.transcript.TranscriptStore;
@@ -232,6 +231,9 @@ public class StdioAetherServerTest extends TestCase {
         return new SessionConfig(
                 new LlmClient(new ProviderRegistry().register(new NoopProvider())),
                 "You are a test agent.",
+                "",
+                "",
+                List.of(),
                 cwd.toAbsolutePath().normalize(),
                 LlmModel.builder()
                         .id("fake-model")
@@ -244,7 +246,6 @@ public class StdioAetherServerTest extends TestCase {
                 null,
                 new TranscriptStore(cwd.resolve("transcripts")),
                 List.of(),
-                PromptResources.empty(),
                 List.of()
         );
     }

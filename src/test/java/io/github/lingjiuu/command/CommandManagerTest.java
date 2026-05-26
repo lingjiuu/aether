@@ -8,6 +8,7 @@ import io.github.lingjiuu.llm.AssistantStreamEvent;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.LlmRequest;
+import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiEvent;
@@ -18,7 +19,6 @@ import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.ProviderSession;
 import io.github.lingjiuu.provider.RequestAuth;
-import io.github.lingjiuu.resource.PromptResources;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.session.SessionFactory;
@@ -129,6 +129,34 @@ public class CommandManagerTest extends TestCase {
         }
     }
 
+    public void testPromptContextIsSentAsMessages() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-command-prompt-context-test");
+        CapturingProvider provider = new CapturingProvider();
+        try (CommandManager commandManager = new CommandManager(new SessionFactory(sessionConfig(
+                tempDir,
+                provider,
+                "Prefer small diffs.",
+                "Project rules.",
+                List.of(tempDir.resolve("AGENTS.md"))
+        )), null, null)) {
+            commandManager.handle(UiCommand.submitUserInput("hello"));
+            commandManager.currentSession().waitForIdle();
+
+            assertNotNull(provider.lastRequest);
+            assertEquals("You are a test agent.", provider.lastRequest.getBaseInstructions());
+            assertFalse(provider.lastRequest.getBaseInstructions().contains("Project rules."));
+            assertTrue(provider.lastRequest.getMessages().stream()
+                    .map(MessageContents::text)
+                    .anyMatch(text -> text.startsWith("<additional_instructions>")
+                            && text.contains("Prefer small diffs.")));
+            assertTrue(provider.lastRequest.getMessages().stream()
+                    .map(MessageContents::text)
+                    .anyMatch(text -> text.startsWith("# AGENTS.md instructions for ")
+                            && text.contains("<INSTRUCTIONS>")
+                            && text.contains("Project rules.")));
+        }
+    }
+
     public void testSetModelIsDisabledWhileTurnRuns() throws Exception {
         Path tempDir = Files.createTempDirectory("aether-command-set-model-running-test");
         BlockingProvider provider = new BlockingProvider();
@@ -181,9 +209,22 @@ public class CommandManagerTest extends TestCase {
     }
 
     private SessionConfig sessionConfig(Path cwd, Provider provider) {
+        return sessionConfig(cwd, provider, "", "", List.of());
+    }
+
+    private SessionConfig sessionConfig(
+            Path cwd,
+            Provider provider,
+            String developerInstructions,
+            String userInstructions,
+            List<Path> instructionSources
+    ) {
         return new SessionConfig(
                 new LlmClient(new ProviderRegistry().register(provider)),
                 "You are a test agent.",
+                developerInstructions,
+                userInstructions,
+                instructionSources,
                 cwd.toAbsolutePath().normalize(),
                 LlmModel.builder()
                         .id("fake-model")
@@ -196,7 +237,6 @@ public class CommandManagerTest extends TestCase {
                 null,
                 new TranscriptStore(cwd.resolve("transcripts")),
                 List.of(),
-                PromptResources.empty(),
                 List.of()
         );
     }

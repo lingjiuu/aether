@@ -13,7 +13,6 @@ import io.github.lingjiuu.provider.Provider;
 import io.github.lingjiuu.provider.ProviderRegistry;
 import io.github.lingjiuu.provider.ProviderSession;
 import io.github.lingjiuu.provider.RequestAuth;
-import io.github.lingjiuu.resource.PromptResources;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionBuilder;
 import io.github.lingjiuu.session.SessionConfig;
@@ -111,6 +110,9 @@ public class ToolCancellationClosureTest extends TestCase {
         return new SessionConfig(
                 new LlmClient(new ProviderRegistry().register(provider)),
                 "You are a test agent.",
+                "",
+                "",
+                List.of(),
                 Path.of(".").toAbsolutePath().normalize(),
                 LlmModel.builder()
                         .id("fake-model")
@@ -123,7 +125,6 @@ public class ToolCancellationClosureTest extends TestCase {
                 null,
                 null,
                 List.of(tool),
-                PromptResources.empty(),
                 List.of(tool.name())
         );
     }

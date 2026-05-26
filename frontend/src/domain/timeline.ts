@@ -32,6 +32,10 @@ function isInternalContextText(text: string): boolean {
   return trimmed.startsWith('Environment context:')
     || trimmed.startsWith('Environment context update:')
     || trimmed.startsWith('<environment_context>')
+    || trimmed.startsWith('<additional_instructions>')
+    || trimmed.startsWith('<tool_context>')
+    || trimmed.startsWith('# AGENTS.md instructions for ')
+    || trimmed.startsWith('<available_skills>')
     || trimmed.startsWith('<turn_aborted>')
     || trimmed.startsWith('<skill>');
 }

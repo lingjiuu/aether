@@ -153,6 +153,54 @@ describe('transcript renderer', () => {
     expect(text).not.toContain('<environment_context>');
     expect(text).not.toContain('/tmp/aether');
   });
+
+  it('does not render hidden prompt context guidance', () => {
+    const state = reducer(initialState, {
+      type: 'history',
+      history: {
+        sessionId: 'session-1',
+        turns: [
+          {
+            turnId: 'turn-1',
+            status: 'COMPLETED',
+            items: [
+              {
+                id: 'context-1',
+                kind: 'CONTEXT_MESSAGE',
+                status: 'COMPLETED',
+                text: '<additional_instructions>\nPrefer small diffs.\n</additional_instructions>',
+              },
+              {
+                id: 'context-2',
+                kind: 'CONTEXT_MESSAGE',
+                status: 'COMPLETED',
+                text: '<tool_context>\nAvailable tools:\n- read: Read files\n</tool_context>',
+              },
+              {
+                id: 'context-3',
+                kind: 'CONTEXT_MESSAGE',
+                status: 'COMPLETED',
+                text: '# AGENTS.md instructions for /tmp/aether\n\n<INSTRUCTIONS>\nProject rules.\n</INSTRUCTIONS>',
+              },
+              {
+                id: 'context-4',
+                kind: 'CONTEXT_MESSAGE',
+                status: 'COMPLETED',
+                text: '<available_skills>\n## Skills\n</available_skills>',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const view = renderView(state);
+    const text = [...historyLines(view), ...activeLines(view)].map(stripAnsi).join('\n');
+
+    expect(text).not.toContain('Prefer small diffs');
+    expect(text).not.toContain('Available tools');
+    expect(text).not.toContain('Project rules');
+    expect(text).not.toContain('available_skills');
+  });
 });
 
 function assistantHistory(

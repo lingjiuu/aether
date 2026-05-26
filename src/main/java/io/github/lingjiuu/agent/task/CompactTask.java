@@ -3,13 +3,13 @@ package io.github.lingjiuu.agent.task;
 import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.compact.CompactPromptBuilder;
+import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
-import io.github.lingjiuu.prompt.Prompt;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 
@@ -138,10 +138,10 @@ public class CompactTask implements SessionTask {
                     compactInput,
                     turnConfig.model().getInput()
             );
-            Prompt prompt = promptBuilder.build(turnConfig, normalizedCompactInput);
+            LlmRequest request = promptBuilder.build(turnConfig, normalizedCompactInput);
             AssistantMessage assistantMessage = session.sampleModel(
                     context.modelSession(),
-                    prompt,
+                    request,
                     turnContext,
                     context.cancellationToken()
             );

@@ -10,9 +10,12 @@ import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.provider.ProviderReplayData;
+import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.skill.SkillInjection;
+import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 
+import java.nio.file.Path;
 import java.util.List;
 
 public class ContextBuilder {
@@ -139,6 +142,24 @@ public class ContextBuilder {
             </environment_context>
             """.trim();
 
+    private static final String ADDITIONAL_INSTRUCTIONS_CONTEXT_TEMPLATE = """
+            <additional_instructions>
+            %s
+            </additional_instructions>
+            """.trim();
+
+    private static final String TOOL_CONTEXT_TEMPLATE = """
+            <tool_context>
+            %s
+            </tool_context>
+            """.trim();
+
+    private static final String AVAILABLE_SKILLS_CONTEXT_TEMPLATE = """
+            <available_skills>
+            %s
+            </available_skills>
+            """.trim();
+
     private static final String ENVIRONMENT_CONTEXT_FIELD_TEMPLATE = "  <%s>%s</%s>";
 
     private static final String SKILL_CONTEXT_TEMPLATE = """
@@ -148,6 +169,34 @@ public class ContextBuilder {
             %s
             </skill>
             """.trim();
+
+    public ContextMessage additionalInstructionsMessage(String instructions) {
+        return contextMessage(
+                ContextMessage.ContextKind.INFORMATIONAL,
+                ADDITIONAL_INSTRUCTIONS_CONTEXT_TEMPLATE.formatted(instructions.trim())
+        );
+    }
+
+    public ContextMessage toolInstructionsMessage(List<ToolDefinition> activeTools) {
+        return contextMessage(
+                ContextMessage.ContextKind.INFORMATIONAL,
+                TOOL_CONTEXT_TEMPLATE.formatted(ContextMessageText.toolInstructions(activeTools))
+        );
+    }
+
+    public ContextMessage userInstructionsMessage(Path directory, String instructions) {
+        return contextMessage(
+                ContextMessage.ContextKind.RESOURCE,
+                ContextMessageText.userInstructions(directory, instructions)
+        );
+    }
+
+    public ContextMessage availableSkillsMessage(List<Skill> skills) {
+        return contextMessage(
+                ContextMessage.ContextKind.SKILL,
+                AVAILABLE_SKILLS_CONTEXT_TEMPLATE.formatted(ContextMessageText.availableSkills(skills))
+        );
+    }
 
     public ContextMessage environmentContextMessage(List<EnvironmentContext.Field> fields) {
         List<String> lines = (fields == null ? List.<EnvironmentContext.Field>of() : fields)

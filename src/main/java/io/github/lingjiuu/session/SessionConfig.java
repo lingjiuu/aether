@@ -5,7 +5,6 @@ import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.ReasoningOptions;
 import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.provider.RequestAuth;
-import io.github.lingjiuu.resource.PromptResources;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.transcript.TranscriptStore;
 
@@ -14,20 +13,25 @@ import java.util.List;
 
 public record SessionConfig(
         LlmClient llmClient,
-        String systemPrompt,
+        String baseInstructions,
+        String developerInstructions,
+        String userInstructions,
+        List<Path> instructionSources,
         Path cwd,
         LlmModel model,
         RequestAuth requestAuth,
         ReasoningOptions reasoning,
         TranscriptStore transcriptStore,
         List<ToolDefinition> toolDefinitions,
-        PromptResources promptResources,
         List<String> activeToolNames
 ) {
 
     public SessionConfig {
+        baseInstructions = baseInstructions == null ? "" : baseInstructions;
+        developerInstructions = developerInstructions == null ? "" : developerInstructions;
+        userInstructions = userInstructions == null ? "" : userInstructions;
+        instructionSources = instructionSources == null ? List.of() : List.copyOf(instructionSources);
         toolDefinitions = toolDefinitions == null ? List.of() : List.copyOf(toolDefinitions);
-        promptResources = promptResources == null ? PromptResources.empty() : promptResources;
         activeToolNames = activeToolNames == null ? null : List.copyOf(activeToolNames);
     }
 
@@ -41,14 +45,16 @@ public record SessionConfig(
         }
         return new SessionConfig(
                 llmClient,
-                systemPrompt,
+                baseInstructions,
+                developerInstructions,
+                userInstructions,
+                instructionSources,
                 cwd,
                 selection.model(),
                 selection.auth(),
                 selection.reasoning(),
                 transcriptStore,
                 toolDefinitions,
-                promptResources,
                 activeToolNames
         );
     }

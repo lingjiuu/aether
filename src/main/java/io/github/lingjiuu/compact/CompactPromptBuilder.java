@@ -1,11 +1,10 @@
 package io.github.lingjiuu.compact;
 
+import io.github.lingjiuu.llm.LlmCallOptions;
+import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
-import io.github.lingjiuu.prompt.Prompt;
-import io.github.lingjiuu.prompt.PromptBuildInput;
-import io.github.lingjiuu.prompt.PromptBuilder;
 import io.github.lingjiuu.session.SessionConfig;
 
 import java.util.ArrayList;
@@ -27,9 +26,7 @@ public class CompactPromptBuilder {
             Be concise, structured, and focused on helping the next LLM seamlessly continue the work.
             """;
 
-    private final PromptBuilder promptBuilder = new PromptBuilder();
-
-    public Prompt build(SessionConfig config, List<Message> messages) {
+    public LlmRequest build(SessionConfig config, List<Message> messages) {
         if (config == null || config.model() == null) {
             throw new CompactException("Compact requires a configured model.");
         }
@@ -42,6 +39,14 @@ public class CompactPromptBuilder {
                         .text(SUMMARIZATION_PROMPT.trim())
                         .build()))
                 .build());
-        return promptBuilder.build(new PromptBuildInput(config, compactMessages, List.of(), List.of()));
+        return LlmRequest.builder()
+                .baseInstructions(config.baseInstructions())
+                .model(config.model())
+                .tools(List.of())
+                .messages(compactMessages)
+                .callOptions(LlmCallOptions.builder()
+                        .reasoning(config.reasoning())
+                        .build())
+                .build();
     }
 }

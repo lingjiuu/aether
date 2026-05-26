@@ -36,7 +36,7 @@ public class OpenAiRequestBuilder {
         ResponseCreateParams.Builder builder = ResponseCreateParams.builder()
                 .model(request.getModel().getId())
                 .store(false)
-                .inputOfResponse(messageAdapter.toInputItems(request.getSystemPrompt(), request.getMessages()));
+                .inputOfResponse(messageAdapter.toInputItems(request.getBaseInstructions(), request.getMessages()));
 
         if (safeOptions.getTemperature() != null) {
             builder.temperature(safeOptions.getTemperature());

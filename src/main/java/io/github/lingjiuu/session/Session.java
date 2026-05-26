@@ -20,20 +20,21 @@ import io.github.lingjiuu.input.MaterializedInput;
 import io.github.lingjiuu.input.TurnInput;
 import io.github.lingjiuu.llm.AssistantStream;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
+import io.github.lingjiuu.llm.LlmCallOptions;
 import io.github.lingjiuu.llm.LlmClientSession;
 import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.llm.TokenUsage;
 import io.github.lingjiuu.llm.TokenUsageInfo;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.model.ModelSelection;
-import io.github.lingjiuu.prompt.Prompt;
-import io.github.lingjiuu.prompt.PromptBuilder;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.recording.MessageRecorder;
 import io.github.lingjiuu.skill.Skill;
@@ -56,6 +57,7 @@ import io.github.lingjiuu.transcript.item.TurnContextItem;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -68,7 +70,6 @@ public class Session implements AutoCloseable {
     private final ContextBuilder contextBuilder = new ContextBuilder();
     private final MessageRecorder recorder;
     private final EventManager eventManager;
-    private final PromptBuilder promptBuilder = new PromptBuilder();
     private final ToolRegistry toolRegistry;
     private final ToolRunner toolRunner;
     private final SkillsManager skillsManager;
@@ -336,10 +337,6 @@ public class Session implements AutoCloseable {
         return recorder;
     }
 
-    public PromptBuilder promptBuilder() {
-        return promptBuilder;
-    }
-
     public ToolRegistry toolRegistry() {
         return toolRegistry;
     }
@@ -377,7 +374,7 @@ public class Session implements AutoCloseable {
                 return lastUsage.totalTokens() + addedSinceLastAssistant;
             }
         }
-        return contextManager.estimateTokensForModel(config.systemPrompt());
+        return contextManager.estimateTokensForModel(config.baseInstructions());
     }
 
     public boolean shouldAutoCompact() {
@@ -497,19 +494,31 @@ public class Session implements AutoCloseable {
         return response;
     }
 
-    public void recordInitialContextIfChanged(TurnContext turnContext) {
+    public void recordInitialContextIfChanged(TurnContext turnContext, List<Skill> availableSkills) {
         EnvironmentContext previous = state.initialContextBaseline();
         EnvironmentContext current = environmentContext(turnContext);
-        List<EnvironmentContext.Field> fields = current.diffFields(previous);
-        if (!fields.isEmpty()) {
-            recordContextMessage(contextBuilder.environmentContextMessage(fields), turnContext);
+        List<ContextMessage> messages = previous == null
+                ? fullInitialContextMessages(turnContext, availableSkills)
+                : environmentContextMessages(current.diffFields(previous));
+        for (ContextMessage message : messages) {
+            recordContextMessage(message, turnContext);
         }
         state.setInitialContextBaseline(current);
         recordTurnContextBaseline(turnContext, current);
     }
 
     public List<ContextMessage> fullInitialContextMessages(TurnContext turnContext) {
-        return List.of(contextBuilder.environmentContextMessage(environmentContext(turnContext).fullFields()));
+        return fullInitialContextMessages(turnContext, availableSkills());
+    }
+
+    public List<ContextMessage> fullInitialContextMessages(TurnContext turnContext, List<Skill> availableSkills) {
+        List<ContextMessage> messages = new ArrayList<>();
+        addInitialContextMessage(messages, additionalInstructionsContextMessage());
+        addInitialContextMessage(messages, toolInstructionsContextMessage());
+        addInitialContextMessage(messages, userInstructionsContextMessage(turnContext));
+        addInitialContextMessage(messages, availableSkillsContextMessage(availableSkills));
+        messages.addAll(environmentContextMessages(environmentContext(turnContext).fullFields()));
+        return List.copyOf(messages);
     }
 
     public void clearInitialContextBaseline() {
@@ -542,18 +551,115 @@ public class Session implements AutoCloseable {
                 : config.cwd());
     }
 
+    private List<ContextMessage> environmentContextMessages(List<EnvironmentContext.Field> fields) {
+        if (fields == null || fields.isEmpty()) {
+            return List.of();
+        }
+        return List.of(contextBuilder.environmentContextMessage(fields));
+    }
+
+    private ContextMessage additionalInstructionsContextMessage() {
+        String instructions = config.developerInstructions();
+        if (instructions == null || instructions.isBlank()) {
+            return null;
+        }
+        return contextBuilder.additionalInstructionsMessage(instructions);
+    }
+
+    private ContextMessage toolInstructionsContextMessage() {
+        List<ToolDefinition> tools = activeTools();
+        if (!hasToolContextMessage(tools)) {
+            return null;
+        }
+        return contextBuilder.toolInstructionsMessage(tools);
+    }
+
+    private ContextMessage userInstructionsContextMessage(TurnContext turnContext) {
+        String instructions = config.userInstructions();
+        if (instructions == null || instructions.isBlank()) {
+            return null;
+        }
+        return contextBuilder.userInstructionsMessage(
+                turnContext != null && turnContext.cwd() != null ? turnContext.cwd() : config.cwd(),
+                instructions
+        );
+    }
+
+    private ContextMessage availableSkillsContextMessage(List<Skill> skills) {
+        if (!hasVisibleSkillMessage(skills)) {
+            return null;
+        }
+        return contextBuilder.availableSkillsMessage(skills);
+    }
+
+    private void addInitialContextMessage(List<ContextMessage> messages, ContextMessage message) {
+        if (message == null || MessageContents.text(message).isBlank()) {
+            return;
+        }
+        messages.add(message);
+    }
+
+    private boolean hasToolContextMessage(List<ToolDefinition> tools) {
+        if (tools == null || tools.isEmpty()) {
+            return false;
+        }
+        boolean hasBash = false;
+        for (ToolDefinition tool : tools) {
+            if (tool == null) {
+                continue;
+            }
+            if (hasOneLineText(tool.promptSnippet()) || tool.promptGuidelines().stream().anyMatch(this::hasOneLineText)) {
+                return true;
+            }
+            hasBash = hasBash || "bash".equals(tool.name());
+        }
+        return hasBash;
+    }
+
+    private boolean hasVisibleSkillMessage(List<Skill> skills) {
+        if (skills == null || skills.isEmpty()) {
+            return false;
+        }
+        return skills.stream().anyMatch(skill -> skill != null
+                && !skill.isDisableModelInvocation()
+                && hasOneLineText(skill.getName())
+                && hasOneLineText(skill.getDescription())
+                && skill.getLocation() != null);
+    }
+
+    private boolean hasOneLineText(String value) {
+        return value != null && !value.replaceAll("[\\r\\n]+", " ").trim().isEmpty();
+    }
+
+    public LlmRequest buildLlmRequest(
+            SessionConfig turnConfig,
+            List<Message> messages,
+            List<ToolDefinition> tools
+    ) {
+        SessionConfig promptConfig = turnConfig == null ? config : turnConfig;
+        return LlmRequest.builder()
+                .baseInstructions(promptConfig.baseInstructions())
+                .model(promptConfig.model())
+                .tools(tools == null ? List.of() : List.copyOf(tools))
+                .messages(messages == null ? List.of() : List.copyOf(messages))
+                .callOptions(LlmCallOptions.builder()
+                        .reasoning(promptConfig.reasoning())
+                        .build())
+                .build();
+    }
+
     public AssistantMessage sampleModel(
             LlmClientSession modelSession,
-            Prompt prompt,
+            LlmRequest request,
             TurnContext turnContext,
             ToolCancellationToken cancellationToken
     ) {
-        return sampleModelItems(modelSession, prompt, turnContext, cancellationToken, null);
+        return sampleModelItems(modelSession, request, turnContext, cancellationToken, null);
     }
 
     public AssistantMessage sampleModelItems(
             LlmClientSession modelSession,
-            Prompt prompt,
+            LlmRequest request,
             TurnContext turnContext,
             ToolCancellationToken cancellationToken,
             Consumer<AssistantStreamEvent> itemConsumer
@@ -564,7 +670,7 @@ public class Session implements AutoCloseable {
         }
 
         AssistantMessage assistantMessage;
-        try (AssistantStream stream = modelSession.stream(prompt.toLlmRequest(null), token)) {
+        try (AssistantStream stream = modelSession.stream(request, token)) {
             AutoCloseable cancelRegistration = token.onCancel(() -> closeQuietly(stream));
             try {
                 assistantMessage = stream.consume(event -> {
@@ -783,7 +889,7 @@ public class Session implements AutoCloseable {
 
     private void recomputeTokenUsageFromHistory() {
         state.recomputeTokenUsage(
-                contextManager.estimateTokensForModel(config.systemPrompt()),
+                contextManager.estimateTokensForModel(config.baseInstructions()),
                 modelContextWindowTokens()
         );
     }

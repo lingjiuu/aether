@@ -34,11 +34,11 @@ public class OpenAiMessageAdapter {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
-    public List<ResponseInputItem> toInputItems(String systemPrompt, List<Message> messages) {
+    public List<ResponseInputItem> toInputItems(String baseInstructions, List<Message> messages) {
         List<ResponseInputItem> inputItems = new ArrayList<>();
 
-        if (systemPrompt != null && !systemPrompt.isBlank()) {
-            appendEasyInputMessage(inputItems, EasyInputMessage.Role.DEVELOPER, systemPrompt);
+        if (baseInstructions != null && !baseInstructions.isBlank()) {
+            appendEasyInputMessage(inputItems, EasyInputMessage.Role.DEVELOPER, baseInstructions);
         }
 
         if (messages == null || messages.isEmpty()) {

@@ -5,14 +5,15 @@ import io.github.lingjiuu.infra.config.AetherConfigException;
 import io.github.lingjiuu.infra.config.AetherConfigLoader;
 import io.github.lingjiuu.infra.config.AetherPaths;
 import io.github.lingjiuu.infra.config.ConfigValueResolver;
+import io.github.lingjiuu.instructions.AgentsMdInstructions;
+import io.github.lingjiuu.instructions.AgentsMdManager;
+import io.github.lingjiuu.instructions.BaseInstructions;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.ReasoningOptions;
 import io.github.lingjiuu.model.ModelOption;
 import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.provider.RequestAuth;
-import io.github.lingjiuu.resource.PromptResources;
-import io.github.lingjiuu.resource.ResourceLoader;
 import io.github.lingjiuu.skill.SkillsManager;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
@@ -30,7 +31,9 @@ import io.github.lingjiuu.transcript.TranscriptRestorer;
 import io.github.lingjiuu.transcript.TranscriptStore;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -45,7 +48,7 @@ import java.util.UUID;
 
 public class SessionFactory {
 
-    private static final String DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant";
+    private static final List<String> PROJECT_INSTRUCTION_DIR_NAMES = List.of(".aether", ".agent");
 
     private final SessionConfig config;
     private final SkillsManager skillsManager;
@@ -160,23 +163,24 @@ public class SessionFactory {
         Path resolvedAgentDir = agentDir == null
                 ? AetherPaths.getAgentDir().toAbsolutePath().normalize()
                 : agentDir.toAbsolutePath().normalize();
-        PromptResources promptResources = new ResourceLoader(resolvedCwd, resolvedAgentDir).load();
+        AgentsMdInstructions agentsMdInstructions = new AgentsMdManager(resolvedCwd, resolvedAgentDir).load();
         SkillsManager skillsManager = new SkillsManager(resolvedCwd, resolvedAgentDir);
-        String systemPrompt = promptResources.getSystemPrompt() == null || promptResources.getSystemPrompt().isBlank()
-                ? DEFAULT_SYSTEM_PROMPT
-                : promptResources.getSystemPrompt();
+        String baseInstructions = baseInstructions(resolvedCwd, resolvedAgentDir);
+        String developerInstructions = readInstructionFile(resolvedCwd, resolvedAgentDir, "APPEND_SYSTEM.md");
 
         List<ToolDefinition> toolDefinitions = buildDefaultTools(resolvedCwd);
         SessionConfig config = new SessionConfig(
                 llmClient,
-                systemPrompt,
+                baseInstructions,
+                developerInstructions,
+                agentsMdInstructions.text(),
+                agentsMdInstructions.sources(),
                 resolvedCwd,
                 model,
                 requestAuth,
                 reasoning,
                 transcriptStore,
                 toolDefinitions,
-                promptResources,
                 toolDefinitions.stream()
                         .map(ToolDefinition::name)
                         .toList()
@@ -187,6 +191,40 @@ public class SessionFactory {
 
     public Session openSession() {
         return openSession(SessionOptions.defaults());
+    }
+
+    private static String baseInstructions(Path cwd, Path agentDir) {
+        String configured = readInstructionFile(cwd, agentDir, "SYSTEM.md");
+        return configured == null || configured.isBlank()
+                ? BaseInstructions.DEFAULT
+                : configured.trim();
+    }
+
+    private static String readInstructionFile(Path cwd, Path agentDir, String fileName) {
+        for (Path candidate : instructionFileCandidates(cwd, agentDir, fileName)) {
+            if (Files.isRegularFile(candidate) && Files.isReadable(candidate)) {
+                try {
+                    return Files.readString(candidate, StandardCharsets.UTF_8).trim();
+                } catch (IOException ignored) {
+                    return "";
+                }
+            }
+        }
+        return "";
+    }
+
+    private static List<Path> instructionFileCandidates(Path cwd, Path agentDir, String fileName) {
+        List<Path> candidates = new ArrayList<>();
+        Path resolvedCwd = cwd == null
+                ? Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize()
+                : cwd.toAbsolutePath().normalize();
+        for (String dirName : PROJECT_INSTRUCTION_DIR_NAMES) {
+            candidates.add(resolvedCwd.resolve(dirName).resolve(fileName));
+        }
+        if (agentDir != null) {
+            candidates.add(agentDir.toAbsolutePath().normalize().resolve(fileName));
+        }
+        return List.copyOf(candidates);
     }
 
     public Session openSession(SessionOptions options) {
@@ -606,7 +644,7 @@ public class SessionFactory {
     private SessionMetaItem buildSessionMeta(String sessionId, SessionConfig config) {
         LlmModel model = config.model();
         List<String> activeTools = config.activeToolNames() == null ? List.of() : config.activeToolNames();
-        String systemPromptHash = sha256(config.systemPrompt());
+        String systemPromptHash = sha256(config.baseInstructions());
         return SessionMetaItem.builder()
                 .sessionId(sessionId)
                 .createdAt(System.currentTimeMillis())

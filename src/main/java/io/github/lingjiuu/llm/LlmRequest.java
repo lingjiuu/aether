@@ -17,7 +17,7 @@ import java.util.List;
 @AllArgsConstructor
 public class LlmRequest {
 
-    private String systemPrompt;
+    private String baseInstructions;
 
     private LlmModel model;
 

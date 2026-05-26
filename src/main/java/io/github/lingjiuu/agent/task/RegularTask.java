@@ -5,11 +5,10 @@ import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.protocol.UiItemKind;
 import io.github.lingjiuu.input.MaterializedInput;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
+import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.ToolResultMessage;
-import io.github.lingjiuu.prompt.Prompt;
-import io.github.lingjiuu.prompt.PromptBuildInput;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.skill.Skill;
@@ -47,7 +46,7 @@ public class RegularTask implements SessionTask {
         }
 
         List<Skill> turnSkills = session.availableSkills();
-        session.recordInitialContextIfChanged(turnContext);
+        session.recordInitialContextIfChanged(turnContext, turnSkills);
         SessionConfig turnConfig = context.sessionConfig();
         recordMaterializedInput(session, context.materializedInput(), turnContext);
         recordSkillInjections(session, context.materializedInput(), turnContext, turnSkills);
@@ -66,16 +65,15 @@ public class RegularTask implements SessionTask {
 
             List<Message> messages = session.contextManager()
                     .normalizeMessagesForModel(turnConfig.model().getInput());
-            Prompt prompt = session.promptBuilder().build(new PromptBuildInput(
+            LlmRequest request = session.buildLlmRequest(
                     turnConfig,
                     messages,
-                    session.activeTools(),
-                    turnSkills
-            ));
+                    session.activeTools()
+            );
             try (ToolScope toolScope = ToolScope.open(session, context, turnContext)) {
                 AssistantMessage assistantMessage = session.sampleModelItems(
                         context.modelSession(),
-                        prompt,
+                        request,
                         turnContext,
                         context.cancellationToken(),
                         event -> handleStreamItem(session, turnContext, toolScope, event)

@@ -1,6 +1,5 @@
 package io.github.lingjiuu.session;
 
-import io.github.lingjiuu.resource.ContextFile;
 import io.github.lingjiuu.transcript.TranscriptStore;
 import junit.framework.TestCase;
 
@@ -10,7 +9,7 @@ import java.nio.file.Path;
 
 public class SessionFactoryTest extends TestCase {
 
-    public void testCreateDefaultUsesExplicitCwdForPromptResourcesAndTools() throws Exception {
+    public void testCreateDefaultLoadsAgentsMdInstructionsForExplicitCwdAndTools() throws Exception {
         Path root = Files.createTempDirectory("aether-session-factory");
         Path cwd = root.resolve("workspace");
         Path agentDir = root.resolve("agent");
@@ -29,9 +28,9 @@ public class SessionFactoryTest extends TestCase {
         );
         try (Session session = factory.openSession(SessionOptions.cwd(cwd))) {
             assertEquals(cwd.toAbsolutePath().normalize(), session.config().cwd());
-            assertTrue(session.config().promptResources().getContextFiles().stream()
-                    .map(ContextFile::getPath)
+            assertTrue(session.config().instructionSources().stream()
                     .anyMatch(path -> path.equals(cwd.resolve("AGENTS.md").toAbsolutePath().normalize())));
+            assertTrue(session.config().userInstructions().contains("workspace instructions"));
         }
     }
 
