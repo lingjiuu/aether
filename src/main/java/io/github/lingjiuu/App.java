@@ -1,6 +1,6 @@
 package io.github.lingjiuu;
 
-import io.github.lingjiuu.cli.ConsoleInputLoop;
+import io.github.lingjiuu.ui.cli.ConsoleInputLoop;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.session.SessionOptions;
 import io.github.lingjiuu.transport.stdio.StdioAetherServer;

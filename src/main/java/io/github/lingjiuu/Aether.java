@@ -1,12 +1,12 @@
 package io.github.lingjiuu;
 
-import io.github.lingjiuu.command.CommandManager;
+import io.github.lingjiuu.ui.command.CommandManager;
 import io.github.lingjiuu.event.EventSink;
 import io.github.lingjiuu.event.EventSubscription;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.TokenUsage;
 import io.github.lingjiuu.llm.TokenUsageInfo;
-import io.github.lingjiuu.model.ModelSelection;
+import io.github.lingjiuu.llm.ModelSelection;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiEventPage;

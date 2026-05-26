@@ -12,7 +12,7 @@ import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import com.fasterxml.jackson.databind.JsonNode;
-import io.github.lingjiuu.model.ModelSelection;
+import io.github.lingjiuu.llm.ModelSelection;
 import io.github.lingjiuu.protocol.UiApprovalRequest;
 import io.github.lingjiuu.protocol.UiApprovalResponse;
 import io.github.lingjiuu.protocol.UiEvent;

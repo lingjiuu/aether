@@ -3,7 +3,7 @@ package io.github.lingjiuu.session;
 import io.github.lingjiuu.llm.LlmClient;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.ReasoningOptions;
-import io.github.lingjiuu.model.ModelSelection;
+import io.github.lingjiuu.llm.ModelSelection;
 import io.github.lingjiuu.provider.RequestAuth;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.transcript.TranscriptStore;

@@ -3,7 +3,7 @@ package io.github.lingjiuu.agent.task;
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.input.MaterializedInput;
 import io.github.lingjiuu.llm.LlmClientSession;
-import io.github.lingjiuu.model.ModelSelection;
+import io.github.lingjiuu.llm.ModelSelection;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.tool.ToolCancellationToken;
