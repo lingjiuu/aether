@@ -418,10 +418,6 @@ public class SessionFactory {
         return null;
     }
 
-    private static String blankToNull(String value) {
-        return isBlank(value) ? null : value;
-    }
-
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
     }

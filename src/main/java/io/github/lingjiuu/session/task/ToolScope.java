@@ -1,7 +1,7 @@
-package io.github.lingjiuu.agent.task;
+package io.github.lingjiuu.session.task;
 
 import io.github.lingjiuu.event.UiEvents;
-import io.github.lingjiuu.agent.turn.TurnContext;
+import io.github.lingjiuu.session.turn.TurnContext;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.session.Session;

@@ -1,7 +1,7 @@
-package io.github.lingjiuu.agent.task;
+package io.github.lingjiuu.session.task;
 
 import io.github.lingjiuu.event.UiEvents;
-import io.github.lingjiuu.agent.turn.TurnContext;
+import io.github.lingjiuu.session.turn.TurnContext;
 import io.github.lingjiuu.compact.Compaction;
 import io.github.lingjiuu.model.client.ModelRequest;
 import io.github.lingjiuu.message.AssistantMessage;
@@ -18,16 +18,6 @@ public class CompactTask implements SessionTask {
 
     private static final int MAX_COMPACT_CONTEXT_RETRIES = 3;
 
-    private final int maxPreservedUserMessageChars;
-
-    public CompactTask() {
-        this(Compaction.DEFAULT_MAX_PRESERVED_USER_MESSAGE_CHARS);
-    }
-
-    CompactTask(int maxPreservedUserMessageChars) {
-        this.maxPreservedUserMessageChars = Math.max(0, maxPreservedUserMessageChars);
-    }
-
     @Override
     public TaskKind kind() {
         return TaskKind.COMPACT;
@@ -35,20 +25,12 @@ public class CompactTask implements SessionTask {
 
     @Override
     public void run(TaskContext context) {
-        compact(context, "manual");
-    }
-
-    public boolean runInlineAutoCompact(TaskContext context) {
-        return runInlineAutoCompact(context, "auto");
+        compact(context, "manual", Compaction.InitialContextInjection.DO_NOT_INJECT);
     }
 
     public boolean runInlineAutoCompact(TaskContext context, String phase) {
         String label = phase == null || phase.isBlank() ? "auto" : "auto:" + phase;
         return compact(context, label, Compaction.InitialContextInjection.forAutoCompactPhase(phase));
-    }
-
-    private boolean compact(TaskContext context, String trigger) {
-        return compact(context, trigger, Compaction.InitialContextInjection.DO_NOT_INJECT);
     }
 
     private boolean compact(
@@ -95,7 +77,7 @@ public class CompactTask implements SessionTask {
 
         List<UserMessage> preservedUserMessages = Compaction.preservedUserMessages(
                 originalMessages,
-                maxPreservedUserMessageChars,
+                Compaction.DEFAULT_MAX_PRESERVED_USER_MESSAGE_CHARS,
                 session.contextBuilder()
         );
         List<ContextMessage> initialContextMessages = initialContextInjection.shouldInject()

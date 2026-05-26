@@ -1,6 +1,7 @@
 package io.github.lingjiuu.model.client;
 
 import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.model.ReasoningOptions;
 import io.github.lingjiuu.tool.ToolDefinition;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -15,6 +16,22 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ModelRequest {
+
+    public static ModelRequest from(
+            String baseInstructions,
+            ReasoningOptions reasoning,
+            List<Message> messages,
+            List<ToolDefinition> tools
+    ) {
+        return ModelRequest.builder()
+                .baseInstructions(baseInstructions)
+                .tools(tools == null ? List.of() : List.copyOf(tools))
+                .messages(messages == null ? List.of() : List.copyOf(messages))
+                .callOptions(ModelCallOptions.builder()
+                        .reasoning(reasoning)
+                        .build())
+                .build();
+    }
 
     private String baseInstructions;
 

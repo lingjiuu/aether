@@ -1,14 +1,14 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.event.UiEvents;
-import io.github.lingjiuu.agent.task.CompactTask;
-import io.github.lingjiuu.agent.task.RegularTask;
-import io.github.lingjiuu.agent.task.RunningTask;
-import io.github.lingjiuu.agent.task.SessionTask;
-import io.github.lingjiuu.agent.task.TaskContext;
-import io.github.lingjiuu.agent.task.TaskRunner;
-import io.github.lingjiuu.agent.turn.TurnContext;
-import io.github.lingjiuu.agent.turn.TurnId;
+import io.github.lingjiuu.session.task.CompactTask;
+import io.github.lingjiuu.session.task.RegularTask;
+import io.github.lingjiuu.session.task.RunningTask;
+import io.github.lingjiuu.session.task.SessionTask;
+import io.github.lingjiuu.session.task.TaskContext;
+import io.github.lingjiuu.session.task.TaskRunner;
+import io.github.lingjiuu.session.turn.TurnContext;
+import io.github.lingjiuu.session.turn.TurnId;
 import io.github.lingjiuu.context.ContextBuilder;
 import io.github.lingjiuu.context.ContextManager;
 import io.github.lingjiuu.context.EnvironmentContext;
@@ -20,7 +20,6 @@ import io.github.lingjiuu.input.TurnInput;
 import io.github.lingjiuu.input.TurnInputProcessor;
 import io.github.lingjiuu.model.client.AssistantStream;
 import io.github.lingjiuu.model.client.AssistantStreamEvent;
-import io.github.lingjiuu.model.client.ModelCallOptions;
 import io.github.lingjiuu.model.client.ModelClientSession;
 import io.github.lingjiuu.model.ModelInfo;
 import io.github.lingjiuu.model.client.ModelRequest;
@@ -32,7 +31,6 @@ import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
-import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.protocol.UiEvent;
@@ -59,7 +57,6 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.function.Consumer;
 
 public class Session implements AutoCloseable {
@@ -314,7 +311,9 @@ public class Session implements AutoCloseable {
             throw new IllegalArgumentException("model selection must not be null");
         }
         ModelSelection previous = activeModelSelection;
-        boolean changed = !sameModelSelection(previous, selection);
+        boolean changed = previous == null
+                ? selection != null
+                : !previous.sameRuntimeAs(selection);
         if (!changed) {
             return false;
         }
@@ -343,10 +342,6 @@ public class Session implements AutoCloseable {
 
     public ToolRunner toolRunner() {
         return toolRunner;
-    }
-
-    public SkillsManager skillsManager() {
-        return skillsManager;
     }
 
     public List<Skill> availableSkills() {
@@ -438,14 +433,6 @@ public class Session implements AutoCloseable {
             return;
         }
         recorder.record(assistantMessage, turnContext.turn());
-    }
-
-    public void recordToolResult(
-            ToolCallContent toolCall,
-            ToolResultMessage toolResult,
-            TurnContext turnContext
-    ) {
-        recordToolResult(null, null, toolCall, toolResult, turnContext, null, null);
     }
 
     public void recordToolResult(
@@ -631,22 +618,6 @@ public class Session implements AutoCloseable {
         return value != null && !value.replaceAll("[\\r\\n]+", " ").trim().isEmpty();
     }
 
-    public ModelRequest buildModelRequest(
-            SessionConfig turnConfig,
-            List<Message> messages,
-            List<ToolDefinition> tools
-    ) {
-        SessionConfig promptConfig = turnConfig == null ? config : turnConfig;
-        return ModelRequest.builder()
-                .baseInstructions(promptConfig.baseInstructions())
-                .tools(tools == null ? List.of() : List.copyOf(tools))
-                .messages(messages == null ? List.of() : List.copyOf(messages))
-                .callOptions(ModelCallOptions.builder()
-                        .reasoning(promptConfig.reasoning())
-                        .build())
-                .build();
-    }
-
     public AssistantMessage sampleModel(
             ModelClientSession modelSession,
             ModelRequest request,
@@ -665,7 +636,7 @@ public class Session implements AutoCloseable {
     ) {
         ToolCancellationToken token = cancellationToken == null ? ToolCancellationToken.none() : cancellationToken;
         if (token.isCancellationRequested()) {
-            return abortedMessage();
+            return AssistantMessage.aborted();
         }
 
         AssistantMessage assistantMessage;
@@ -684,18 +655,18 @@ public class Session implements AutoCloseable {
             }
         } catch (IOException e) {
             if (token.isCancellationRequested()) {
-                return abortedMessage();
+                return AssistantMessage.aborted();
             }
             throw new RuntimeException("Failed to close assistant stream.", e);
         } catch (RuntimeException e) {
             if (token.isCancellationRequested()) {
-                return abortedMessage();
+                return AssistantMessage.aborted();
             }
             throw e;
         }
 
         if (token.isCancellationRequested()) {
-            return abortedMessage();
+            return AssistantMessage.aborted();
         }
         recordTokenUsage(assistantMessage, turnContext);
         return assistantMessage;
@@ -756,16 +727,8 @@ public class Session implements AutoCloseable {
         }
     }
 
-    private void runRegularTask(ProcessedTurnInput processedInput) {
-        runRegularTask(processedInput, null);
-    }
-
     private void runRegularTask(ProcessedTurnInput processedInput, String commandId) {
         runSessionTask(new RegularTask(), processedInput, commandId);
-    }
-
-    private void runSessionTask(SessionTask task) {
-        runSessionTask(task, null, null);
     }
 
     private void runSessionTask(SessionTask task, ProcessedTurnInput processedInput, String commandId) {
@@ -808,7 +771,7 @@ public class Session implements AutoCloseable {
         ModelSelection modelSelection = activeModelSelection();
         SessionConfig turnConfig = config.withModelSelection(modelSelection);
         try (ModelClientSession modelSession = config.modelClient().openSession(modelSelection)) {
-            TaskContext context = taskContext(modelSession, modelSelection, turnConfig, cancellationSource, turnContext, processedInput);
+            TaskContext context = taskContext(modelSession, turnConfig, cancellationSource, turnContext, processedInput);
             task.run(context);
         } catch (RuntimeException e) {
             if (!cancellationSource.token().isCancellationRequested()) {
@@ -855,7 +818,6 @@ public class Session implements AutoCloseable {
 
     private TaskContext taskContext(
             ModelClientSession modelSession,
-            ModelSelection modelSelection,
             SessionConfig turnConfig,
             ToolCancellationSource cancellationSource,
             TurnContext turnContext,
@@ -867,7 +829,6 @@ public class Session implements AutoCloseable {
                 processedInput,
                 cancellationSource.token(),
                 modelSession,
-                modelSelection,
                 turnConfig
         );
     }
@@ -903,37 +864,6 @@ public class Session implements AutoCloseable {
         ModelSelection selection = activeModelSelection();
         ModelInfo model = selection == null ? null : selection.model();
         return model == null ? null : model.resolvedAutoCompactTokenLimit();
-    }
-
-    private boolean sameModelSelection(ModelSelection left, ModelSelection right) {
-        if (left == right) {
-            return true;
-        }
-        if (left == null || right == null) {
-            return false;
-        }
-        ModelInfo leftModel = left.model();
-        ModelInfo rightModel = right.model();
-        var leftEndpoint = left.endpoint();
-        var rightEndpoint = right.endpoint();
-        return Objects.equals(leftEndpoint == null ? null : leftEndpoint.providerId(), rightEndpoint == null ? null : rightEndpoint.providerId())
-                && Objects.equals(leftModel == null ? null : leftModel.getId(), rightModel == null ? null : rightModel.getId())
-                && Objects.equals(reasoningEffort(left), reasoningEffort(right));
-    }
-
-    private String reasoningEffort(ModelSelection selection) {
-        return selection == null || selection.reasoning() == null || selection.reasoning().getReasoningEffort() == null
-                ? null
-                : selection.reasoning().getReasoningEffort().name();
-    }
-
-    private AssistantMessage abortedMessage() {
-        return AssistantMessage.builder()
-                .stopReason(AssistantMessage.StopReason.ABORTED)
-                .contents(List.of(TextContent.builder()
-                        .text("")
-                        .build()))
-                .build();
     }
 
     private void closeQuietly(AutoCloseable closeable) {

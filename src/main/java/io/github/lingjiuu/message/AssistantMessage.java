@@ -1,6 +1,7 @@
 package io.github.lingjiuu.message;
 
 import io.github.lingjiuu.message.content.MessageContent;
+import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.wire.WireReplayData;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -20,6 +21,15 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AssistantMessage implements Message{
+
+    public static AssistantMessage aborted() {
+        return AssistantMessage.builder()
+                .stopReason(StopReason.ABORTED)
+                .contents(List.of(TextContent.builder()
+                        .text("")
+                        .build()))
+                .build();
+    }
 
     @Builder.Default
     private String id = UUID.randomUUID().toString();

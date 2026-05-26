@@ -5,7 +5,6 @@ import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.transcript.TranscriptRecorder;
 import io.github.lingjiuu.transcript.item.TurnContextItem;
 
-import java.util.Collection;
 import java.util.List;
 
 public class MessageRecorder {
@@ -33,19 +32,6 @@ public class MessageRecorder {
                 throw new MessageRecordException("Failed to record transcript message.", e);
             }
         }
-    }
-
-    public synchronized void recordAll(Collection<? extends Message> messages, int turn) {
-        if (messages == null) {
-            return;
-        }
-        for (Message message : messages) {
-            record(message, turn);
-        }
-    }
-
-    public synchronized void replaceActiveMessages(Collection<? extends Message> messages) {
-        contextManager.replaceAll(messages);
     }
 
     public synchronized void recordTurnContext(TurnContextItem turnContextItem) {
@@ -91,10 +77,6 @@ public class MessageRecorder {
                 throw new MessageRecordException("Failed to record transcript compaction.", e);
             }
         }
-    }
-
-    public synchronized void clear() {
-        contextManager.clear();
     }
 
 }

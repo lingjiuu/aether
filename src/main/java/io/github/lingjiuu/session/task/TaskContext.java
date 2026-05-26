@@ -1,9 +1,8 @@
-package io.github.lingjiuu.agent.task;
+package io.github.lingjiuu.session.task;
 
-import io.github.lingjiuu.agent.turn.TurnContext;
+import io.github.lingjiuu.session.turn.TurnContext;
 import io.github.lingjiuu.input.ProcessedTurnInput;
 import io.github.lingjiuu.model.client.ModelClientSession;
-import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.tool.ToolCancellationToken;
@@ -15,7 +14,6 @@ public class TaskContext {
     private final ProcessedTurnInput processedInput;
     private final ToolCancellationToken cancellationToken;
     private final ModelClientSession modelSession;
-    private final ModelSelection modelSelection;
     private final SessionConfig sessionConfig;
 
     public TaskContext(
@@ -24,7 +22,6 @@ public class TaskContext {
             ProcessedTurnInput processedInput,
             ToolCancellationToken cancellationToken,
             ModelClientSession modelSession,
-            ModelSelection modelSelection,
             SessionConfig sessionConfig
     ) {
         if (session == null) {
@@ -41,10 +38,6 @@ public class TaskContext {
             throw new IllegalArgumentException("modelSession must not be null");
         }
         this.modelSession = modelSession;
-        if (modelSelection == null) {
-            throw new IllegalArgumentException("model selection must not be null");
-        }
-        this.modelSelection = modelSelection;
         if (sessionConfig == null) {
             throw new IllegalArgumentException("session config must not be null");
         }
@@ -59,10 +52,6 @@ public class TaskContext {
         return turnContext;
     }
 
-    public int turn() {
-        return turnContext.turn();
-    }
-
     public ProcessedTurnInput processedInput() {
         return processedInput;
     }
@@ -73,10 +62,6 @@ public class TaskContext {
 
     public ModelClientSession modelSession() {
         return modelSession;
-    }
-
-    public ModelSelection modelSelection() {
-        return modelSelection;
     }
 
     public SessionConfig sessionConfig() {

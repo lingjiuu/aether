@@ -88,8 +88,8 @@ public class EventManagerTest extends TestCase {
         TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-event-test"));
         EventManager events = new EventManager(new TranscriptRecorder(store, sessionId), List.of(), 0);
         try {
-            var turnContext = new io.github.lingjiuu.agent.turn.TurnContext(
-                    io.github.lingjiuu.agent.turn.TurnId.create(),
+            var turnContext = new io.github.lingjiuu.session.turn.TurnContext(
+                    io.github.lingjiuu.session.turn.TurnId.create(),
                     sessionId,
                     1,
                     java.nio.file.Path.of(".")

@@ -1,6 +1,6 @@
 package io.github.lingjiuu.event;
 
-import io.github.lingjiuu.agent.turn.TurnContext;
+import io.github.lingjiuu.session.turn.TurnContext;
 import io.github.lingjiuu.model.ModelInfo;
 import io.github.lingjiuu.model.TokenUsage;
 import io.github.lingjiuu.model.TokenUsageInfo;

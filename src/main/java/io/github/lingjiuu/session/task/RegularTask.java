@@ -1,7 +1,7 @@
-package io.github.lingjiuu.agent.task;
+package io.github.lingjiuu.session.task;
 
 import io.github.lingjiuu.event.UiEvents;
-import io.github.lingjiuu.agent.turn.TurnContext;
+import io.github.lingjiuu.session.turn.TurnContext;
 import io.github.lingjiuu.protocol.UiItemKind;
 import io.github.lingjiuu.input.ProcessedTurnInput;
 import io.github.lingjiuu.model.client.AssistantStreamEvent;
@@ -63,8 +63,9 @@ public class RegularTask implements SessionTask {
 
             List<Message> messages = session.contextManager()
                     .normalizeMessagesForModel(turnConfig.model().getInput());
-            ModelRequest request = session.buildModelRequest(
-                    turnConfig,
+            ModelRequest request = ModelRequest.from(
+                    turnConfig.baseInstructions(),
+                    turnConfig.reasoning(),
                     messages,
                     session.activeTools()
             );

@@ -1,4 +1,4 @@
-package io.github.lingjiuu.agent.task;
+package io.github.lingjiuu.session.task;
 
 public enum TaskKind {
     REGULAR,

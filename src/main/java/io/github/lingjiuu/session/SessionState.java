@@ -39,10 +39,6 @@ public class SessionState {
         return status;
     }
 
-    public int turn() {
-        return turn;
-    }
-
     public synchronized int nextTurn() {
         return turn++;
     }
@@ -98,11 +94,6 @@ public class SessionState {
 
     public synchronized void markIdle() {
         status = SessionStatus.IDLE;
-        touch();
-    }
-
-    public synchronized void markStopped() {
-        status = SessionStatus.STOPPED;
         touch();
     }
 

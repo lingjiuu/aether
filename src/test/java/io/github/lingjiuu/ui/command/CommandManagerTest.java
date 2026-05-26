@@ -2,8 +2,8 @@ package io.github.lingjiuu.ui.command;
 
 import io.github.lingjiuu.TestModelSelections;
 import io.github.lingjiuu.event.UiEvents;
-import io.github.lingjiuu.agent.turn.TurnContext;
-import io.github.lingjiuu.agent.turn.TurnId;
+import io.github.lingjiuu.session.turn.TurnContext;
+import io.github.lingjiuu.session.turn.TurnId;
 import io.github.lingjiuu.model.client.AssistantStream;
 import io.github.lingjiuu.model.client.AssistantStreamEvent;
 import io.github.lingjiuu.model.client.ModelClient;
