@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -23,7 +24,12 @@ public class UiCommand {
         return UiCommand.builder()
                 .commandId(newCommandId())
                 .type(UiCommandType.SUBMIT_USER_INPUT)
-                .payload(new UiCommandPayloads.SubmitUserInput(text))
+                .payload(new UiCommandPayloads.SubmitUserInput(List.of(new UiCommandPayloads.TurnInputItem(
+                        "text",
+                        text,
+                        null,
+                        null
+                ))))
                 .build();
     }
 

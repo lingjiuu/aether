@@ -1,6 +1,7 @@
 package io.github.lingjiuu.ui.command;
 
 import io.github.lingjiuu.event.EventSink;
+import io.github.lingjiuu.input.TurnInput;
 import io.github.lingjiuu.llm.LlmModel;
 import io.github.lingjiuu.llm.ReasoningOptions;
 import io.github.lingjiuu.message.MessageContents;
@@ -154,12 +155,38 @@ public class CommandManager implements AutoCloseable {
 
     private UiCommandAck submit(UiCommand command, String commandId) {
         if (!(command.getPayload() instanceof UiCommandPayloads.SubmitUserInput input)
-                || input.text() == null
-                || input.text().isBlank()) {
-            return UiCommandAck.rejected(commandId, sessionId(), "Input text is required.");
+                || input.items().isEmpty()) {
+            return UiCommandAck.rejected(commandId, sessionId(), "Input items are required.");
         }
-        session.submitAsync(io.github.lingjiuu.input.TurnInput.ofText(input.text().trim()), commandId);
+        session.submitAsync(turnInput(input), commandId);
         return UiCommandAck.accepted(commandId, sessionId(), "submitted");
+    }
+
+    private TurnInput turnInput(UiCommandPayloads.SubmitUserInput input) {
+        TurnInput.Builder builder = TurnInput.builder();
+        for (UiCommandPayloads.TurnInputItem item : input.items()) {
+            switch (item.type()) {
+                case "text" -> builder.text(requiredText(item.text(), "text item text").trim());
+                case "localImage" -> builder.localImage(Path.of(requiredText(item.path(), "localImage item path")));
+                case "skill" -> builder.skill(
+                        blankToNull(item.name()),
+                        item.path() == null || item.path().isBlank() ? null : Path.of(item.path())
+                );
+                default -> throw new IllegalArgumentException("Unknown input item type: " + item.type());
+            }
+        }
+        return builder.build();
+    }
+
+    private String requiredText(String value, String label) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(label + " is required.");
+        }
+        return value;
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private UiCommandAck newSession(UiCommand command, String commandId) {

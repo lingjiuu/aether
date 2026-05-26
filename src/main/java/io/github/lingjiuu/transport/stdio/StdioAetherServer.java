@@ -19,6 +19,7 @@ import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
@@ -175,14 +176,10 @@ public class StdioAetherServer implements AutoCloseable {
     }
 
     private UiCommandAck submitUserInput(JsonNode id, JsonNode params) {
-        String text = textParam(params, "text");
-        if (text == null || text.isBlank()) {
-            throw new ProtocolException(INVALID_PARAMS, "turn/submit requires params.text.");
-        }
         return uiRuntime.submit(UiCommand.builder()
                 .commandId(commandId(id))
                 .type(UiCommandType.SUBMIT_USER_INPUT)
-                .payload(new UiCommandPayloads.SubmitUserInput(text))
+                .payload(new UiCommandPayloads.SubmitUserInput(turnInputItems(params)))
                 .build());
     }
 
@@ -292,6 +289,54 @@ public class StdioAetherServer implements AutoCloseable {
             return id.asText();
         }
         return id.toString();
+    }
+
+    private List<UiCommandPayloads.TurnInputItem> turnInputItems(JsonNode params) {
+        JsonNode itemsNode = params == null || params.isNull() ? null : params.get("items");
+        if (itemsNode == null || !itemsNode.isArray() || itemsNode.isEmpty()) {
+            throw new ProtocolException(INVALID_PARAMS, "turn/submit requires params.items.");
+        }
+
+        List<UiCommandPayloads.TurnInputItem> items = new ArrayList<>();
+        for (JsonNode itemNode : itemsNode) {
+            if (itemNode == null || !itemNode.isObject()) {
+                throw new ProtocolException(INVALID_PARAMS, "turn/submit items must be objects.");
+            }
+            String type = textParam(itemNode, "type");
+            if (type == null || type.isBlank()) {
+                throw new ProtocolException(INVALID_PARAMS, "turn/submit item type is required.");
+            }
+            items.add(turnInputItem(type, itemNode));
+        }
+        return List.copyOf(items);
+    }
+
+    private UiCommandPayloads.TurnInputItem turnInputItem(String type, JsonNode itemNode) {
+        return switch (type) {
+            case "text" -> {
+                String text = textParam(itemNode, "text");
+                if (text == null || text.isBlank()) {
+                    throw new ProtocolException(INVALID_PARAMS, "turn/submit text item requires text.");
+                }
+                yield new UiCommandPayloads.TurnInputItem("text", text, null, null);
+            }
+            case "localImage" -> {
+                String path = textParam(itemNode, "path");
+                if (path == null || path.isBlank()) {
+                    throw new ProtocolException(INVALID_PARAMS, "turn/submit localImage item requires path.");
+                }
+                yield new UiCommandPayloads.TurnInputItem("localImage", null, path, null);
+            }
+            case "skill" -> {
+                String name = textParam(itemNode, "name");
+                String path = textParam(itemNode, "path");
+                if ((name == null || name.isBlank()) && (path == null || path.isBlank())) {
+                    throw new ProtocolException(INVALID_PARAMS, "turn/submit skill item requires name or path.");
+                }
+                yield new UiCommandPayloads.TurnInputItem("skill", null, path, name);
+            }
+            default -> throw new ProtocolException(INVALID_PARAMS, "Unknown turn/submit item type: " + type);
+        };
     }
 
     private String textParam(JsonNode params, String name) {

@@ -1,5 +1,5 @@
 import type { AetherClient } from '../../backend/AetherClient.js';
-import { boot, handleInput } from '../../app/runtime.js';
+import { boot, handleInput, type TurnSubmission } from '../../app/runtime.js';
 import { initialState, reducer, type AppAction, type AppState } from '../../state/reducer.js';
 import { selectIsRunning } from '../../state/selectors.js';
 import { ApprovalController } from '../interaction/approvalController.js';
@@ -112,7 +112,7 @@ export class TerminalApp {
     }
   }
 
-  private async submit(input: string): Promise<void> {
+  private async submit(input: TurnSubmission): Promise<void> {
     this.composer.setValue('', action => this.dispatch(action));
     try {
       await handleInput(input, this.state, this.client, action => this.dispatch(action), () => this.stop());

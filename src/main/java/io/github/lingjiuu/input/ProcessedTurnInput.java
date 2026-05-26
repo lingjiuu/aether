@@ -5,13 +5,12 @@ import io.github.lingjiuu.message.UserMessage;
 
 import java.util.List;
 
-public record MaterializedInput(
-        TurnInput turnInput,
+public record ProcessedTurnInput(
         UserMessage userMessage,
         List<ContextMessage> contextMessages
 ) {
 
-    public MaterializedInput {
+    public ProcessedTurnInput {
         contextMessages = contextMessages == null ? List.of() : List.copyOf(contextMessages);
     }
 }

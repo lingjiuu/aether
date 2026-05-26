@@ -1,11 +1,24 @@
 package io.github.lingjiuu.protocol;
 
+import java.util.List;
+
 public final class UiCommandPayloads {
 
     private UiCommandPayloads() {
     }
 
-    public record SubmitUserInput(String text) implements UiCommandPayload {
+    public record SubmitUserInput(List<TurnInputItem> items) implements UiCommandPayload {
+        public SubmitUserInput {
+            items = items == null ? List.of() : List.copyOf(items);
+        }
+    }
+
+    public record TurnInputItem(
+            String type,
+            String text,
+            String path,
+            String name
+    ) {
     }
 
     public record NewSession(String cwd) implements UiCommandPayload {

@@ -7,9 +7,4 @@ public record TextInput(String text) implements InputItem {
             throw new IllegalArgumentException("text input must not be blank");
         }
     }
-
-    @Override
-    public Kind kind() {
-        return Kind.TEXT;
-    }
 }

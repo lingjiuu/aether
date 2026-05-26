@@ -9,9 +9,4 @@ public record LocalImageInput(Path path) implements InputItem {
             throw new IllegalArgumentException("image path must not be null");
         }
     }
-
-    @Override
-    public Kind kind() {
-        return Kind.LOCAL_IMAGE;
-    }
 }

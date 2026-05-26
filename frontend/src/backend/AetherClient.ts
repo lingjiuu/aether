@@ -1,6 +1,7 @@
 import type {
   InitializeResult,
   SkillInfo,
+  TurnInputItem,
   UiCommandAck,
   UiEvent,
   UiEventPage,
@@ -62,8 +63,8 @@ export class AetherClient {
     return this.transport.request('events/list', { afterSequence, limit });
   }
 
-  submit(text: string): Promise<UiCommandAck> {
-    return this.transport.request('turn/submit', { text });
+  submit(items: TurnInputItem[]): Promise<UiCommandAck> {
+    return this.transport.request('turn/submit', { items });
   }
 
   cancelTurn(): Promise<UiCommandAck> {

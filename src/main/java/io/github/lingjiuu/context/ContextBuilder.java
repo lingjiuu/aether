@@ -87,10 +87,17 @@ public class ContextBuilder {
         if (content == null || content.isBlank()) {
             throw new IllegalArgumentException("prompt content must not be blank");
         }
+        return userMessage(List.of(TextContent.builder()
+                .text(content)
+                .build()));
+    }
+
+    public UserMessage userMessage(List<MessageContent> contents) {
+        if (contents == null || contents.isEmpty()) {
+            throw new IllegalArgumentException("message contents must not be empty");
+        }
         return UserMessage.builder()
-                .contents(List.of(TextContent.builder()
-                        .text(content)
-                        .build()))
+                .contents(List.copyOf(contents))
                 .build();
     }
 

@@ -162,6 +162,29 @@ public class StdioAetherServerTest extends TestCase {
         assertEquals("HIGH", currentSession.get("result").get("reasoningEffort").asText());
     }
 
+    public void testTurnSubmitRequiresStructuredItems() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-stdio-submit-items-test");
+        String output = runServer(tempDir, """
+                {"id":"1","method":"turn/submit","params":{"items":[{"type":"text","text":"hello"}]}}
+                """);
+
+        JsonNode response = responseById(output, "1");
+        assertEquals("1", response.get("id").asText());
+        assertTrue(response.get("result").get("accepted").asBoolean());
+    }
+
+    public void testTurnSubmitRejectsLegacyTextParam() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-stdio-submit-legacy-test");
+        String output = runServer(tempDir, """
+                {"id":"1","method":"turn/submit","params":{"text":"hello"}}
+                """);
+
+        JsonNode response = responseById(output, "1");
+        assertEquals("1", response.get("id").asText());
+        assertEquals(-32602, response.get("error").get("code").asInt());
+        assertTrue(response.get("error").get("message").asText().contains("params.items"));
+    }
+
     public void testSkillsListCanForceReloadFromDisk() throws Exception {
         Path tempDir = Files.createTempDirectory("aether-stdio-skills-reload-test");
         SessionFactory sessionFactory = new SessionFactory(sessionConfig(tempDir));

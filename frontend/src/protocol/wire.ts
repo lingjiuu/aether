@@ -272,6 +272,11 @@ export type UiCommandAck = {
   message?: string | null;
 };
 
+export type TurnInputItem =
+  | { type: 'text'; text: string }
+  | { type: 'localImage'; path: string }
+  | { type: 'skill'; name?: string | null; path?: string | null };
+
 export type InitializeResult = {
   protocolVersion?: string;
   sessionId?: string;

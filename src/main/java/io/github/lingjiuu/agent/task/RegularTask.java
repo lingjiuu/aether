@@ -3,7 +3,7 @@ package io.github.lingjiuu.agent.task;
 import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.protocol.UiItemKind;
-import io.github.lingjiuu.input.MaterializedInput;
+import io.github.lingjiuu.input.ProcessedTurnInput;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
 import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.AssistantMessage;
@@ -12,7 +12,6 @@ import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.skill.Skill;
-import io.github.lingjiuu.skill.SkillInjection;
 
 import java.util.List;
 
@@ -48,8 +47,7 @@ public class RegularTask implements SessionTask {
         List<Skill> turnSkills = session.availableSkills();
         session.recordInitialContextIfChanged(turnContext, turnSkills);
         SessionConfig turnConfig = context.sessionConfig();
-        recordMaterializedInput(session, context.materializedInput(), turnContext);
-        recordSkillInjections(session, context.materializedInput(), turnContext, turnSkills);
+        recordProcessedInput(session, context.processedInput(), turnContext);
 
         while (!context.isCancelled()) {
             blockedAutoCompactAtOrBelow = runAutoCompactIfNeeded(
@@ -311,34 +309,18 @@ public class RegularTask implements SessionTask {
         return -1;
     }
 
-    private void recordMaterializedInput(
+    private void recordProcessedInput(
             Session session,
-            MaterializedInput materializedInput,
+            ProcessedTurnInput processedInput,
             TurnContext turnContext
     ) {
-        if (materializedInput == null) {
+        if (processedInput == null) {
             return;
         }
 
-        session.recordUserMessage(materializedInput.userMessage(), turnContext);
-        materializedInput.contextMessages()
+        session.recordUserMessage(processedInput.userMessage(), turnContext);
+        processedInput.contextMessages()
                 .forEach(contextMessage -> session.recordContextMessage(contextMessage, turnContext));
-    }
-
-    private void recordSkillInjections(
-            Session session,
-            MaterializedInput materializedInput,
-            TurnContext turnContext,
-            List<Skill> turnSkills
-    ) {
-        if (materializedInput == null) {
-            return;
-        }
-        List<SkillInjection> injections = session.skillsManager()
-                .resolveSkillInjections(materializedInput.turnInput(), turnSkills);
-        for (SkillInjection injection : injections) {
-            session.recordContextMessage(session.contextBuilder().skillContextMessage(injection), turnContext);
-        }
     }
 
 }

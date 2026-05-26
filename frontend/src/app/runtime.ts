@@ -1,4 +1,5 @@
 import type { AetherClient } from '../backend/AetherClient.js';
+import type { TurnInputItem } from '../protocol/wire.js';
 import type { AppAction, AppState } from '../state/reducer.js';
 import { parseCommand } from '../protocol/commands.js';
 import { selectableReasoningEfforts } from '../domain/modelCatalog.js';
@@ -30,6 +31,10 @@ export async function boot(client: AetherClient, dispatch: (action: AppAction) =
   if (!initialized.session) {
     dispatch({ type: 'sessionState', session: await client.currentSession() });
   }
+  try {
+    dispatch({ type: 'skillsLoaded', skills: await client.listSkills(false) });
+  } catch {
+  }
   await client.initialized();
 }
 
@@ -44,18 +49,24 @@ function shouldSuppressBackendStderrLine(line: string, suppressingInterruptedSta
     && (/^\s+at\s/.test(line) || /^\s*Caused by:/.test(line) || /^\s*\.\.\.\s+\d+\s+more/.test(line) || line.trim() === '');
 }
 
+export type TurnSubmission = {
+  text: string;
+  items: TurnInputItem[];
+};
+
 export async function handleInput(
-  input: string,
+  submission: TurnSubmission,
   state: AppState,
   client: AetherClient,
   dispatch: (action: AppAction) => void,
   quit: () => void,
 ): Promise<void> {
+  const input = submission.text;
   const command = parseCommand(input);
 
   switch (command.kind) {
     case 'submit':
-      await client.submit(command.text);
+      await client.submit(submission.items);
       break;
     case 'new': {
       const cwd = state.session.cwd?.trim();
@@ -98,13 +109,15 @@ export async function handleInput(
       await client.compact();
       break;
     case 'skills': {
+      const skills = await client.listSkills(true);
+      dispatch({ type: 'skillsLoaded', skills });
       dispatch({
         type: 'commandPanelOpened',
         panel: {
           kind: 'skills',
           id: localCommandId('skills'),
           command: '/skills',
-          skills: await client.listSkills(true),
+          skills,
           selectedIndex: 0,
           query: '',
         },

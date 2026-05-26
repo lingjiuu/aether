@@ -9,9 +9,4 @@ public record SkillInput(String name, Path path) implements InputItem {
             throw new IllegalArgumentException("skill input must include a name or path");
         }
     }
-
-    @Override
-    public Kind kind() {
-        return Kind.SKILL;
-    }
 }

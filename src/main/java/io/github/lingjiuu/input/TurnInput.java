@@ -33,11 +33,6 @@ public record TurnInput(List<InputItem> items) {
             return this;
         }
 
-        public Builder file(Path path) {
-            items.add(new FileInput(path));
-            return this;
-        }
-
         public Builder localImage(Path path) {
             items.add(new LocalImageInput(path));
             return this;

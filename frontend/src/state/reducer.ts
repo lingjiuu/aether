@@ -8,6 +8,7 @@ import {
   commandPanelQueryChanged,
   commandPanelSelectionMoved,
   composerChanged,
+  composerPopupChanged,
   composerSuggestionMoved,
   composerSuggestionSelected,
   noticeAdded,
@@ -18,6 +19,8 @@ export type {
   AppAction,
   AppState,
   CommandPanel,
+  ComposerFileSuggestion,
+  ComposerPopup,
   ComposerState,
   LocalCommandEntry,
 } from './types.js';
@@ -48,12 +51,16 @@ export function reducer(state: AppState, action: AppAction): AppState {
         },
         tokenUsage: action.session.tokenUsage ?? state.tokenUsage,
       };
+    case 'skillsLoaded':
+      return { ...state, skills: action.skills };
     case 'history':
       return applyHistory(state, action.history);
     case 'event':
       return applyEvent(state, action.event);
     case 'composerChanged':
       return composerChanged(state, action.value);
+    case 'composerPopupChanged':
+      return composerPopupChanged(state, action.popup);
     case 'composerSuggestionMoved':
       return composerSuggestionMoved(state, action.delta, action.count);
     case 'composerSuggestionSelected':

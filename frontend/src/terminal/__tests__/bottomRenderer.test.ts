@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { initialState, reducer } from '../../state/reducer.js';
 import type { AppState, LocalCommandEntry } from '../../state/reducer.js';
-import { stripAnsi } from '../shared/text.js';
+import { stripAnsi, visualWidth } from '../shared/text.js';
 import { activeLines, renderView, historyLines } from './renderTestHelpers.js';
 
 describe('bottom renderer', () => {
@@ -53,6 +53,29 @@ describe('bottom renderer', () => {
 
     expect(promptIndex).toBeGreaterThan(-1);
     expect(suggestionIndex).toBeGreaterThan(promptIndex);
+  });
+
+  it('aligns composer popup metadata after wide file names', () => {
+    const state = reducer(
+      reducer(initialState, { type: 'composerChanged', value: '@' }),
+      {
+        type: 'composerPopupChanged',
+        popup: {
+          kind: 'file',
+          query: '',
+          items: [
+            { path: '/repo/hello.txt', displayPath: 'hello.txt', isImage: false },
+            { path: '/repo/滕王阁序.md', displayPath: '滕王阁序.md', isImage: false },
+          ],
+        },
+      },
+    );
+    const view = renderView(state, { columns: 100, rows: 30, composerCursorOffset: 1 });
+    const popupLines = activeLines(view).map(stripAnsi).filter(renderedLine => renderedLine.includes(' file'));
+    const fileColumns = popupLines.map(fileColumn);
+
+    expect(popupLines).toHaveLength(2);
+    expect(fileColumns[0]).toBe(fileColumns[1]);
   });
 
   it('hides the footer while slash command suggestions are open', () => {
@@ -223,3 +246,8 @@ describe('bottom renderer', () => {
     expect(stripAnsi(commandLine)).toBe('❯ /help');
   });
 });
+
+function fileColumn(line: string): number {
+  const index = line.lastIndexOf('file');
+  return visualWidth(line.slice(0, index));
+}

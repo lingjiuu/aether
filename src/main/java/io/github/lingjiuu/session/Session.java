@@ -15,9 +15,9 @@ import io.github.lingjiuu.context.EnvironmentContext;
 import io.github.lingjiuu.event.EventManager;
 import io.github.lingjiuu.event.EventSink;
 import io.github.lingjiuu.event.EventSubscription;
-import io.github.lingjiuu.input.InputMaterializer;
-import io.github.lingjiuu.input.MaterializedInput;
+import io.github.lingjiuu.input.ProcessedTurnInput;
 import io.github.lingjiuu.input.TurnInput;
+import io.github.lingjiuu.input.TurnInputProcessor;
 import io.github.lingjiuu.llm.AssistantStream;
 import io.github.lingjiuu.llm.AssistantStreamEvent;
 import io.github.lingjiuu.llm.LlmCallOptions;
@@ -76,7 +76,7 @@ public class Session implements AutoCloseable {
     private final SkillsWatcher skillsWatcher;
     private final PermissionManager permissionManager = new PermissionManager();
     private final TaskRunner taskRunner = new TaskRunner();
-    private final InputMaterializer inputMaterializer;
+    private final TurnInputProcessor turnInputProcessor;
     private volatile List<String> activeToolNames;
     private volatile ModelSelection activeModelSelection;
     private volatile ApprovalHandler approvalHandler = new DenyAllApprovalHandler();
@@ -110,7 +110,7 @@ public class Session implements AutoCloseable {
         this.activeToolNames = config.activeToolNames();
         this.activeModelSelection = config.modelSelection();
         this.sessionName = normalizeSessionName(sessionName);
-        this.inputMaterializer = new InputMaterializer(config.cwd());
+        this.turnInputProcessor = new TurnInputProcessor(config.cwd(), this.skillsManager, contextBuilder);
         TranscriptRecorder transcriptRecorder = config.transcriptStore() == null
                 ? null
                 : new TranscriptRecorder(config.transcriptStore(), sessionId, lastTranscriptRecordId);
@@ -142,12 +142,12 @@ public class Session implements AutoCloseable {
     }
 
     public void submitAsync(TurnInput input, String commandId) {
-        MaterializedInput materializedInput = inputMaterializer.materialize(input);
+        ProcessedTurnInput processedInput = turnInputProcessor.process(input);
         synchronized (this) {
             ensureIdle();
             state.touch();
         }
-        runRegularTask(materializedInput, commandId);
+        runRegularTask(processedInput, commandId);
     }
 
     public void continueSession() {
@@ -757,19 +757,19 @@ public class Session implements AutoCloseable {
         }
     }
 
-    private void runRegularTask(MaterializedInput materializedInput) {
-        runRegularTask(materializedInput, null);
+    private void runRegularTask(ProcessedTurnInput processedInput) {
+        runRegularTask(processedInput, null);
     }
 
-    private void runRegularTask(MaterializedInput materializedInput, String commandId) {
-        runSessionTask(new RegularTask(), materializedInput, commandId);
+    private void runRegularTask(ProcessedTurnInput processedInput, String commandId) {
+        runSessionTask(new RegularTask(), processedInput, commandId);
     }
 
     private void runSessionTask(SessionTask task) {
         runSessionTask(task, null, null);
     }
 
-    private void runSessionTask(SessionTask task, MaterializedInput materializedInput, String commandId) {
+    private void runSessionTask(SessionTask task, ProcessedTurnInput processedInput, String commandId) {
         ToolCancellationSource cancellationSource = new ToolCancellationSource();
         int turn;
         synchronized (this) {
@@ -784,7 +784,7 @@ public class Session implements AutoCloseable {
             RunningTask runningTask = taskRunner.start(
                     cancellationSource,
                     "aether-" + task.kind().name().toLowerCase() + "-turn-" + turn,
-                    () -> runTaskBody(task, turnContext, materializedInput, cancellationSource)
+                    () -> runTaskBody(task, turnContext, processedInput, cancellationSource)
             );
             if (runningTask == null) {
                 throw new IllegalStateException("Failed to start session task.");
@@ -803,13 +803,13 @@ public class Session implements AutoCloseable {
     private void runTaskBody(
             SessionTask task,
             TurnContext turnContext,
-            MaterializedInput materializedInput,
+            ProcessedTurnInput processedInput,
             ToolCancellationSource cancellationSource
     ) {
         ModelSelection modelSelection = activeModelSelection();
         SessionConfig turnConfig = config.withModelSelection(modelSelection);
         try (LlmClientSession modelSession = config.llmClient().openSession(modelSelection.model(), modelSelection.auth())) {
-            TaskContext context = taskContext(modelSession, modelSelection, turnConfig, cancellationSource, turnContext, materializedInput);
+            TaskContext context = taskContext(modelSession, modelSelection, turnConfig, cancellationSource, turnContext, processedInput);
             task.run(context);
         } catch (RuntimeException e) {
             if (!cancellationSource.token().isCancellationRequested()) {
@@ -860,12 +860,12 @@ public class Session implements AutoCloseable {
             SessionConfig turnConfig,
             ToolCancellationSource cancellationSource,
             TurnContext turnContext,
-            MaterializedInput materializedInput
+            ProcessedTurnInput processedInput
     ) {
         return new TaskContext(
                 this,
                 turnContext,
-                materializedInput,
+                processedInput,
                 cancellationSource.token(),
                 modelSession,
                 modelSelection,

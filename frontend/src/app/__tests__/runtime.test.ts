@@ -40,7 +40,13 @@ describe('runtime boot', () => {
       currentSession: vi.fn().mockResolvedValue({ sessionId: 'session-1', status: 'IDLE' }),
     } as unknown as AetherClient;
 
-    await handleInput('/resume abc', initialState, client, dispatch, vi.fn());
+    await handleInput(
+      { text: '/resume abc', items: [{ type: 'text', text: '/resume abc' }] },
+      initialState,
+      client,
+      dispatch,
+      vi.fn(),
+    );
 
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
       type: 'localCommandCompleted',
@@ -50,5 +56,31 @@ describe('runtime boot', () => {
     expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({
       type: 'notice',
     }));
+  });
+
+  it('submits structured turn input items', async () => {
+    const dispatch = vi.fn<(action: AppAction) => void>();
+    const client = {
+      submit: vi.fn().mockResolvedValue({ accepted: true }),
+    } as unknown as AetherClient;
+
+    await handleInput(
+      {
+        text: 'look at this',
+        items: [
+          { type: 'text', text: 'look at this' },
+          { type: 'localImage', path: '/tmp/pixel.png' },
+        ],
+      },
+      initialState,
+      client,
+      dispatch,
+      vi.fn(),
+    );
+
+    expect(client.submit).toHaveBeenCalledWith([
+      { type: 'text', text: 'look at this' },
+      { type: 'localImage', path: '/tmp/pixel.png' },
+    ]);
   });
 });

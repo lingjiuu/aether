@@ -5,7 +5,7 @@ import { line } from '../renderPrimitives.js';
 import type { RenderedLine } from '../viewModel.js';
 
 export function renderFooter(presentation: TerminalPresentation, width: number): RenderedLine[] {
-  if (presentation.commandPanel || presentation.composer.commandPaletteOpen) {
+  if (presentation.commandPanel || presentation.composer.commandPaletteOpen || presentation.composer.popup) {
     return [];
   }
   const right = rightStatus(presentation);

@@ -1,7 +1,7 @@
 package io.github.lingjiuu.agent.task;
 
 import io.github.lingjiuu.agent.turn.TurnContext;
-import io.github.lingjiuu.input.MaterializedInput;
+import io.github.lingjiuu.input.ProcessedTurnInput;
 import io.github.lingjiuu.llm.LlmClientSession;
 import io.github.lingjiuu.llm.ModelSelection;
 import io.github.lingjiuu.session.Session;
@@ -12,7 +12,7 @@ public class TaskContext {
 
     private final Session session;
     private final TurnContext turnContext;
-    private final MaterializedInput materializedInput;
+    private final ProcessedTurnInput processedInput;
     private final ToolCancellationToken cancellationToken;
     private final LlmClientSession modelSession;
     private final ModelSelection modelSelection;
@@ -21,7 +21,7 @@ public class TaskContext {
     public TaskContext(
             Session session,
             TurnContext turnContext,
-            MaterializedInput materializedInput,
+            ProcessedTurnInput processedInput,
             ToolCancellationToken cancellationToken,
             LlmClientSession modelSession,
             ModelSelection modelSelection,
@@ -35,7 +35,7 @@ public class TaskContext {
         }
         this.session = session;
         this.turnContext = turnContext;
-        this.materializedInput = materializedInput;
+        this.processedInput = processedInput;
         this.cancellationToken = cancellationToken == null ? ToolCancellationToken.none() : cancellationToken;
         if (modelSession == null) {
             throw new IllegalArgumentException("modelSession must not be null");
@@ -63,8 +63,8 @@ public class TaskContext {
         return turnContext.turn();
     }
 
-    public MaterializedInput materializedInput() {
-        return materializedInput;
+    public ProcessedTurnInput processedInput() {
+        return processedInput;
     }
 
     public ToolCancellationToken cancellationToken() {

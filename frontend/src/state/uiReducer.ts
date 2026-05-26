@@ -1,4 +1,4 @@
-import type { AppState, CommandPanel, LocalCommandEntry } from './types.js';
+import type { AppState, CommandPanel, ComposerPopup, LocalCommandEntry } from './types.js';
 
 export function composerChanged(state: AppState, value: string): AppState {
   return {
@@ -6,6 +6,19 @@ export function composerChanged(state: AppState, value: string): AppState {
     composer: {
       value,
       commandPaletteOpen: value.trimStart().startsWith('/'),
+      popup: undefined,
+      selectedSuggestionIndex: 0,
+    },
+  };
+}
+
+export function composerPopupChanged(state: AppState, popup?: ComposerPopup): AppState {
+  return {
+    ...state,
+    composer: {
+      ...state.composer,
+      commandPaletteOpen: state.composer.commandPaletteOpen && !popup,
+      popup,
       selectedSuggestionIndex: 0,
     },
   };
@@ -39,6 +52,7 @@ export function commandPanelOpened(state: AppState, panel: CommandPanel): AppSta
       ...state.composer,
       value: '',
       commandPaletteOpen: false,
+      popup: undefined,
       selectedSuggestionIndex: 0,
     },
   };

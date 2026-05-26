@@ -13,6 +13,7 @@ import type {
 
 export type AppState = {
   session: SessionView;
+  skills: SkillInfo[];
   transcriptEpoch: number;
   turns: Record<string, TimelineTurn>;
   turnOrder: string[];
@@ -28,7 +29,26 @@ export type AppState = {
 export type ComposerState = {
   value: string;
   commandPaletteOpen: boolean;
+  popup?: ComposerPopup;
   selectedSuggestionIndex: number;
+};
+
+export type ComposerPopup =
+  | {
+      kind: 'skill';
+      query: string;
+      items: SkillInfo[];
+    }
+  | {
+      kind: 'file';
+      query: string;
+      items: ComposerFileSuggestion[];
+    };
+
+export type ComposerFileSuggestion = {
+  path: string;
+  displayPath: string;
+  isImage: boolean;
 };
 
 export type LocalCommandEntry = {
@@ -69,9 +89,11 @@ export type AppAction =
   | { type: 'connected'; session?: UiSessionState | null }
   | { type: 'disconnected' }
   | { type: 'sessionState'; session: UiSessionState }
+  | { type: 'skillsLoaded'; skills: SkillInfo[] }
   | { type: 'history'; history: UiHistory }
   | { type: 'event'; event: UiEvent }
   | { type: 'composerChanged'; value: string }
+  | { type: 'composerPopupChanged'; popup?: ComposerPopup }
   | { type: 'composerSuggestionMoved'; delta: -1 | 1; count: number }
   | { type: 'composerSuggestionSelected'; index: number }
   | { type: 'commandPanelOpened'; panel: CommandPanel }
@@ -89,6 +111,7 @@ export const initialState: AppState = {
     canContinue: false,
     connectionStatus: 'starting',
   },
+  skills: [],
   transcriptEpoch: 0,
   turns: {},
   turnOrder: [],

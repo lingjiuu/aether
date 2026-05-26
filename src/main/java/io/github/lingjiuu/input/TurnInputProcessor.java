@@ -1,45 +1,48 @@
 package io.github.lingjiuu.input;
 
+import io.github.lingjiuu.context.ContextBuilder;
 import io.github.lingjiuu.message.ContextMessage;
-import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.ImageContent;
 import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
+import io.github.lingjiuu.skill.SkillInjection;
+import io.github.lingjiuu.skill.SkillsManager;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 
-public class InputMaterializer {
-
-    private static final int MAX_FILE_CHARS = 24_000;
+public class TurnInputProcessor {
 
     private final Path cwd;
+    private final SkillsManager skillsManager;
+    private final ContextBuilder contextBuilder;
 
-    public InputMaterializer(Path cwd) {
+    public TurnInputProcessor(Path cwd, SkillsManager skillsManager, ContextBuilder contextBuilder) {
         this.cwd = cwd == null ? Path.of(System.getProperty("user.dir")) : cwd.toAbsolutePath().normalize();
+        this.skillsManager = skillsManager == null ? SkillsManager.empty(this.cwd) : skillsManager;
+        if (contextBuilder == null) {
+            throw new IllegalArgumentException("context builder must not be null");
+        }
+        this.contextBuilder = contextBuilder;
     }
 
-    public MaterializedInput materialize(TurnInput input) {
+    public ProcessedTurnInput process(TurnInput input) {
         if (input == null) {
             throw new IllegalArgumentException("turn input must not be null");
         }
 
         List<MessageContent> userContents = new ArrayList<>();
-        List<ContextMessage> contextMessages = new ArrayList<>();
         for (InputItem item : input.items()) {
             if (item instanceof TextInput textInput) {
                 userContents.add(TextContent.builder()
                         .text(textInput.text())
                         .build());
-            } else if (item instanceof FileInput fileInput) {
-                contextMessages.add(materializeFile(fileInput.path()));
             } else if (item instanceof LocalImageInput imageInput) {
-                contextMessages.add(materializeImage(imageInput.path()));
+                userContents.addAll(processLocalImage(imageInput.path()));
             }
         }
 
@@ -49,35 +52,13 @@ public class InputMaterializer {
                     .build());
         }
 
-        return new MaterializedInput(
-                input,
-                UserMessage.builder()
-                        .contents(userContents)
-                        .build(),
-                contextMessages
+        return new ProcessedTurnInput(
+                contextBuilder.userMessage(userContents),
+                skillContextMessages(input)
         );
     }
 
-    private ContextMessage materializeFile(Path path) {
-        Path resolved = resolve(path);
-        if (!Files.isRegularFile(resolved)) {
-            throw new InputException("Input file does not exist: " + path);
-        }
-        try {
-            String content = Files.readString(resolved, StandardCharsets.UTF_8);
-            String rendered = renderFileContext(path, content);
-            return ContextMessage.builder()
-                    .kind(ContextMessage.ContextKind.RESOURCE)
-                    .contents(List.of(TextContent.builder()
-                            .text(rendered)
-                            .build()))
-                    .build();
-        } catch (IOException e) {
-            throw new InputException("Failed to read input file: " + path, e);
-        }
-    }
-
-    private ContextMessage materializeImage(Path path) {
+    private List<MessageContent> processLocalImage(Path path) {
         Path resolved = resolve(path);
         if (!Files.isRegularFile(resolved)) {
             throw new InputException("Input image does not exist: " + path);
@@ -88,36 +69,26 @@ public class InputMaterializer {
                 throw new InputException("Unsupported image type: " + path);
             }
             String data = Base64.getEncoder().encodeToString(Files.readAllBytes(resolved));
-            return ContextMessage.builder()
-                    .kind(ContextMessage.ContextKind.RESOURCE)
-                    .contents(List.of(
-                            TextContent.builder()
-                                    .text("Attached local image: " + displayPath(path))
-                                    .build(),
-                            ImageContent.builder()
-                                    .mimeType(mimeType)
-                                    .data(data)
-                                    .build()
-                    ))
-                    .build();
+            return List.of(
+                    TextContent.builder()
+                            .text("Attached local image: " + displayPath(path))
+                            .build(),
+                    ImageContent.builder()
+                            .mimeType(mimeType)
+                            .data(data)
+                            .build()
+            );
         } catch (IOException e) {
             throw new InputException("Failed to read input image: " + path, e);
         }
     }
 
-    private String renderFileContext(Path path, String content) {
-        String safeContent = content == null ? "" : content;
-        boolean truncated = safeContent.length() > MAX_FILE_CHARS;
-        String visibleContent = truncated ? safeContent.substring(0, MAX_FILE_CHARS) : safeContent;
-        StringBuilder rendered = new StringBuilder();
-        rendered.append("Attached file: ").append(displayPath(path)).append("\n\n");
-        rendered.append(visibleContent);
-        if (truncated) {
-            rendered.append("\n\n[File content truncated after ")
-                    .append(MAX_FILE_CHARS)
-                    .append(" characters.]");
+    private List<ContextMessage> skillContextMessages(TurnInput input) {
+        List<ContextMessage> messages = new ArrayList<>();
+        for (SkillInjection injection : skillsManager.resolveSkillInjections(input)) {
+            messages.add(contextBuilder.skillContextMessage(injection));
         }
-        return rendered.toString();
+        return List.copyOf(messages);
     }
 
     private Path resolve(Path path) {
