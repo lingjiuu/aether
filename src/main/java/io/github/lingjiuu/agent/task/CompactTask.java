@@ -2,36 +2,29 @@ package io.github.lingjiuu.agent.task;
 
 import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.agent.turn.TurnContext;
-import io.github.lingjiuu.compact.CompactPromptBuilder;
+import io.github.lingjiuu.compact.Compaction;
 import io.github.lingjiuu.llm.LlmRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
-import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 public class CompactTask implements SessionTask {
 
-    private static final int DEFAULT_MAX_PRESERVED_USER_MESSAGE_CHARS = 80_000;
     private static final int MAX_COMPACT_CONTEXT_RETRIES = 3;
-    private static final String USER_MESSAGE_TRUNCATION_MARKER = "\n\n[user message truncated by compact policy]";
 
-    private final CompactPromptBuilder promptBuilder;
     private final int maxPreservedUserMessageChars;
 
     public CompactTask() {
-        this(new CompactPromptBuilder(), DEFAULT_MAX_PRESERVED_USER_MESSAGE_CHARS);
+        this(Compaction.DEFAULT_MAX_PRESERVED_USER_MESSAGE_CHARS);
     }
 
-    CompactTask(CompactPromptBuilder promptBuilder, int maxPreservedUserMessageChars) {
-        this.promptBuilder = promptBuilder == null ? new CompactPromptBuilder() : promptBuilder;
+    CompactTask(int maxPreservedUserMessageChars) {
         this.maxPreservedUserMessageChars = Math.max(0, maxPreservedUserMessageChars);
     }
 
@@ -51,14 +44,18 @@ public class CompactTask implements SessionTask {
 
     public boolean runInlineAutoCompact(TaskContext context, String phase) {
         String label = phase == null || phase.isBlank() ? "auto" : "auto:" + phase;
-        return compact(context, label, shouldInjectInitialContext(phase));
+        return compact(context, label, Compaction.InitialContextInjection.forAutoCompactPhase(phase));
     }
 
     private boolean compact(TaskContext context, String trigger) {
-        return compact(context, trigger, false);
+        return compact(context, trigger, Compaction.InitialContextInjection.DO_NOT_INJECT);
     }
 
-    private boolean compact(TaskContext context, String trigger, boolean injectInitialContext) {
+    private boolean compact(
+            TaskContext context,
+            String trigger,
+            Compaction.InitialContextInjection initialContextInjection
+    ) {
         Session session = context.session();
         TurnContext turnContext = context.turnContext();
         List<Message> originalMessages = session.contextManager().snapshot();
@@ -96,13 +93,19 @@ public class CompactTask implements SessionTask {
             summary = "(compact summary was empty)";
         }
 
-        List<UserMessage> preservedUserMessages = preservedUserMessages(originalMessages);
-        List<Message> replacementMessages = replacementMessages(
-                session,
-                turnContext,
-                summary,
+        List<UserMessage> preservedUserMessages = Compaction.preservedUserMessages(
+                originalMessages,
+                maxPreservedUserMessageChars,
+                session.contextBuilder()
+        );
+        List<ContextMessage> initialContextMessages = initialContextInjection.shouldInject()
+                ? session.fullInitialContextMessages(turnContext)
+                : List.of();
+        List<Message> replacementMessages = Compaction.replacementMessages(
                 preservedUserMessages,
-                injectInitialContext
+                initialContextMessages,
+                summary,
+                session.contextBuilder()
         );
         if (context.isCancelled()) {
             return false;
@@ -114,7 +117,7 @@ public class CompactTask implements SessionTask {
                 originalMessages.size(),
                 preservedUserMessages.size()
         );
-        if (injectInitialContext) {
+        if (initialContextInjection.shouldInject()) {
             session.markInitialContextBaseline(turnContext);
         } else {
             session.clearInitialContextBaseline();
@@ -138,7 +141,11 @@ public class CompactTask implements SessionTask {
                     compactInput,
                     turnConfig.model().getInput()
             );
-            LlmRequest request = promptBuilder.build(turnConfig, normalizedCompactInput);
+            LlmRequest request = Compaction.request(
+                    turnConfig,
+                    normalizedCompactInput,
+                    session.contextBuilder()
+            );
             AssistantMessage assistantMessage = session.sampleModel(
                     context.modelSession(),
                     request,
@@ -156,83 +163,4 @@ public class CompactTask implements SessionTask {
             retries++;
         }
     }
-
-    private List<Message> replacementMessages(
-            Session session,
-            TurnContext turnContext,
-            String summary,
-            List<UserMessage> preservedUserMessages,
-            boolean injectInitialContext
-    ) {
-        List<Message> replacement = new ArrayList<>();
-        List<ContextMessage> initialContextMessages = injectInitialContext
-                ? session.fullInitialContextMessages(turnContext)
-                : List.of();
-        if (!initialContextMessages.isEmpty()
-                && preservedUserMessages != null
-                && !preservedUserMessages.isEmpty()) {
-            replacement.addAll(preservedUserMessages.subList(0, preservedUserMessages.size() - 1));
-            replacement.addAll(initialContextMessages);
-            replacement.add(preservedUserMessages.getLast());
-        } else {
-            replacement.addAll(initialContextMessages);
-            if (preservedUserMessages != null) {
-                replacement.addAll(preservedUserMessages);
-            }
-        }
-        replacement.add(session.contextBuilder().compactSummaryMessage(summary));
-        return List.copyOf(replacement);
-    }
-
-    private boolean shouldInjectInitialContext(String phase) {
-        return "mid-turn".equals(phase) || "context-window-exceeded".equals(phase);
-    }
-
-    private List<UserMessage> preservedUserMessages(List<Message> messages) {
-        if (messages == null || messages.isEmpty() || maxPreservedUserMessageChars <= 0) {
-            return List.of();
-        }
-
-        int remainingChars = maxPreservedUserMessageChars;
-        List<UserMessage> selected = new ArrayList<>();
-        for (int index = messages.size() - 1; index >= 0; index--) {
-            Message message = messages.get(index);
-            if (!(message instanceof UserMessage userMessage) || isCompactSummary(userMessage)) {
-                continue;
-            }
-
-            String text = MessageContents.text(userMessage);
-            if (text.isBlank()) {
-                continue;
-            }
-
-            if (text.length() <= remainingChars) {
-                selected.add(copyUserMessage(text));
-                remainingChars -= text.length();
-                if (remainingChars == 0) {
-                    break;
-                }
-                continue;
-            }
-
-            selected.add(copyUserMessage(text.substring(0, remainingChars) + USER_MESSAGE_TRUNCATION_MARKER));
-            break;
-        }
-
-        Collections.reverse(selected);
-        return List.copyOf(selected);
-    }
-
-    private boolean isCompactSummary(UserMessage message) {
-        return MessageContents.text(message).startsWith(CompactPromptBuilder.SUMMARY_PREFIX);
-    }
-
-    private UserMessage copyUserMessage(String text) {
-        return UserMessage.builder()
-                .contents(List.of(TextContent.builder()
-                        .text(text)
-                        .build()))
-                .build();
-    }
-
 }

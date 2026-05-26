@@ -4,7 +4,6 @@ import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
-import io.github.lingjiuu.compact.CompactPromptBuilder;
 import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
@@ -93,13 +92,6 @@ public class ContextBuilder {
                         .text(content)
                         .build()))
                 .build();
-    }
-
-    public UserMessage compactSummaryMessage(String summary) {
-        String safeSummary = summary == null || summary.isBlank()
-                ? "(compact summary was empty)"
-                : summary.trim();
-        return userMessage(CompactPromptBuilder.SUMMARY_PREFIX + "\n" + safeSummary);
     }
 
     private AssistantMessage assistantMessage(
