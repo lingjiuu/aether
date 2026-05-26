@@ -8,10 +8,8 @@ import io.github.lingjiuu.model.client.AssistantStreamEvent;
 import io.github.lingjiuu.model.client.ModelRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
-import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
-import io.github.lingjiuu.skill.Skill;
 
 import java.util.List;
 
@@ -44,8 +42,7 @@ public class RegularTask implements SessionTask {
             return;
         }
 
-        List<Skill> turnSkills = session.availableSkills();
-        session.recordInitialContextIfChanged(turnContext, turnSkills);
+        session.recordInitialContextIfChanged(turnContext);
         SessionConfig turnConfig = context.sessionConfig();
         recordProcessedInput(session, context.processedInput(), turnContext);
 
@@ -270,12 +267,11 @@ public class RegularTask implements SessionTask {
                 continue;
             }
             ToolCallRef toolCallRef = outcome.toolCallRef();
-            ToolResultMessage result = session.toolResultMessage(toolCallRef.toolCall(), outcome.executionResult());
             session.recordToolResult(
                     toolCallRef.itemId(),
                     toolCallRef.contentIndex(),
                     toolCallRef.toolCall(),
-                    result,
+                    outcome.executionResult(),
                     turnContext,
                     outcome.status(),
                     outcome.durationMs()

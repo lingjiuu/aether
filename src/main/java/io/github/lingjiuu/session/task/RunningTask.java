@@ -22,10 +22,6 @@ public final class RunningTask {
         return thread;
     }
 
-    void start() {
-        thread.start();
-    }
-
     public void cancel() {
         cancellationSource.cancel();
         thread.interrupt();

@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-public class AgentsMdManagerTest extends TestCase {
+public class InstructionsManagerTest extends TestCase {
 
     public void testLoadMergesGlobalAndProjectInstructionsRootFirst() throws Exception {
         Path root = Files.createTempDirectory("aether-agents-md");
@@ -20,7 +20,7 @@ public class AgentsMdManagerTest extends TestCase {
         Files.writeString(workspace.resolve("AGENTS.md"), "workspace rules", StandardCharsets.UTF_8);
         Files.writeString(child.resolve("AGENTS.md"), "child rules", StandardCharsets.UTF_8);
 
-        AgentsMdInstructions instructions = new AgentsMdManager(child, agentDir).load();
+        AgentsMdInstructions instructions = new InstructionsManager(child, agentDir).loadAgentsMdInstructions();
 
         assertEquals("""
                 global rules
@@ -46,10 +46,40 @@ public class AgentsMdManagerTest extends TestCase {
         Files.writeString(workspace.resolve("AGENTS.md"), "shared rules", StandardCharsets.UTF_8);
         Files.writeString(workspace.resolve("AGENTS.override.md"), "local rules", StandardCharsets.UTF_8);
 
-        AgentsMdInstructions instructions = new AgentsMdManager(workspace, null).load();
+        AgentsMdInstructions instructions = new InstructionsManager(workspace, null).loadAgentsMdInstructions();
 
         assertEquals("local rules", instructions.text());
         assertEquals(1, instructions.sources().size());
         assertEquals(workspace.resolve("AGENTS.override.md").toAbsolutePath().normalize(), instructions.sources().getFirst());
+    }
+
+    public void testBaseInstructionsFallsBackToDefault() throws Exception {
+        Path root = Files.createTempDirectory("aether-instructions-default");
+        Path cwd = root.resolve("workspace");
+        Path agentDir = root.resolve("agent");
+        Files.createDirectories(cwd);
+        Files.createDirectories(agentDir);
+
+        InstructionsManager instructions = new InstructionsManager(cwd, agentDir);
+
+        assertEquals(BaseInstructions.DEFAULT, instructions.baseInstructions());
+        assertEquals("", instructions.developerInstructions());
+    }
+
+    public void testProjectInstructionFilesWinBeforeGlobalFiles() throws Exception {
+        Path root = Files.createTempDirectory("aether-instructions-project");
+        Path cwd = root.resolve("workspace");
+        Path agentDir = root.resolve("agent");
+        Files.createDirectories(cwd.resolve(".aether"));
+        Files.createDirectories(cwd.resolve(".agent"));
+        Files.createDirectories(agentDir);
+        Files.writeString(agentDir.resolve("SYSTEM.md"), "global base", StandardCharsets.UTF_8);
+        Files.writeString(cwd.resolve(".aether").resolve("SYSTEM.md"), "project base", StandardCharsets.UTF_8);
+        Files.writeString(cwd.resolve(".agent").resolve("APPEND_SYSTEM.md"), "project developer", StandardCharsets.UTF_8);
+
+        InstructionsManager instructions = new InstructionsManager(cwd, agentDir);
+
+        assertEquals("project base", instructions.baseInstructions());
+        assertEquals("project developer", instructions.developerInstructions());
     }
 }

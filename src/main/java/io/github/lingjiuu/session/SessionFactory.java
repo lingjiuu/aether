@@ -5,8 +5,7 @@ import io.github.lingjiuu.infra.config.AetherConfigException;
 import io.github.lingjiuu.infra.config.AetherConfigLoader;
 import io.github.lingjiuu.infra.config.AetherPaths;
 import io.github.lingjiuu.instructions.AgentsMdInstructions;
-import io.github.lingjiuu.instructions.AgentsMdManager;
-import io.github.lingjiuu.instructions.BaseInstructions;
+import io.github.lingjiuu.instructions.InstructionsManager;
 import io.github.lingjiuu.model.client.ModelClient;
 import io.github.lingjiuu.model.ModelInfo;
 import io.github.lingjiuu.model.ModelOption;
@@ -15,7 +14,6 @@ import io.github.lingjiuu.model.ReasoningOptions;
 import io.github.lingjiuu.provider.ProviderEndpoint;
 import io.github.lingjiuu.skill.SkillsManager;
 import io.github.lingjiuu.tool.ToolDefinition;
-import io.github.lingjiuu.tool.ToolRegistry;
 import io.github.lingjiuu.tool.builtin.BashTool;
 import io.github.lingjiuu.tool.builtin.EditTool;
 import io.github.lingjiuu.tool.builtin.FindTool;
@@ -30,9 +28,7 @@ import io.github.lingjiuu.transcript.TranscriptRestorer;
 import io.github.lingjiuu.transcript.TranscriptStore;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -45,12 +41,9 @@ import java.util.UUID;
 
 public class SessionFactory {
 
-    private static final List<String> PROJECT_INSTRUCTION_DIR_NAMES = List.of(".aether", ".agent");
-
     private final SessionConfig config;
     private final SkillsManager skillsManager;
     private final Path agentDir;
-    private final boolean workspaceConfigurable;
     private final AetherConfig aetherConfig;
 
     public SessionFactory(SessionConfig config) {
@@ -58,14 +51,13 @@ public class SessionFactory {
     }
 
     public SessionFactory(SessionConfig config, SkillsManager skillsManager) {
-        this(config, skillsManager, null, false, null);
+        this(config, skillsManager, null, null);
     }
 
     private SessionFactory(
             SessionConfig config,
             SkillsManager skillsManager,
             Path agentDir,
-            boolean workspaceConfigurable,
             AetherConfig aetherConfig
     ) {
         if (config == null) {
@@ -74,7 +66,6 @@ public class SessionFactory {
         this.config = config;
         this.skillsManager = skillsManager == null ? SkillsManager.empty(config.cwd()) : skillsManager;
         this.agentDir = agentDir == null ? null : agentDir.toAbsolutePath().normalize();
-        this.workspaceConfigurable = workspaceConfigurable;
         this.aetherConfig = aetherConfig;
     }
 
@@ -132,7 +123,7 @@ public class SessionFactory {
         Path resolvedAgentDir = agentDir == null
                 ? AetherPaths.getAgentDir()
                 : agentDir.toAbsolutePath().normalize();
-        SessionBundle bundle = buildWorkspaceBundle(
+        SessionConfig config = buildWorkspaceConfig(
                 modelClient,
                 modelSelection,
                 transcriptStore,
@@ -140,10 +131,10 @@ public class SessionFactory {
                 resolvedAgentDir
         );
 
-        return new SessionFactory(bundle.config(), bundle.skillsManager(), resolvedAgentDir, true, aetherConfig);
+        return new SessionFactory(config, new SkillsManager(config.cwd(), resolvedAgentDir), resolvedAgentDir, aetherConfig);
     }
 
-    private static SessionBundle buildWorkspaceBundle(
+    private static SessionConfig buildWorkspaceConfig(
             ModelClient modelClient,
             ModelSelection modelSelection,
             TranscriptStore transcriptStore,
@@ -156,16 +147,14 @@ public class SessionFactory {
         Path resolvedAgentDir = agentDir == null
                 ? AetherPaths.getAgentDir().toAbsolutePath().normalize()
                 : agentDir.toAbsolutePath().normalize();
-        AgentsMdInstructions agentsMdInstructions = new AgentsMdManager(resolvedCwd, resolvedAgentDir).load();
-        SkillsManager skillsManager = new SkillsManager(resolvedCwd, resolvedAgentDir);
-        String baseInstructions = baseInstructions(resolvedCwd, resolvedAgentDir);
-        String developerInstructions = readInstructionFile(resolvedCwd, resolvedAgentDir, "APPEND_SYSTEM.md");
+        InstructionsManager instructions = new InstructionsManager(resolvedCwd, resolvedAgentDir);
+        AgentsMdInstructions agentsMdInstructions = instructions.loadAgentsMdInstructions();
 
         List<ToolDefinition> toolDefinitions = buildDefaultTools(resolvedCwd);
-        SessionConfig config = new SessionConfig(
+        return new SessionConfig(
                 modelClient,
-                baseInstructions,
-                developerInstructions,
+                instructions.baseInstructions(),
+                instructions.developerInstructions(),
                 agentsMdInstructions.text(),
                 agentsMdInstructions.sources(),
                 resolvedCwd,
@@ -176,58 +165,21 @@ public class SessionFactory {
                         .map(ToolDefinition::name)
                         .toList()
         );
-
-        return new SessionBundle(config, skillsManager);
     }
 
     public Session openSession() {
         return openSession(SessionOptions.defaults());
     }
 
-    private static String baseInstructions(Path cwd, Path agentDir) {
-        String configured = readInstructionFile(cwd, agentDir, "SYSTEM.md");
-        return configured == null || configured.isBlank()
-                ? BaseInstructions.DEFAULT
-                : configured.trim();
-    }
-
-    private static String readInstructionFile(Path cwd, Path agentDir, String fileName) {
-        for (Path candidate : instructionFileCandidates(cwd, agentDir, fileName)) {
-            if (Files.isRegularFile(candidate) && Files.isReadable(candidate)) {
-                try {
-                    return Files.readString(candidate, StandardCharsets.UTF_8).trim();
-                } catch (IOException ignored) {
-                    return "";
-                }
-            }
-        }
-        return "";
-    }
-
-    private static List<Path> instructionFileCandidates(Path cwd, Path agentDir, String fileName) {
-        List<Path> candidates = new ArrayList<>();
-        Path resolvedCwd = cwd == null
-                ? Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize()
-                : cwd.toAbsolutePath().normalize();
-        for (String dirName : PROJECT_INSTRUCTION_DIR_NAMES) {
-            candidates.add(resolvedCwd.resolve(dirName).resolve(fileName));
-        }
-        if (agentDir != null) {
-            candidates.add(agentDir.toAbsolutePath().normalize().resolve(fileName));
-        }
-        return List.copyOf(candidates);
-    }
-
     public Session openSession(SessionOptions options) {
-        SessionBundle bundle = sessionBundle(options);
+        SessionConfig sessionConfig = sessionConfig(options);
         String sessionId = UUID.randomUUID().toString();
-        return new SessionBuilder()
-                .config(bundle.config())
-                .sessionId(sessionId)
-                .sessionMeta(buildSessionMeta(sessionId, bundle.config()))
-                .recordSessionMeta(true)
-                .skillsManager(bundle.skillsManager())
-                .build();
+        return new Session(
+                sessionConfig,
+                sessionId,
+                buildSessionMeta(sessionId, sessionConfig),
+                skillsManagerFor(sessionConfig)
+        );
     }
 
     public Session resumeSession(String sessionId) {
@@ -240,20 +192,17 @@ public class SessionFactory {
 
         TranscriptReconstruction reconstruction = new TranscriptRestorer(config.transcriptStore()).restore(sessionId);
         validateResumeMetadata(reconstruction);
-        SessionBundle bundle = resumeSessionBundle(sessionId, resumeOptions(reconstruction));
-        return new SessionBuilder()
-                .config(bundle.config())
-                .toolRegistry(buildToolRegistry(bundle.config()))
-                .sessionId(sessionId)
-                .sessionName(reconstruction.sessionName())
-                .initialMessages(reconstruction.messages())
-                .initialContextBaseline(reconstruction.initialContextBaseline())
-                .initialTimelineEvents(reconstruction.timelineEvents())
-                .initialEventSequence(reconstruction.lastEventSequence())
-                .lastTranscriptRecordId(reconstruction.lastRecordId())
-                .recordSessionMeta(false)
-                .skillsManager(bundle.skillsManager())
-                .build();
+        SessionConfig sessionConfig;
+        try {
+            sessionConfig = sessionConfig(resumeOptions(reconstruction));
+        } catch (AetherConfigException e) {
+            throw new IllegalStateException("Cannot resume session " + sessionId + ": " + e.getMessage(), e);
+        }
+        return new Session(
+                sessionConfig,
+                reconstruction,
+                skillsManagerFor(sessionConfig)
+        );
     }
 
     public SessionConfig config() {
@@ -287,13 +236,13 @@ public class SessionFactory {
         return configOnlyModelSelection(explicitProvider, explicitModel, explicitReasoningEffort);
     }
 
-    private SessionBundle sessionBundle(SessionOptions options) {
+    private SessionConfig sessionConfig(SessionOptions options) {
         ModelSelection selection = modelSelection(options);
-        if (!workspaceConfigurable) {
-            return new SessionBundle(config.withModelSelection(selection), skillsManager);
+        if (aetherConfig == null) {
+            return config.withModelSelection(selection);
         }
         Path cwd = options == null || options.cwd() == null ? config.cwd() : options.cwd();
-        return buildWorkspaceBundle(
+        return buildWorkspaceConfig(
                 config.modelClient(),
                 selection,
                 config.transcriptStore(),
@@ -302,12 +251,11 @@ public class SessionFactory {
         );
     }
 
-    private SessionBundle resumeSessionBundle(String sessionId, SessionOptions options) {
-        try {
-            return sessionBundle(options);
-        } catch (AetherConfigException e) {
-            throw new IllegalStateException("Cannot resume session " + sessionId + ": " + e.getMessage(), e);
+    private SkillsManager skillsManagerFor(SessionConfig sessionConfig) {
+        if (aetherConfig == null) {
+            return skillsManager;
         }
+        return new SkillsManager(sessionConfig.cwd(), agentDir);
     }
 
     private ModelSelection modelSelection(SessionOptions options) {
@@ -349,14 +297,6 @@ public class SessionFactory {
                 selection == null ? null : selection.modelId(),
                 selection == null ? null : selection.reasoningEffort()
         );
-    }
-
-    private ToolRegistry buildToolRegistry(SessionConfig config) {
-        ToolRegistry toolRegistry = new ToolRegistry();
-        for (ToolDefinition definition : config.toolDefinitions()) {
-            toolRegistry.register(definition);
-        }
-        return toolRegistry;
     }
 
     private static List<ToolDefinition> buildDefaultTools(Path cwd) {
@@ -500,6 +440,4 @@ public class SessionFactory {
         return value == null ? "" : value;
     }
 
-    private record SessionBundle(SessionConfig config, SkillsManager skillsManager) {
-    }
 }

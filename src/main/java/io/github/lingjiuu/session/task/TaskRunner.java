@@ -36,7 +36,7 @@ public class TaskRunner {
                 });
         RunningTask running = new RunningTask(cancellationSource, thread);
         runningTask = running;
-        running.start();
+        thread.start();
         return running;
     }
 

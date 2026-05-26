@@ -14,8 +14,8 @@ import io.github.lingjiuu.wire.WireAdapter;
 import io.github.lingjiuu.wire.WireAdapterRegistry;
 import io.github.lingjiuu.wire.WireSession;
 import io.github.lingjiuu.session.Session;
-import io.github.lingjiuu.session.SessionBuilder;
 import io.github.lingjiuu.session.SessionConfig;
+import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionContext;
 import io.github.lingjiuu.tool.ToolExecutionResult;
@@ -41,12 +41,11 @@ public class ToolCancellationClosureTest extends TestCase {
                 .toolName("slow")
                 .argumentsJson("{}")
                 .build();
-        Session session = new SessionBuilder()
-                .config(sessionConfig(
+        Session session = new SessionFactory(sessionConfig(
                         new FakeProvider(toolCall, toolCallEmitted, streamMayFinish),
                         new SlowTool(toolStarted)
                 ))
-                .build();
+                .openSession();
 
         session.submitAsync(io.github.lingjiuu.input.TurnInput.ofText("run slow tool"));
         assertTrue(toolCallEmitted.await(5, TimeUnit.SECONDS));
@@ -79,12 +78,11 @@ public class ToolCancellationClosureTest extends TestCase {
                 .toolName("bash")
                 .argumentsJson("{}")
                 .build();
-        Session session = new SessionBuilder()
-                .config(sessionConfig(
+        Session session = new SessionFactory(sessionConfig(
                         new FakeProvider(toolCall, toolCallEmitted, streamMayFinish),
                         new SlowTool(toolStarted, "bash", ToolRiskLevel.READ_ONLY)
                 ))
-                .build();
+                .openSession();
 
         session.submitAsync(io.github.lingjiuu.input.TurnInput.ofText("run bash tool"));
         assertTrue(toolCallEmitted.await(5, TimeUnit.SECONDS));

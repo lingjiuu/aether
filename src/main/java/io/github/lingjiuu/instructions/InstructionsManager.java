@@ -11,18 +11,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-public class AgentsMdManager {
+public class InstructionsManager {
 
     public static final String DEFAULT_AGENTS_MD_FILENAME = "AGENTS.md";
     public static final String LOCAL_AGENTS_MD_FILENAME = "AGENTS.override.md";
 
     private static final String AGENTS_MD_SEPARATOR = "\n\n--- project-doc ---\n\n";
     private static final List<String> PROJECT_ROOT_MARKERS = List.of(".git");
+    private static final List<String> PROJECT_INSTRUCTION_DIR_NAMES = List.of(".aether", ".agent");
 
     private final Path cwd;
     private final Path agentDir;
 
-    public AgentsMdManager(Path cwd, Path agentDir) {
+    public InstructionsManager(Path cwd, Path agentDir) {
         if (cwd == null) {
             throw new IllegalArgumentException("cwd must not be null");
         }
@@ -30,11 +31,22 @@ public class AgentsMdManager {
         this.agentDir = agentDir == null ? null : agentDir.toAbsolutePath().normalize();
     }
 
-    public AgentsMdInstructions load() {
+    public String baseInstructions() {
+        String configured = readInstructionFile("SYSTEM.md");
+        return configured == null || configured.isBlank()
+                ? BaseInstructions.DEFAULT
+                : configured.trim();
+    }
+
+    public String developerInstructions() {
+        return readInstructionFile("APPEND_SYSTEM.md");
+    }
+
+    public AgentsMdInstructions loadAgentsMdInstructions() {
         Map<Path, LoadedAgentsMd> filesByRealPath = new LinkedHashMap<>();
-        loadGlobalInstructions().forEach(file -> addLoadedFile(filesByRealPath, file));
+        loadGlobalAgentsMdInstructions().forEach(file -> addLoadedFile(filesByRealPath, file));
         for (Path directory : projectDirectoriesRootFirst()) {
-            loadFromDirectory(directory).ifPresent(file -> addLoadedFile(filesByRealPath, file));
+            loadAgentsMdFromDirectory(directory).ifPresent(file -> addLoadedFile(filesByRealPath, file));
         }
 
         if (filesByRealPath.isEmpty()) {
@@ -49,6 +61,30 @@ public class AgentsMdManager {
         );
     }
 
+    private String readInstructionFile(String fileName) {
+        for (Path candidate : instructionFileCandidates(fileName)) {
+            if (Files.isRegularFile(candidate) && Files.isReadable(candidate)) {
+                try {
+                    return Files.readString(candidate, StandardCharsets.UTF_8).trim();
+                } catch (IOException ignored) {
+                    return "";
+                }
+            }
+        }
+        return "";
+    }
+
+    private List<Path> instructionFileCandidates(String fileName) {
+        List<Path> candidates = new ArrayList<>();
+        for (String dirName : PROJECT_INSTRUCTION_DIR_NAMES) {
+            candidates.add(cwd.resolve(dirName).resolve(fileName));
+        }
+        if (agentDir != null) {
+            candidates.add(agentDir.resolve(fileName));
+        }
+        return List.copyOf(candidates);
+    }
+
     private void addLoadedFile(Map<Path, LoadedAgentsMd> filesByRealPath, LoadedAgentsMd loaded) {
         try {
             filesByRealPath.putIfAbsent(loaded.path().toRealPath().toAbsolutePath().normalize(), loaded);
@@ -56,11 +92,11 @@ public class AgentsMdManager {
         }
     }
 
-    private List<LoadedAgentsMd> loadGlobalInstructions() {
+    private List<LoadedAgentsMd> loadGlobalAgentsMdInstructions() {
         if (agentDir == null) {
             return List.of();
         }
-        return loadFromDirectory(agentDir)
+        return loadAgentsMdFromDirectory(agentDir)
                 .map(List::of)
                 .orElse(List.of());
     }
@@ -93,7 +129,7 @@ public class AgentsMdManager {
         return cwd;
     }
 
-    private Optional<LoadedAgentsMd> loadFromDirectory(Path directory) {
+    private Optional<LoadedAgentsMd> loadAgentsMdFromDirectory(Path directory) {
         if (directory == null) {
             return Optional.empty();
         }

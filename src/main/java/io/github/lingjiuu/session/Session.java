@@ -3,7 +3,6 @@ package io.github.lingjiuu.session;
 import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.session.task.CompactTask;
 import io.github.lingjiuu.session.task.RegularTask;
-import io.github.lingjiuu.session.task.RunningTask;
 import io.github.lingjiuu.session.task.SessionTask;
 import io.github.lingjiuu.session.task.TaskContext;
 import io.github.lingjiuu.session.task.TaskRunner;
@@ -50,6 +49,7 @@ import io.github.lingjiuu.tool.permission.ApprovalResponse;
 import io.github.lingjiuu.tool.permission.DenyAllApprovalHandler;
 import io.github.lingjiuu.tool.permission.PermissionManager;
 import io.github.lingjiuu.transcript.TranscriptRecorder;
+import io.github.lingjiuu.transcript.TranscriptReconstruction;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
 import io.github.lingjiuu.transcript.item.TurnContextItem;
 
@@ -81,7 +81,47 @@ public class Session implements AutoCloseable {
 
     Session(
             SessionConfig config,
-            ToolRegistry toolRegistry,
+            String sessionId,
+            SessionMetaItem sessionMeta,
+            SkillsManager skillsManager
+    ) {
+        this(
+                config,
+                sessionId,
+                List.of(),
+                null,
+                sessionMeta,
+                null,
+                true,
+                null,
+                skillsManager,
+                List.of(),
+                0
+        );
+    }
+
+    Session(
+            SessionConfig config,
+            TranscriptReconstruction reconstruction,
+            SkillsManager skillsManager
+    ) {
+        this(
+                config,
+                reconstruction.sessionId(),
+                reconstruction.messages(),
+                reconstruction.lastRecordId(),
+                null,
+                reconstruction.sessionName(),
+                false,
+                reconstruction.initialContextBaseline(),
+                skillsManager,
+                reconstruction.timelineEvents(),
+                reconstruction.lastEventSequence()
+        );
+    }
+
+    private Session(
+            SessionConfig config,
             String sessionId,
             List<Message> initialMessages,
             String lastTranscriptRecordId,
@@ -96,13 +136,10 @@ public class Session implements AutoCloseable {
         if (config == null) {
             throw new IllegalArgumentException("config must not be null");
         }
-        if (toolRegistry == null) {
-            throw new IllegalArgumentException("toolRegistry must not be null");
-        }
         this.config = config;
         this.state = new SessionState(sessionId);
         this.contextManager = new ContextManager(initialMessages);
-        this.toolRegistry = toolRegistry;
+        this.toolRegistry = buildToolRegistry(config.toolDefinitions());
         this.skillsManager = skillsManager == null ? SkillsManager.empty(config.cwd()) : skillsManager;
         this.activeToolNames = config.activeToolNames();
         this.activeModelSelection = config.modelSelection();
@@ -123,6 +160,14 @@ public class Session implements AutoCloseable {
         state.setInitialContextBaseline(initialContextBaseline);
         this.skillsWatcher = startSkillsWatcher();
         recomputeTokenUsageFromHistory();
+    }
+
+    private static ToolRegistry buildToolRegistry(List<ToolDefinition> toolDefinitions) {
+        ToolRegistry registry = new ToolRegistry();
+        for (ToolDefinition definition : toolDefinitions) {
+            registry.register(definition);
+        }
+        return registry;
     }
 
     public void prompt(String content) {
@@ -439,11 +484,12 @@ public class Session implements AutoCloseable {
             String sourceItemId,
             Integer contentIndex,
             ToolCallContent toolCall,
-            ToolResultMessage toolResult,
+            ToolExecutionResult result,
             TurnContext turnContext,
             String status,
             Long durationMs
     ) {
+        ToolResultMessage toolResult = contextBuilder.toolResultMessage(toolCall, result);
         if (toolResult == null) {
             return;
         }
@@ -462,10 +508,6 @@ public class Session implements AutoCloseable {
         eventManager.emit(UiEvents.toolResult(sourceItemId, contentIndex, toolCall, toolResult, status, durationMs, turnContext));
     }
 
-    public ToolResultMessage toolResultMessage(ToolCallContent toolCall, ToolExecutionResult result) {
-        return contextBuilder.toolResultMessage(toolCall, result);
-    }
-
     public ApprovalResponse requestApproval(ApprovalRequest request, TurnContext turnContext) {
         if (request == null) {
             return null;
@@ -481,11 +523,11 @@ public class Session implements AutoCloseable {
         return response;
     }
 
-    public void recordInitialContextIfChanged(TurnContext turnContext, List<Skill> availableSkills) {
+    public void recordInitialContextIfChanged(TurnContext turnContext) {
         EnvironmentContext previous = state.initialContextBaseline();
         EnvironmentContext current = environmentContext(turnContext);
         List<ContextMessage> messages = previous == null
-                ? fullInitialContextMessages(turnContext, availableSkills)
+                ? fullInitialContextMessages(turnContext)
                 : environmentContextMessages(current.diffFields(previous));
         for (ContextMessage message : messages) {
             recordContextMessage(message, turnContext);
@@ -495,15 +537,11 @@ public class Session implements AutoCloseable {
     }
 
     public List<ContextMessage> fullInitialContextMessages(TurnContext turnContext) {
-        return fullInitialContextMessages(turnContext, availableSkills());
-    }
-
-    public List<ContextMessage> fullInitialContextMessages(TurnContext turnContext, List<Skill> availableSkills) {
         List<ContextMessage> messages = new ArrayList<>();
         addInitialContextMessage(messages, additionalInstructionsContextMessage());
         addInitialContextMessage(messages, toolInstructionsContextMessage());
         addInitialContextMessage(messages, userInstructionsContextMessage(turnContext));
-        addInitialContextMessage(messages, availableSkillsContextMessage(availableSkills));
+        addInitialContextMessage(messages, availableSkillsContextMessage(availableSkills()));
         messages.addAll(environmentContextMessages(environmentContext(turnContext).fullFields()));
         return List.copyOf(messages);
     }
@@ -743,14 +781,11 @@ public class Session implements AutoCloseable {
 
         eventManager.emit(UiEvents.turnStarted(turnContext));
         try {
-            RunningTask runningTask = taskRunner.start(
+            taskRunner.start(
                     cancellationSource,
                     "aether-" + task.kind().name().toLowerCase() + "-turn-" + turn,
                     () -> runTaskBody(task, turnContext, processedInput, cancellationSource)
             );
-            if (runningTask == null) {
-                throw new IllegalStateException("Failed to start session task.");
-            }
         } catch (RuntimeException e) {
             eventManager.emit(UiEvents.error(sessionId(), turn, e.getMessage()));
             eventManager.emit(UiEvents.turnAborted(turnContext));
@@ -771,7 +806,14 @@ public class Session implements AutoCloseable {
         ModelSelection modelSelection = activeModelSelection();
         SessionConfig turnConfig = config.withModelSelection(modelSelection);
         try (ModelClientSession modelSession = config.modelClient().openSession(modelSelection)) {
-            TaskContext context = taskContext(modelSession, turnConfig, cancellationSource, turnContext, processedInput);
+            TaskContext context = new TaskContext(
+                    this,
+                    turnContext,
+                    processedInput,
+                    cancellationSource.token(),
+                    modelSession,
+                    turnConfig
+            );
             task.run(context);
         } catch (RuntimeException e) {
             if (!cancellationSource.token().isCancellationRequested()) {
@@ -814,23 +856,6 @@ public class Session implements AutoCloseable {
 
     private void emitSkillsChanged(int availableSkillCount) {
         eventManager.emit(UiEvents.skillsChanged(sessionId(), availableSkillCount));
-    }
-
-    private TaskContext taskContext(
-            ModelClientSession modelSession,
-            SessionConfig turnConfig,
-            ToolCancellationSource cancellationSource,
-            TurnContext turnContext,
-            ProcessedTurnInput processedInput
-    ) {
-        return new TaskContext(
-                this,
-                turnContext,
-                processedInput,
-                cancellationSource.token(),
-                modelSession,
-                turnConfig
-        );
     }
 
     private void recordTokenUsage(AssistantMessage assistantMessage, TurnContext turnContext) {
