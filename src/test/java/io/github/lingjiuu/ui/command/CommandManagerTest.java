@@ -1,13 +1,14 @@
 package io.github.lingjiuu.ui.command;
 
+import io.github.lingjiuu.TestModelSelections;
 import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.agent.turn.TurnId;
-import io.github.lingjiuu.llm.AssistantStream;
-import io.github.lingjiuu.llm.AssistantStreamEvent;
-import io.github.lingjiuu.llm.LlmClient;
-import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.llm.LlmRequest;
+import io.github.lingjiuu.model.client.AssistantStream;
+import io.github.lingjiuu.model.client.AssistantStreamEvent;
+import io.github.lingjiuu.model.client.ModelClient;
+import io.github.lingjiuu.model.ModelSelection;
+import io.github.lingjiuu.model.client.ModelRequest;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
@@ -15,10 +16,9 @@ import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiEventType;
 import io.github.lingjiuu.protocol.UiModelCatalog;
 import io.github.lingjiuu.protocol.UiSessionSummary;
-import io.github.lingjiuu.provider.Provider;
-import io.github.lingjiuu.provider.ProviderRegistry;
-import io.github.lingjiuu.provider.ProviderSession;
-import io.github.lingjiuu.provider.RequestAuth;
+import io.github.lingjiuu.wire.WireAdapter;
+import io.github.lingjiuu.wire.WireAdapterRegistry;
+import io.github.lingjiuu.wire.WireSession;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.session.SessionFactory;
@@ -28,7 +28,6 @@ import junit.framework.TestCase;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -87,7 +86,7 @@ public class CommandManagerTest extends TestCase {
             assertTrue(result.accepted());
             assertTrue(result.message().contains("Set model to fake/fake-model high"));
             assertEquals(
-                    io.github.lingjiuu.llm.ReasoningOptions.ReasoningEffort.HIGH,
+                    io.github.lingjiuu.model.ReasoningOptions.ReasoningEffort.HIGH,
                     commandManager.currentSession().activeModelSelection().reasoning().getReasoningEffort()
             );
 
@@ -121,9 +120,9 @@ public class CommandManagerTest extends TestCase {
             commandManager.currentSession().waitForIdle();
 
             assertNotNull(provider.lastRequest);
-            assertEquals("fake-model", provider.lastRequest.getModel().getId());
+            assertEquals("fake-model", provider.lastSelection.model().getId());
             assertEquals(
-                    io.github.lingjiuu.llm.ReasoningOptions.ReasoningEffort.HIGH,
+                    io.github.lingjiuu.model.ReasoningOptions.ReasoningEffort.HIGH,
                     provider.lastRequest.getCallOptions().getReasoning().getReasoningEffort()
             );
         }
@@ -208,33 +207,25 @@ public class CommandManagerTest extends TestCase {
         return sessionConfig(cwd, new NoopProvider());
     }
 
-    private SessionConfig sessionConfig(Path cwd, Provider provider) {
+    private SessionConfig sessionConfig(Path cwd, WireAdapter provider) {
         return sessionConfig(cwd, provider, "", "", List.of());
     }
 
     private SessionConfig sessionConfig(
             Path cwd,
-            Provider provider,
+            WireAdapter provider,
             String developerInstructions,
             String userInstructions,
             List<Path> instructionSources
     ) {
         return new SessionConfig(
-                new LlmClient(new ProviderRegistry().register(provider)),
+                new ModelClient(new WireAdapterRegistry().register(provider)),
                 "You are a test agent.",
                 developerInstructions,
                 userInstructions,
                 instructionSources,
                 cwd.toAbsolutePath().normalize(),
-                LlmModel.builder()
-                        .id("fake-model")
-                        .api("fake")
-                        .provider("fake")
-                        .input(List.of("text"))
-                        .contextWindowTokens(100_000L)
-                        .build(),
-                RequestAuth.ok("test", Map.of()),
-                null,
+                TestModelSelections.fakeSelection(),
                 new TranscriptStore(cwd.resolve("transcripts")),
                 List.of(),
                 List.of()
@@ -242,11 +233,13 @@ public class CommandManagerTest extends TestCase {
     }
 
     private static class CapturingProvider extends NoopProvider {
-        private volatile LlmRequest lastRequest;
+        private volatile ModelRequest lastRequest;
+        private volatile ModelSelection lastSelection;
 
         @Override
-        public ProviderSession openSession(LlmModel model, RequestAuth auth) {
-            ProviderSession delegate = super.openSession(model, auth);
+        public WireSession openSession(ModelSelection selection) {
+            lastSelection = selection;
+            WireSession delegate = super.openSession(selection);
             return (request, cancellationToken) -> {
                 lastRequest = request;
                 return delegate.stream(request, cancellationToken);
@@ -259,7 +252,7 @@ public class CommandManagerTest extends TestCase {
         private final CountDownLatch release = new CountDownLatch(1);
 
         @Override
-        public ProviderSession openSession(LlmModel model, RequestAuth auth) {
+        public WireSession openSession(ModelSelection selection) {
             return (request, cancellationToken) -> new AssistantStream() {
                 @Override
                 public io.github.lingjiuu.message.AssistantMessage consume(Consumer<AssistantStreamEvent> consumer) {
@@ -282,14 +275,14 @@ public class CommandManagerTest extends TestCase {
         }
     }
 
-    private static class NoopProvider implements Provider {
+    private static class NoopProvider implements WireAdapter {
         @Override
         public String name() {
             return "fake";
         }
 
         @Override
-        public ProviderSession openSession(LlmModel model, RequestAuth auth) {
+        public WireSession openSession(ModelSelection selection) {
             return (request, cancellationToken) -> new AssistantStream() {
                 @Override
                 public io.github.lingjiuu.message.AssistantMessage consume(Consumer<AssistantStreamEvent> consumer) {

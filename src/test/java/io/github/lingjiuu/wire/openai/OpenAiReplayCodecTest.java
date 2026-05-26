@@ -1,10 +1,10 @@
-package io.github.lingjiuu.provider.openai;
+package io.github.lingjiuu.wire.openai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import junit.framework.TestCase;
 
-public class OpenAiReplayJsonSanitizerTest extends TestCase {
+public class OpenAiReplayCodecTest extends TestCase {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
@@ -26,7 +26,7 @@ public class OpenAiReplayJsonSanitizerTest extends TestCase {
                 }
                 """;
 
-        JsonNode sanitized = objectMapper.readTree(OpenAiReplayJsonSanitizer.sanitize(json, objectMapper));
+        JsonNode sanitized = objectMapper.readTree(new OpenAiReplayCodec(objectMapper).sanitize(json));
 
         assertFalse(sanitized.has("isValid"));
         assertFalse(sanitized.get("content").get(0).has("isValid"));

@@ -1,6 +1,6 @@
-package io.github.lingjiuu.provider.openai;
+package io.github.lingjiuu.wire.openai;
 
-import io.github.lingjiuu.provider.ProviderReplayData;
+import io.github.lingjiuu.wire.WireReplayData;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -13,7 +13,7 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class OpenAiReplayData implements ProviderReplayData {
+public class OpenAiReplayData implements WireReplayData {
 
     private String responseId;
 

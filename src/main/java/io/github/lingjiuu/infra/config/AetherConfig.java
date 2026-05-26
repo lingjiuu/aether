@@ -1,10 +1,11 @@
 package io.github.lingjiuu.infra.config;
 
-import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.llm.ModelOption;
-import io.github.lingjiuu.llm.ModelSelection;
-import io.github.lingjiuu.llm.ReasoningOptions;
-import io.github.lingjiuu.provider.RequestAuth;
+import io.github.lingjiuu.model.ModelInfo;
+import io.github.lingjiuu.model.ModelOption;
+import io.github.lingjiuu.model.ModelSelection;
+import io.github.lingjiuu.model.ReasoningOptions;
+import io.github.lingjiuu.provider.ProviderAuth;
+import io.github.lingjiuu.provider.ProviderEndpoint;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -147,27 +148,31 @@ public record AetherConfig(
 
         String api = firstNonBlank(modelDefinition.api(), provider.api());
         String baseUrl = firstNonBlank(modelDefinition.baseUrl(), provider.baseUrl());
-        LlmModel model = LlmModel.builder()
-                .provider(providerId)
-                .api(api)
+        ModelInfo model = ModelInfo.builder()
                 .id(modelDefinition.id())
                 .name(firstNonBlank(modelDefinition.name(), modelDefinition.id()))
-                .baseUrl(baseUrl)
                 .contextWindowTokens(modelDefinition.contextWindowTokens())
                 .autoCompactTokenLimit(modelDefinition.autoCompactTokenLimit())
-                .headers(mergeHeaders(provider.headers(), modelDefinition.headers()))
                 .input(modelDefinition.input())
                 .build();
+        ProviderEndpoint endpoint = new ProviderEndpoint(
+                providerId,
+                api,
+                baseUrl,
+                resolvedHeaders(providerId, provider, modelDefinition)
+        );
         return new ModelSelection(
                 model,
+                endpoint,
                 requestAuth(providerId, provider, modelDefinition),
                 reasoningFrom(selectedReasoningValue(defaultThinkingLevel, explicitReasoningEffort))
         );
     }
 
     public static ModelSelection selectCurrentModel(
-            LlmModel currentModel,
-            RequestAuth currentAuth,
+            ModelInfo currentModel,
+            ProviderEndpoint currentEndpoint,
+            ProviderAuth currentAuth,
             ReasoningOptions currentReasoning,
             String explicitProvider,
             String explicitModel,
@@ -185,17 +190,21 @@ public record AetherConfig(
                 modelId = modelId.substring(slash + 1);
             }
         }
+        if (currentEndpoint == null) {
+            throw new AetherConfigException("No model provider endpoint is configured for this session.");
+        }
         if (providerId == null) {
-            providerId = currentModel.getProvider();
+            providerId = currentEndpoint.providerId();
         }
         if (modelId == null) {
             modelId = currentModel.getId();
         }
-        if (!Objects.equals(providerId, currentModel.getProvider()) || !Objects.equals(modelId, currentModel.getId())) {
+        if (!Objects.equals(providerId, currentEndpoint.providerId()) || !Objects.equals(modelId, currentModel.getId())) {
             throw new AetherConfigException("Model \"" + providerId + "/" + modelId + "\" is not configured.");
         }
         return new ModelSelection(
                 currentModel,
+                currentEndpoint,
                 currentAuth,
                 reasoningFromOrDefault(explicitReasoningEffort, currentReasoning)
         );
@@ -251,7 +260,7 @@ public record AetherConfig(
         return null;
     }
 
-    private static RequestAuth requestAuth(
+    private static ProviderAuth requestAuth(
             String providerId,
             ModelProviderConfig provider,
             ModelDefinition model
@@ -264,7 +273,7 @@ public record AetherConfig(
             );
         }
 
-        Map<String, String> headers = resolvedHeaders(providerId, provider, model);
+        Map<String, String> headers = new LinkedHashMap<>();
         if (Boolean.TRUE.equals(provider.authHeader())) {
             if (isBlank(apiKey)) {
                 throw new AetherConfigException("Provider \"" + providerId + "\" enables auth_header but api_key is missing.");
@@ -275,7 +284,7 @@ public record AetherConfig(
         if (isBlank(apiKey)) {
             throw new AetherConfigException("Provider \"" + providerId + "\" must define api_key.");
         }
-        return RequestAuth.ok(apiKey, headers.isEmpty() ? null : headers);
+        return ProviderAuth.ok(apiKey, headers.isEmpty() ? null : headers);
     }
 
     private static Map<String, String> resolvedHeaders(
@@ -295,17 +304,6 @@ public record AetherConfig(
                 model.headers(),
                 "model \"" + providerId + "/" + model.id() + "\""
         );
-        if (modelHeaders != null) {
-            headers.putAll(modelHeaders);
-        }
-        return headers;
-    }
-
-    private static Map<String, String> mergeHeaders(Map<String, String> providerHeaders, Map<String, String> modelHeaders) {
-        Map<String, String> headers = new LinkedHashMap<>();
-        if (providerHeaders != null) {
-            headers.putAll(providerHeaders);
-        }
         if (modelHeaders != null) {
             headers.putAll(modelHeaders);
         }

@@ -2,14 +2,14 @@ package io.github.lingjiuu.transport.stdio;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.lingjiuu.llm.AssistantStream;
-import io.github.lingjiuu.llm.AssistantStreamEvent;
-import io.github.lingjiuu.llm.LlmClient;
-import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.provider.Provider;
-import io.github.lingjiuu.provider.ProviderRegistry;
-import io.github.lingjiuu.provider.ProviderSession;
-import io.github.lingjiuu.provider.RequestAuth;
+import io.github.lingjiuu.TestModelSelections;
+import io.github.lingjiuu.model.client.AssistantStream;
+import io.github.lingjiuu.model.client.AssistantStreamEvent;
+import io.github.lingjiuu.model.client.ModelClient;
+import io.github.lingjiuu.model.ModelSelection;
+import io.github.lingjiuu.wire.WireAdapter;
+import io.github.lingjiuu.wire.WireAdapterRegistry;
+import io.github.lingjiuu.wire.WireSession;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.transcript.TranscriptStore;
@@ -21,7 +21,6 @@ import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Consumer;
 
 public class StdioAetherServerTest extends TestCase {
@@ -252,21 +251,13 @@ public class StdioAetherServerTest extends TestCase {
 
     private SessionConfig sessionConfig(Path cwd) {
         return new SessionConfig(
-                new LlmClient(new ProviderRegistry().register(new NoopProvider())),
+                new ModelClient(new WireAdapterRegistry().register(new NoopProvider())),
                 "You are a test agent.",
                 "",
                 "",
                 List.of(),
                 cwd.toAbsolutePath().normalize(),
-                LlmModel.builder()
-                        .id("fake-model")
-                        .api("fake")
-                        .provider("fake")
-                        .input(List.of("text"))
-                        .contextWindowTokens(100_000L)
-                        .build(),
-                RequestAuth.ok("test", Map.of()),
-                null,
+                TestModelSelections.fakeSelection(),
                 new TranscriptStore(cwd.resolve("transcripts")),
                 List.of(),
                 List.of()
@@ -295,14 +286,14 @@ public class StdioAetherServerTest extends TestCase {
         throw new AssertionError("missing response id=" + id + " in output:\n" + output);
     }
 
-    private static final class NoopProvider implements Provider {
+    private static final class NoopProvider implements WireAdapter {
         @Override
         public String name() {
             return "fake";
         }
 
         @Override
-        public ProviderSession openSession(LlmModel model, RequestAuth auth) {
+        public WireSession openSession(ModelSelection selection) {
             return (request, cancellationToken) -> new AssistantStream() {
                 @Override
                 public io.github.lingjiuu.message.AssistantMessage consume(Consumer<AssistantStreamEvent> consumer) {

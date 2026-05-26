@@ -1,4 +1,4 @@
-package io.github.lingjiuu.llm;
+package io.github.lingjiuu.model;
 
 public record TokenUsageInfo(
         TokenUsage totalTokenUsage,

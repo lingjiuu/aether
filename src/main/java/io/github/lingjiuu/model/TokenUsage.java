@@ -1,4 +1,4 @@
-package io.github.lingjiuu.llm;
+package io.github.lingjiuu.model;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

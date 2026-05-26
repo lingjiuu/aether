@@ -8,7 +8,7 @@ import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
-import io.github.lingjiuu.provider.ProviderReplayData;
+import io.github.lingjiuu.wire.WireReplayData;
 import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.skill.SkillInjection;
 import io.github.lingjiuu.tool.ToolDefinition;
@@ -38,7 +38,7 @@ public class ContextBuilder {
     public AssistantMessage assistantTextMessage(
             AssistantMessage partial,
             String text,
-            ProviderReplayData providerState
+            WireReplayData providerState
     ) {
         return assistantMessage(
                 partial,
@@ -52,7 +52,7 @@ public class ContextBuilder {
     public AssistantMessage assistantThinkingMessage(
             AssistantMessage partial,
             String thinking,
-            ProviderReplayData providerState
+            WireReplayData providerState
     ) {
         return assistantMessage(
                 partial,
@@ -66,7 +66,7 @@ public class ContextBuilder {
     public AssistantMessage assistantToolCallMessage(
             AssistantMessage partial,
             ToolCallContent toolCall,
-            ProviderReplayData providerState
+            WireReplayData providerState
     ) {
         if (toolCall == null) {
             throw new IllegalArgumentException("tool call must not be null");
@@ -104,7 +104,7 @@ public class ContextBuilder {
     private AssistantMessage assistantMessage(
             AssistantMessage partial,
             List<MessageContent> contents,
-            ProviderReplayData providerState
+            WireReplayData providerState
     ) {
         return AssistantMessage.builder()
                 .responseId(partial == null ? null : partial.getResponseId())

@@ -1,9 +1,9 @@
 package io.github.lingjiuu.event;
 
 import io.github.lingjiuu.agent.turn.TurnContext;
-import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.llm.TokenUsage;
-import io.github.lingjiuu.llm.TokenUsageInfo;
+import io.github.lingjiuu.model.ModelInfo;
+import io.github.lingjiuu.model.TokenUsage;
+import io.github.lingjiuu.model.TokenUsageInfo;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
@@ -12,7 +12,7 @@ import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import com.fasterxml.jackson.databind.JsonNode;
-import io.github.lingjiuu.llm.ModelSelection;
+import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.protocol.UiApprovalRequest;
 import io.github.lingjiuu.protocol.UiApprovalResponse;
 import io.github.lingjiuu.protocol.UiEvent;
@@ -697,9 +697,10 @@ public final class UiEvents {
     }
 
     private static UiModelSelection uiModelSelection(ModelSelection selection) {
-        LlmModel model = selection == null ? null : selection.model();
+        ModelInfo model = selection == null ? null : selection.model();
+        var endpoint = selection == null ? null : selection.endpoint();
         return new UiModelSelection(
-                model == null ? null : model.getProvider(),
+                endpoint == null ? null : endpoint.providerId(),
                 model == null ? null : model.getId(),
                 model == null ? null : model.getName(),
                 selection == null || selection.reasoning() == null || selection.reasoning().getReasoningEffort() == null

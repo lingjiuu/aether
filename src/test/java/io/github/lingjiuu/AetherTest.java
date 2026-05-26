@@ -1,17 +1,16 @@
 package io.github.lingjiuu;
 
-import io.github.lingjiuu.llm.AssistantStream;
-import io.github.lingjiuu.llm.AssistantStreamEvent;
-import io.github.lingjiuu.llm.LlmClient;
-import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.model.client.AssistantStream;
+import io.github.lingjiuu.model.client.AssistantStreamEvent;
+import io.github.lingjiuu.model.client.ModelClient;
+import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandType;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiEventType;
-import io.github.lingjiuu.provider.Provider;
-import io.github.lingjiuu.provider.ProviderRegistry;
-import io.github.lingjiuu.provider.ProviderSession;
-import io.github.lingjiuu.provider.RequestAuth;
+import io.github.lingjiuu.wire.WireAdapter;
+import io.github.lingjiuu.wire.WireAdapterRegistry;
+import io.github.lingjiuu.wire.WireSession;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.transcript.TranscriptStore;
@@ -20,7 +19,6 @@ import junit.framework.TestCase;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
@@ -64,35 +62,27 @@ public class AetherTest extends TestCase {
 
     private SessionConfig sessionConfig(Path cwd) {
         return new SessionConfig(
-                new LlmClient(new ProviderRegistry().register(new NoopProvider())),
+                new ModelClient(new WireAdapterRegistry().register(new NoopProvider())),
                 "You are a test agent.",
                 "",
                 "",
                 List.of(),
                 cwd.toAbsolutePath().normalize(),
-                LlmModel.builder()
-                        .id("fake-model")
-                        .api("fake")
-                        .provider("fake")
-                        .input(List.of("text"))
-                        .contextWindowTokens(100_000L)
-                        .build(),
-                RequestAuth.ok("test", Map.of()),
-                null,
+                TestModelSelections.fakeSelection(),
                 new TranscriptStore(cwd.resolve("transcripts")),
                 List.of(),
                 List.of()
         );
     }
 
-    private static final class NoopProvider implements Provider {
+    private static final class NoopProvider implements WireAdapter {
         @Override
         public String name() {
             return "fake";
         }
 
         @Override
-        public ProviderSession openSession(LlmModel model, RequestAuth auth) {
+        public WireSession openSession(ModelSelection selection) {
             return (request, cancellationToken) -> new AssistantStream() {
                 @Override
                 public io.github.lingjiuu.message.AssistantMessage consume(Consumer<AssistantStreamEvent> consumer) {

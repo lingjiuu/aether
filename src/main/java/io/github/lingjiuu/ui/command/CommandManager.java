@@ -2,12 +2,12 @@ package io.github.lingjiuu.ui.command;
 
 import io.github.lingjiuu.event.EventSink;
 import io.github.lingjiuu.input.TurnInput;
-import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.llm.ReasoningOptions;
+import io.github.lingjiuu.model.ModelInfo;
+import io.github.lingjiuu.model.ReasoningOptions;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
-import io.github.lingjiuu.llm.ModelOption;
-import io.github.lingjiuu.llm.ModelSelection;
+import io.github.lingjiuu.model.ModelOption;
+import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiCommandPayloads;
@@ -400,9 +400,10 @@ public class CommandManager implements AutoCloseable {
     }
 
     private UiModelSelection uiModelSelection(ModelSelection selection) {
-        LlmModel model = selection == null ? null : selection.model();
+        ModelInfo model = selection == null ? null : selection.model();
+        var endpoint = selection == null ? null : selection.endpoint();
         return new UiModelSelection(
-                model == null ? null : model.getProvider(),
+                endpoint == null ? null : endpoint.providerId(),
                 model == null ? null : model.getId(),
                 model == null ? null : model.getName(),
                 reasoningEffort(selection)
@@ -410,15 +411,17 @@ public class CommandManager implements AutoCloseable {
     }
 
     private boolean sameModel(ModelOption option, ModelSelection selection) {
-        LlmModel model = selection == null ? null : selection.model();
+        ModelInfo model = selection == null ? null : selection.model();
+        var endpoint = selection == null ? null : selection.endpoint();
         return model != null
-                && java.util.Objects.equals(option.providerId(), model.getProvider())
+                && java.util.Objects.equals(option.providerId(), endpoint == null ? null : endpoint.providerId())
                 && java.util.Objects.equals(option.modelId(), model.getId());
     }
 
     private String modelLabel(ModelSelection selection) {
-        LlmModel model = selection == null ? null : selection.model();
-        String provider = model == null ? null : model.getProvider();
+        ModelInfo model = selection == null ? null : selection.model();
+        var endpoint = selection == null ? null : selection.endpoint();
+        String provider = endpoint == null ? null : endpoint.providerId();
         String id = model == null ? null : model.getId();
         String effort = reasoningEffort(selection);
         String label = (provider == null || provider.isBlank() ? "" : provider + "/") + (id == null ? "" : id);

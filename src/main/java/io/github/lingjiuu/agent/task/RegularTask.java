@@ -4,8 +4,8 @@ import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.protocol.UiItemKind;
 import io.github.lingjiuu.input.ProcessedTurnInput;
-import io.github.lingjiuu.llm.AssistantStreamEvent;
-import io.github.lingjiuu.llm.LlmRequest;
+import io.github.lingjiuu.model.client.AssistantStreamEvent;
+import io.github.lingjiuu.model.client.ModelRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.ToolResultMessage;
@@ -63,7 +63,7 @@ public class RegularTask implements SessionTask {
 
             List<Message> messages = session.contextManager()
                     .normalizeMessagesForModel(turnConfig.model().getInput());
-            LlmRequest request = session.buildLlmRequest(
+            ModelRequest request = session.buildModelRequest(
                     turnConfig,
                     messages,
                     session.activeTools()

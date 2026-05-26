@@ -3,7 +3,7 @@ package io.github.lingjiuu.agent.task;
 import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.compact.Compaction;
-import io.github.lingjiuu.llm.LlmRequest;
+import io.github.lingjiuu.model.client.ModelRequest;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
@@ -141,7 +141,7 @@ public class CompactTask implements SessionTask {
                     compactInput,
                     turnConfig.model().getInput()
             );
-            LlmRequest request = Compaction.request(
+            ModelRequest request = Compaction.request(
                     turnConfig,
                     normalizedCompactInput,
                     session.contextBuilder()

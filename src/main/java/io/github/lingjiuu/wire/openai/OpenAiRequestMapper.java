@@ -1,8 +1,10 @@
-package io.github.lingjiuu.provider.openai;
+package io.github.lingjiuu.wire.openai;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.core.JsonValue;
+import com.openai.models.ReasoningEffort;
 import com.openai.models.responses.EasyInputMessage;
+import com.openai.models.responses.FunctionTool;
+import com.openai.models.responses.ResponseCreateParams;
 import com.openai.models.responses.ResponseFunctionCallOutputItem;
 import com.openai.models.responses.ResponseFunctionToolCall;
 import com.openai.models.responses.ResponseInputContent;
@@ -24,17 +26,66 @@ import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
+import io.github.lingjiuu.model.ModelInfo;
+import io.github.lingjiuu.model.ReasoningOptions;
+import io.github.lingjiuu.model.client.ModelCallOptions;
+import io.github.lingjiuu.model.client.ModelRequest;
+import io.github.lingjiuu.tool.ToolDefinition;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
-public class OpenAiMessageAdapter {
+public class OpenAiRequestMapper {
 
     private static final String EMPTY_ASSISTANT_PLACEHOLDER = "[No assistant content]";
 
-    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    private final OpenAiReplayCodec replayCodec;
 
-    public List<ResponseInputItem> toInputItems(String baseInstructions, List<Message> messages) {
+    public OpenAiRequestMapper() {
+        this(new OpenAiReplayCodec());
+    }
+
+    OpenAiRequestMapper(OpenAiReplayCodec replayCodec) {
+        this.replayCodec = replayCodec;
+    }
+
+    public ResponseCreateParams buildRequest(ModelRequest request, ModelInfo model) {
+        if (request == null || model == null) {
+            throw new IllegalArgumentException("request and model must not be null");
+        }
+
+        ModelCallOptions safeOptions = request.getCallOptions() == null
+                ? ModelCallOptions.builder().build()
+                : request.getCallOptions();
+        ResponseCreateParams.Builder builder = ResponseCreateParams.builder()
+                .model(model.getId())
+                .store(false)
+                .inputOfResponse(toInputItems(request.getBaseInstructions(), request.getMessages()));
+
+        if (safeOptions.getTemperature() != null) {
+            builder.temperature(safeOptions.getTemperature());
+        }
+        if (safeOptions.getMaxTokens() != null) {
+            builder.maxOutputTokens(safeOptions.getMaxTokens().longValue());
+        }
+        if (safeOptions.getReasoning() != null) {
+            builder.reasoning(toOpenAiReasoning(safeOptions.getReasoning()));
+        }
+
+        if (request.getTools() != null && !request.getTools().isEmpty()) {
+            builder.parallelToolCalls(true);
+            for (ToolDefinition tool : request.getTools()) {
+                if (tool != null) {
+                    builder.addTool(toOpenAiTool(tool));
+                }
+            }
+        }
+
+        return builder.build();
+    }
+
+    private List<ResponseInputItem> toInputItems(String baseInstructions, List<Message> messages) {
         List<ResponseInputItem> inputItems = new ArrayList<>();
 
         if (baseInstructions != null && !baseInstructions.isBlank()) {
@@ -85,11 +136,12 @@ public class OpenAiMessageAdapter {
             int textIndex,
             int reasoningIndex
     ) {
-        if (assistantMessage.getProviderState() instanceof OpenAiReplayData replayData
-                && replayData.getItems() != null
-                && !replayData.getItems().isEmpty()) {
-            appendReplayItems(inputItems, replayData);
-            return new AssistantIndexes(textIndex, reasoningIndex);
+        if (assistantMessage.getProviderState() instanceof OpenAiReplayData replayData) {
+            List<ResponseInputItem> replayItems = replayCodec.toInputItems(replayData);
+            if (!replayItems.isEmpty()) {
+                inputItems.addAll(replayItems);
+                return new AssistantIndexes(textIndex, reasoningIndex);
+            }
         }
 
         int nextTextIndex = textIndex;
@@ -109,14 +161,7 @@ public class OpenAiMessageAdapter {
                     appendedContentCount++;
                 }
             } else if (content instanceof ToolCallContent toolCallContent) {
-                String toolCallId = safeText(toolCallContent.getToolCallId());
-                inputItems.add(ResponseInputItem.ofFunctionCall(
-                        ResponseFunctionToolCall.builder()
-                                .callId(toolCallId)
-                                .name(safeText(toolCallContent.getToolName()))
-                                .arguments(resolveArgumentsJson(toolCallContent))
-                                .build()
-                ));
+                inputItems.add(ResponseInputItem.ofFunctionCall(toFunctionToolCall(toolCallContent)));
                 appendedContentCount++;
             }
         }
@@ -128,29 +173,6 @@ public class OpenAiMessageAdapter {
             )));
         }
         return new AssistantIndexes(nextTextIndex, nextReasoningIndex);
-    }
-
-    private void appendReplayItems(List<ResponseInputItem> inputItems, OpenAiReplayData replayData) {
-        for (OpenAiReplayData.ReplayItem item : replayData.getItems()) {
-            if (item == null || item.getType() == null || item.getJson() == null || item.getJson().isBlank()) {
-                continue;
-            }
-            try {
-                String json = OpenAiReplayJsonSanitizer.sanitize(item.getJson(), objectMapper);
-                switch (item.getType()) {
-                    case OUTPUT_MESSAGE -> inputItems.add(ResponseInputItem.ofResponseOutputMessage(
-                            objectMapper.readValue(json, ResponseOutputMessage.class)
-                    ));
-                    case REASONING -> inputItems.add(ResponseInputItem.ofReasoning(
-                            objectMapper.readValue(json, ResponseReasoningItem.class)
-                    ));
-                    case FUNCTION_CALL -> inputItems.add(ResponseInputItem.ofFunctionCall(
-                            objectMapper.readValue(json, ResponseFunctionToolCall.class)
-                    ));
-                }
-            } catch (Exception ignored) {
-            }
-        }
     }
 
     private void appendToolResult(List<ResponseInputItem> inputItems, ToolResultMessage toolResultMessage) {
@@ -232,10 +254,7 @@ public class OpenAiMessageAdapter {
                             .build()));
                 }
             } else if (content instanceof ImageContent imageContent) {
-                if (imageContent.getData() != null
-                        && !imageContent.getData().isBlank()
-                        && imageContent.getMimeType() != null
-                        && !imageContent.getMimeType().isBlank()) {
+                if (hasImageData(imageContent)) {
                     inputContents.add(ResponseInputContent.ofInputImage(ResponseInputImage.builder()
                             .detail(ResponseInputImage.Detail.AUTO)
                             .imageUrl(toDataUrl(imageContent))
@@ -264,10 +283,7 @@ public class OpenAiMessageAdapter {
                     .build()));
         }
         for (ImageContent imageContent : images) {
-            if (imageContent.getData() == null
-                    || imageContent.getData().isBlank()
-                    || imageContent.getMimeType() == null
-                    || imageContent.getMimeType().isBlank()) {
+            if (!hasImageData(imageContent)) {
                 continue;
             }
             outputItems.add(ResponseFunctionCallOutputItem.ofInputImage(ResponseInputImageContent.builder()
@@ -295,8 +311,59 @@ public class OpenAiMessageAdapter {
         return images;
     }
 
-    private String toDataUrl(ImageContent imageContent) {
-        return "data:" + imageContent.getMimeType() + ";base64," + imageContent.getData();
+    private ResponseFunctionToolCall toFunctionToolCall(ToolCallContent toolCallContent) {
+        return ResponseFunctionToolCall.builder()
+                .callId(safeText(toolCallContent.getToolCallId()))
+                .name(safeText(toolCallContent.getToolName()))
+                .arguments(resolveArgumentsJson(toolCallContent))
+                .build();
+    }
+
+    private FunctionTool toOpenAiTool(ToolDefinition definition) {
+        FunctionTool.Parameters.Builder parametersBuilder = FunctionTool.Parameters.builder();
+        Map<String, Object> parametersSchema = definition.parametersSchema();
+        if (parametersSchema != null) {
+            for (Map.Entry<String, Object> entry : parametersSchema.entrySet()) {
+                parametersBuilder.putAdditionalProperty(entry.getKey(), JsonValue.from(entry.getValue()));
+            }
+        }
+
+        return FunctionTool.builder()
+                .name(definition.name())
+                .description(definition.description())
+                .strict(false)
+                .parameters(parametersBuilder.build())
+                .build();
+    }
+
+    private com.openai.models.Reasoning toOpenAiReasoning(ReasoningOptions reasoning) {
+        com.openai.models.Reasoning.Builder builder = com.openai.models.Reasoning.builder();
+        if (reasoning.getReasoningEffort() != null) {
+            builder.effort(mapReasoningEffort(reasoning.getReasoningEffort()));
+        }
+        if (reasoning.getReasoningSummaryEffort() != null) {
+            builder.generateSummary(mapSummaryEffort(reasoning.getReasoningSummaryEffort()));
+        }
+        return builder.build();
+    }
+
+    private ReasoningEffort mapReasoningEffort(ReasoningOptions.ReasoningEffort effort) {
+        return switch (effort) {
+            case NONE -> ReasoningEffort.NONE;
+            case MINIMAL -> ReasoningEffort.MINIMAL;
+            case LOW -> ReasoningEffort.LOW;
+            case MEDIUM -> ReasoningEffort.MEDIUM;
+            case HIGH -> ReasoningEffort.HIGH;
+            case XHIGH -> ReasoningEffort.XHIGH;
+        };
+    }
+
+    private com.openai.models.Reasoning.GenerateSummary mapSummaryEffort(ReasoningOptions.ReasoningSummaryEffort summaryEffort) {
+        return switch (summaryEffort) {
+            case AUTO -> com.openai.models.Reasoning.GenerateSummary.AUTO;
+            case CONCISE -> com.openai.models.Reasoning.GenerateSummary.CONCISE;
+            case DETAILED -> com.openai.models.Reasoning.GenerateSummary.DETAILED;
+        };
     }
 
     private ResponseOutputMessage toResponseOutputMessage(String text, int index) {
@@ -321,6 +388,17 @@ public class OpenAiMessageAdapter {
                         .text(thinking)
                         .build())
                 .build();
+    }
+
+    private boolean hasImageData(ImageContent imageContent) {
+        return imageContent.getData() != null
+                && !imageContent.getData().isBlank()
+                && imageContent.getMimeType() != null
+                && !imageContent.getMimeType().isBlank();
+    }
+
+    private String toDataUrl(ImageContent imageContent) {
+        return "data:" + imageContent.getMimeType() + ";base64," + imageContent.getData();
     }
 
     private String resolveArgumentsJson(ToolCallContent toolCallContent) {

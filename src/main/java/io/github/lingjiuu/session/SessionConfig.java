@@ -1,10 +1,11 @@
 package io.github.lingjiuu.session;
 
-import io.github.lingjiuu.llm.LlmClient;
-import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.llm.ReasoningOptions;
-import io.github.lingjiuu.llm.ModelSelection;
-import io.github.lingjiuu.provider.RequestAuth;
+import io.github.lingjiuu.model.client.ModelClient;
+import io.github.lingjiuu.model.ModelInfo;
+import io.github.lingjiuu.model.ReasoningOptions;
+import io.github.lingjiuu.model.ModelSelection;
+import io.github.lingjiuu.provider.ProviderAuth;
+import io.github.lingjiuu.provider.ProviderEndpoint;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.transcript.TranscriptStore;
 
@@ -12,15 +13,13 @@ import java.nio.file.Path;
 import java.util.List;
 
 public record SessionConfig(
-        LlmClient llmClient,
+        ModelClient modelClient,
         String baseInstructions,
         String developerInstructions,
         String userInstructions,
         List<Path> instructionSources,
         Path cwd,
-        LlmModel model,
-        RequestAuth requestAuth,
-        ReasoningOptions reasoning,
+        ModelSelection modelSelection,
         TranscriptStore transcriptStore,
         List<ToolDefinition> toolDefinitions,
         List<String> activeToolNames
@@ -35,8 +34,20 @@ public record SessionConfig(
         activeToolNames = activeToolNames == null ? null : List.copyOf(activeToolNames);
     }
 
-    public ModelSelection modelSelection() {
-        return new ModelSelection(model, requestAuth, reasoning);
+    public ModelInfo model() {
+        return modelSelection == null ? null : modelSelection.model();
+    }
+
+    public ProviderEndpoint endpoint() {
+        return modelSelection == null ? null : modelSelection.endpoint();
+    }
+
+    public ProviderAuth requestAuth() {
+        return modelSelection == null ? null : modelSelection.auth();
+    }
+
+    public ReasoningOptions reasoning() {
+        return modelSelection == null ? null : modelSelection.reasoning();
     }
 
     public SessionConfig withModelSelection(ModelSelection selection) {
@@ -44,15 +55,13 @@ public record SessionConfig(
             throw new IllegalArgumentException("model selection must not be null");
         }
         return new SessionConfig(
-                llmClient,
+                modelClient,
                 baseInstructions,
                 developerInstructions,
                 userInstructions,
                 instructionSources,
                 cwd,
-                selection.model(),
-                selection.auth(),
-                selection.reasoning(),
+                selection,
                 transcriptStore,
                 toolDefinitions,
                 activeToolNames

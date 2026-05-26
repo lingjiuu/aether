@@ -1,5 +1,6 @@
-package io.github.lingjiuu.llm;
+package io.github.lingjiuu.model.client;
 
+import io.github.lingjiuu.model.ReasoningOptions;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -9,7 +10,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class LlmCallOptions {
+public class ModelCallOptions {
 
     private Double temperature;
 

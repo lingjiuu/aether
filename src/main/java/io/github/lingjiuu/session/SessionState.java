@@ -1,8 +1,8 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.context.EnvironmentContext;
-import io.github.lingjiuu.llm.TokenUsage;
-import io.github.lingjiuu.llm.TokenUsageInfo;
+import io.github.lingjiuu.model.TokenUsage;
+import io.github.lingjiuu.model.TokenUsageInfo;
 
 public class SessionState {
 

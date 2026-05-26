@@ -52,7 +52,7 @@ public class SessionFactoryTest extends TestCase {
         );
 
         try (Session session = factory.openSession(SessionOptions.cwd(cwd))) {
-            assertEquals("other", session.config().model().getProvider());
+            assertEquals("other", session.config().endpoint().providerId());
             assertEquals("other-model", session.config().model().getId());
         }
     }
@@ -115,7 +115,7 @@ public class SessionFactoryTest extends TestCase {
         );
 
         try (Session resumed = resumedFactory.resumeSession(sessionId)) {
-            assertEquals("fake", resumed.config().model().getProvider());
+            assertEquals("fake", resumed.config().endpoint().providerId());
             assertEquals("fake-model", resumed.config().model().getId());
         }
     }
@@ -185,7 +185,7 @@ public class SessionFactoryTest extends TestCase {
         }
 
         try (Session resumed = factory.resumeSession(sessionId)) {
-            assertEquals("other", resumed.activeModelSelection().model().getProvider());
+            assertEquals("other", resumed.activeModelSelection().endpoint().providerId());
             assertEquals("other-model", resumed.activeModelSelection().model().getId());
             assertEquals("HIGH", resumed.activeModelSelection().reasoning().getReasoningEffort().name());
         }

@@ -1,8 +1,8 @@
 package io.github.lingjiuu.compact;
 
+import io.github.lingjiuu.TestModelSelections;
 import io.github.lingjiuu.context.ContextBuilder;
-import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.llm.LlmRequest;
+import io.github.lingjiuu.model.client.ModelRequest;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
@@ -19,10 +19,9 @@ public class CompactionTest extends TestCase {
     private final ContextBuilder contextBuilder = new ContextBuilder();
 
     public void testRequestAppendsSummarizationPrompt() {
-        LlmRequest request = Compaction.request(sessionConfig(), List.of(userMessage("hello")), contextBuilder);
+        ModelRequest request = Compaction.request(sessionConfig(), List.of(userMessage("hello")), contextBuilder);
 
         assertEquals("base instructions", request.getBaseInstructions());
-        assertEquals("fake-model", request.getModel().getId());
         assertEquals(0, request.getTools().size());
         assertEquals(2, request.getMessages().size());
         assertEquals("hello", MessageContents.text(request.getMessages().getFirst()));
@@ -64,15 +63,7 @@ public class CompactionTest extends TestCase {
                 "",
                 List.of(),
                 Path.of(".").toAbsolutePath().normalize(),
-                LlmModel.builder()
-                        .id("fake-model")
-                        .api("fake")
-                        .provider("fake")
-                        .input(List.of("text"))
-                        .contextWindowTokens(100_000L)
-                        .build(),
-                null,
-                null,
+                TestModelSelections.fakeSelection(),
                 null,
                 List.of(),
                 List.of()

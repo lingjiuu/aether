@@ -1,7 +1,6 @@
-package io.github.lingjiuu.llm;
+package io.github.lingjiuu.model.client;
 
 import io.github.lingjiuu.message.Message;
-import io.github.lingjiuu.provider.RequestAuth;
 import io.github.lingjiuu.tool.ToolDefinition;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -15,11 +14,9 @@ import java.util.List;
 @Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
-public class LlmRequest {
+public class ModelRequest {
 
     private String baseInstructions;
-
-    private LlmModel model;
 
     @Builder.Default
     private List<ToolDefinition> tools = new ArrayList<>();
@@ -27,7 +24,5 @@ public class LlmRequest {
     @Builder.Default
     private List<Message> messages = new ArrayList<>();
 
-    private LlmCallOptions callOptions;
-
-    private RequestAuth auth;
+    private ModelCallOptions callOptions;
 }

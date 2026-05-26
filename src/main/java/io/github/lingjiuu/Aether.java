@@ -3,10 +3,10 @@ package io.github.lingjiuu;
 import io.github.lingjiuu.ui.command.CommandManager;
 import io.github.lingjiuu.event.EventSink;
 import io.github.lingjiuu.event.EventSubscription;
-import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.llm.TokenUsage;
-import io.github.lingjiuu.llm.TokenUsageInfo;
-import io.github.lingjiuu.llm.ModelSelection;
+import io.github.lingjiuu.model.ModelInfo;
+import io.github.lingjiuu.model.TokenUsage;
+import io.github.lingjiuu.model.TokenUsageInfo;
+import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.protocol.UiCommand;
 import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiEventPage;
@@ -108,7 +108,8 @@ public class Aether implements AutoCloseable {
     public UiSessionState currentSessionState() {
         Session session = currentSession();
         ModelSelection selection = session.activeModelSelection();
-        LlmModel model = selection == null ? null : selection.model();
+        ModelInfo model = selection == null ? null : selection.model();
+        var endpoint = selection == null ? null : selection.endpoint();
         UiSessionSummary summary = new UiSessionSummary(
                 session.sessionId(),
                 session.sessionName(),
@@ -116,7 +117,7 @@ public class Aether implements AutoCloseable {
                 session.createdAt(),
                 session.updatedAt(),
                 session.config().cwd() == null ? null : session.config().cwd().toString(),
-                model == null ? null : model.getProvider(),
+                endpoint == null ? null : endpoint.providerId(),
                 model == null ? null : model.getId(),
                 session.messages().size()
         );
@@ -197,7 +198,7 @@ public class Aether implements AutoCloseable {
     }
 
     private Long autoCompactTokenLimit(Session session) {
-        LlmModel model = session.activeModelSelection() == null ? null : session.activeModelSelection().model();
+        ModelInfo model = session.activeModelSelection() == null ? null : session.activeModelSelection().model();
         return model == null ? null : model.resolvedAutoCompactTokenLimit();
     }
 

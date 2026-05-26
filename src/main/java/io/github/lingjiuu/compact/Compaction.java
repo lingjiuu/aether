@@ -1,8 +1,8 @@
 package io.github.lingjiuu.compact;
 
 import io.github.lingjiuu.context.ContextBuilder;
-import io.github.lingjiuu.llm.LlmCallOptions;
-import io.github.lingjiuu.llm.LlmRequest;
+import io.github.lingjiuu.model.client.ModelCallOptions;
+import io.github.lingjiuu.model.client.ModelRequest;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.message.MessageContents;
@@ -37,7 +37,7 @@ public final class Compaction {
     private Compaction() {
     }
 
-    public static LlmRequest request(
+    public static ModelRequest request(
             SessionConfig config,
             List<Message> messages,
             ContextBuilder contextBuilder
@@ -51,12 +51,11 @@ public final class Compaction {
             compactMessages.addAll(messages);
         }
         compactMessages.add(builder.userMessage(SUMMARIZATION_PROMPT.trim()));
-        return LlmRequest.builder()
+        return ModelRequest.builder()
                 .baseInstructions(config.baseInstructions())
-                .model(config.model())
                 .tools(List.of())
                 .messages(compactMessages)
-                .callOptions(LlmCallOptions.builder()
+                .callOptions(ModelCallOptions.builder()
                         .reasoning(config.reasoning())
                         .build())
                 .build();

@@ -2,8 +2,8 @@ package io.github.lingjiuu.agent.task;
 
 import io.github.lingjiuu.agent.turn.TurnContext;
 import io.github.lingjiuu.input.ProcessedTurnInput;
-import io.github.lingjiuu.llm.LlmClientSession;
-import io.github.lingjiuu.llm.ModelSelection;
+import io.github.lingjiuu.model.client.ModelClientSession;
+import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.tool.ToolCancellationToken;
@@ -14,7 +14,7 @@ public class TaskContext {
     private final TurnContext turnContext;
     private final ProcessedTurnInput processedInput;
     private final ToolCancellationToken cancellationToken;
-    private final LlmClientSession modelSession;
+    private final ModelClientSession modelSession;
     private final ModelSelection modelSelection;
     private final SessionConfig sessionConfig;
 
@@ -23,7 +23,7 @@ public class TaskContext {
             TurnContext turnContext,
             ProcessedTurnInput processedInput,
             ToolCancellationToken cancellationToken,
-            LlmClientSession modelSession,
+            ModelClientSession modelSession,
             ModelSelection modelSelection,
             SessionConfig sessionConfig
     ) {
@@ -71,7 +71,7 @@ public class TaskContext {
         return cancellationToken;
     }
 
-    public LlmClientSession modelSession() {
+    public ModelClientSession modelSession() {
         return modelSession;
     }
 

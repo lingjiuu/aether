@@ -11,7 +11,7 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class RequestAuth {
+public class ProviderAuth {
 
     private boolean ok;
 
@@ -21,16 +21,16 @@ public class RequestAuth {
 
     private String error;
 
-    public static RequestAuth ok(String apiKey, Map<String, String> headers) {
-        return RequestAuth.builder()
+    public static ProviderAuth ok(String apiKey, Map<String, String> headers) {
+        return ProviderAuth.builder()
                 .ok(true)
                 .apiKey(apiKey)
                 .headers(headers)
                 .build();
     }
 
-    public static RequestAuth error(String error) {
-        return RequestAuth.builder()
+    public static ProviderAuth error(String error) {
+        return ProviderAuth.builder()
                 .ok(false)
                 .error(error)
                 .build();

@@ -7,12 +7,12 @@ import io.github.lingjiuu.infra.config.AetherPaths;
 import io.github.lingjiuu.instructions.AgentsMdInstructions;
 import io.github.lingjiuu.instructions.AgentsMdManager;
 import io.github.lingjiuu.instructions.BaseInstructions;
-import io.github.lingjiuu.llm.LlmClient;
-import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.llm.ModelOption;
-import io.github.lingjiuu.llm.ModelSelection;
-import io.github.lingjiuu.llm.ReasoningOptions;
-import io.github.lingjiuu.provider.RequestAuth;
+import io.github.lingjiuu.model.client.ModelClient;
+import io.github.lingjiuu.model.ModelInfo;
+import io.github.lingjiuu.model.ModelOption;
+import io.github.lingjiuu.model.ModelSelection;
+import io.github.lingjiuu.model.ReasoningOptions;
+import io.github.lingjiuu.provider.ProviderEndpoint;
 import io.github.lingjiuu.skill.SkillsManager;
 import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolRegistry;
@@ -127,16 +127,14 @@ public class SessionFactory {
     ) {
         AetherConfig aetherConfig = new AetherConfigLoader().load(configPath, provider, modelId);
         ModelSelection modelSelection = aetherConfig.modelSelection();
-        LlmClient llmClient = new LlmClient();
+        ModelClient modelClient = new ModelClient();
         Path defaultCwd = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();
         Path resolvedAgentDir = agentDir == null
                 ? AetherPaths.getAgentDir()
                 : agentDir.toAbsolutePath().normalize();
         SessionBundle bundle = buildWorkspaceBundle(
-                llmClient,
-                modelSelection.model(),
-                modelSelection.auth(),
-                modelSelection.reasoning(),
+                modelClient,
+                modelSelection,
                 transcriptStore,
                 defaultCwd,
                 resolvedAgentDir
@@ -146,10 +144,8 @@ public class SessionFactory {
     }
 
     private static SessionBundle buildWorkspaceBundle(
-            LlmClient llmClient,
-            LlmModel model,
-            RequestAuth requestAuth,
-            ReasoningOptions reasoning,
+            ModelClient modelClient,
+            ModelSelection modelSelection,
             TranscriptStore transcriptStore,
             Path cwd,
             Path agentDir
@@ -167,15 +163,13 @@ public class SessionFactory {
 
         List<ToolDefinition> toolDefinitions = buildDefaultTools(resolvedCwd);
         SessionConfig config = new SessionConfig(
-                llmClient,
+                modelClient,
                 baseInstructions,
                 developerInstructions,
                 agentsMdInstructions.text(),
                 agentsMdInstructions.sources(),
                 resolvedCwd,
-                model,
-                requestAuth,
-                reasoning,
+                modelSelection,
                 transcriptStore,
                 toolDefinitions,
                 toolDefinitions.stream()
@@ -268,7 +262,7 @@ public class SessionFactory {
 
     public List<ModelOption> modelOptions() {
         if (aetherConfig == null) {
-            ModelOption option = modelOption(config.model());
+            ModelOption option = modelOption(config.modelSelection());
             return option == null ? List.of() : List.of(option);
         }
         return aetherConfig.modelOptions();
@@ -300,10 +294,8 @@ public class SessionFactory {
         }
         Path cwd = options == null || options.cwd() == null ? config.cwd() : options.cwd();
         return buildWorkspaceBundle(
-                config.llmClient(),
-                selection.model(),
-                selection.auth(),
-                selection.reasoning(),
+                config.modelClient(),
+                selection,
                 config.transcriptStore(),
                 cwd,
                 agentDir
@@ -322,7 +314,7 @@ public class SessionFactory {
         if (!hasModelSelection(options)) {
             return config.modelSelection();
         }
-        String provider = firstNonBlank(options.modelProvider(), config.model() == null ? null : config.model().getProvider());
+        String provider = firstNonBlank(options.modelProvider(), config.endpoint() == null ? null : config.endpoint().providerId());
         String modelId = firstNonBlank(options.modelId(), config.model() == null ? null : config.model().getId());
         if (aetherConfig != null) {
             return aetherConfig.selectModel(
@@ -388,6 +380,7 @@ public class SessionFactory {
     ) {
         return AetherConfig.selectCurrentModel(
                 config.model(),
+                config.endpoint(),
                 config.requestAuth(),
                 config.reasoning(),
                 explicitProvider,
@@ -396,15 +389,20 @@ public class SessionFactory {
         );
     }
 
-    private static ModelOption modelOption(LlmModel model) {
+    private static ModelOption modelOption(ModelSelection selection) {
+        if (selection == null) {
+            return null;
+        }
+        var model = selection.model();
+        ProviderEndpoint endpoint = selection.endpoint();
         if (model == null) {
             return null;
         }
         return new ModelOption(
-                model.getProvider(),
+                endpoint == null ? null : endpoint.providerId(),
                 model.getId(),
                 model.getName(),
-                model.getApi(),
+                endpoint == null ? null : endpoint.wireApi(),
                 model.getContextWindowTokens(),
                 model.getAutoCompactTokenLimit(),
                 model.getInput()
@@ -429,17 +427,18 @@ public class SessionFactory {
     }
 
     private SessionMetaItem buildSessionMeta(String sessionId, SessionConfig config) {
-        LlmModel model = config.model();
+        ModelInfo model = config.model();
+        ProviderEndpoint endpoint = config.endpoint();
         List<String> activeTools = config.activeToolNames() == null ? List.of() : config.activeToolNames();
         String systemPromptHash = sha256(config.baseInstructions());
         return SessionMetaItem.builder()
                 .sessionId(sessionId)
                 .createdAt(System.currentTimeMillis())
                 .cwd(config.cwd() == null ? null : config.cwd().toString())
-                .modelProvider(model == null ? null : model.getProvider())
+                .modelProvider(endpoint == null ? null : endpoint.providerId())
                 .modelId(model == null ? null : model.getId())
-                .modelApi(model == null ? null : model.getApi())
-                .modelBaseUrl(model == null ? null : model.getBaseUrl())
+                .modelApi(endpoint == null ? null : endpoint.wireApi())
+                .modelBaseUrl(endpoint == null ? null : endpoint.baseUrl())
                 .modelContextWindowTokens(model == null ? null : model.getContextWindowTokens())
                 .modelAutoCompactTokenLimit(model == null ? null : model.getAutoCompactTokenLimit())
                 .reasoningEffort(reasoningEffort(config.reasoning()))
@@ -451,13 +450,14 @@ public class SessionFactory {
     }
 
     private String configFingerprint(SessionConfig config, String systemPromptHash, List<String> activeToolNames) {
-        LlmModel model = config.model();
+        ModelInfo model = config.model();
+        ProviderEndpoint endpoint = config.endpoint();
         StringJoiner joiner = new StringJoiner("\n");
         joiner.add("cwd=" + nullToEmpty(config.cwd() == null ? null : config.cwd().toString()));
-        joiner.add("modelProvider=" + nullToEmpty(model == null ? null : model.getProvider()));
+        joiner.add("modelProvider=" + nullToEmpty(endpoint == null ? null : endpoint.providerId()));
         joiner.add("modelId=" + nullToEmpty(model == null ? null : model.getId()));
-        joiner.add("modelApi=" + nullToEmpty(model == null ? null : model.getApi()));
-        joiner.add("modelBaseUrl=" + nullToEmpty(model == null ? null : model.getBaseUrl()));
+        joiner.add("modelApi=" + nullToEmpty(endpoint == null ? null : endpoint.wireApi()));
+        joiner.add("modelBaseUrl=" + nullToEmpty(endpoint == null ? null : endpoint.baseUrl()));
         joiner.add("modelContextWindowTokens=" + nullToEmpty(model == null ? null : String.valueOf(model.getContextWindowTokens())));
         joiner.add("modelAutoCompactTokenLimit=" + nullToEmpty(model == null ? null : String.valueOf(model.getAutoCompactTokenLimit())));
         joiner.add("reasoningEffort=" + nullToEmpty(reasoningEffort(config.reasoning())));

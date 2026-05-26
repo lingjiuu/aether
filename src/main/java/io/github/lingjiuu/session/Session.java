@@ -18,14 +18,14 @@ import io.github.lingjiuu.event.EventSubscription;
 import io.github.lingjiuu.input.ProcessedTurnInput;
 import io.github.lingjiuu.input.TurnInput;
 import io.github.lingjiuu.input.TurnInputProcessor;
-import io.github.lingjiuu.llm.AssistantStream;
-import io.github.lingjiuu.llm.AssistantStreamEvent;
-import io.github.lingjiuu.llm.LlmCallOptions;
-import io.github.lingjiuu.llm.LlmClientSession;
-import io.github.lingjiuu.llm.LlmModel;
-import io.github.lingjiuu.llm.LlmRequest;
-import io.github.lingjiuu.llm.TokenUsage;
-import io.github.lingjiuu.llm.TokenUsageInfo;
+import io.github.lingjiuu.model.client.AssistantStream;
+import io.github.lingjiuu.model.client.AssistantStreamEvent;
+import io.github.lingjiuu.model.client.ModelCallOptions;
+import io.github.lingjiuu.model.client.ModelClientSession;
+import io.github.lingjiuu.model.ModelInfo;
+import io.github.lingjiuu.model.client.ModelRequest;
+import io.github.lingjiuu.model.TokenUsage;
+import io.github.lingjiuu.model.TokenUsageInfo;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
@@ -34,7 +34,7 @@ import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
-import io.github.lingjiuu.llm.ModelSelection;
+import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.session.recording.MessageRecorder;
 import io.github.lingjiuu.skill.Skill;
@@ -631,26 +631,25 @@ public class Session implements AutoCloseable {
         return value != null && !value.replaceAll("[\\r\\n]+", " ").trim().isEmpty();
     }
 
-    public LlmRequest buildLlmRequest(
+    public ModelRequest buildModelRequest(
             SessionConfig turnConfig,
             List<Message> messages,
             List<ToolDefinition> tools
     ) {
         SessionConfig promptConfig = turnConfig == null ? config : turnConfig;
-        return LlmRequest.builder()
+        return ModelRequest.builder()
                 .baseInstructions(promptConfig.baseInstructions())
-                .model(promptConfig.model())
                 .tools(tools == null ? List.of() : List.copyOf(tools))
                 .messages(messages == null ? List.of() : List.copyOf(messages))
-                .callOptions(LlmCallOptions.builder()
+                .callOptions(ModelCallOptions.builder()
                         .reasoning(promptConfig.reasoning())
                         .build())
                 .build();
     }
 
     public AssistantMessage sampleModel(
-            LlmClientSession modelSession,
-            LlmRequest request,
+            ModelClientSession modelSession,
+            ModelRequest request,
             TurnContext turnContext,
             ToolCancellationToken cancellationToken
     ) {
@@ -658,8 +657,8 @@ public class Session implements AutoCloseable {
     }
 
     public AssistantMessage sampleModelItems(
-            LlmClientSession modelSession,
-            LlmRequest request,
+            ModelClientSession modelSession,
+            ModelRequest request,
             TurnContext turnContext,
             ToolCancellationToken cancellationToken,
             Consumer<AssistantStreamEvent> itemConsumer
@@ -808,7 +807,7 @@ public class Session implements AutoCloseable {
     ) {
         ModelSelection modelSelection = activeModelSelection();
         SessionConfig turnConfig = config.withModelSelection(modelSelection);
-        try (LlmClientSession modelSession = config.llmClient().openSession(modelSelection.model(), modelSelection.auth())) {
+        try (ModelClientSession modelSession = config.modelClient().openSession(modelSelection)) {
             TaskContext context = taskContext(modelSession, modelSelection, turnConfig, cancellationSource, turnContext, processedInput);
             task.run(context);
         } catch (RuntimeException e) {
@@ -855,7 +854,7 @@ public class Session implements AutoCloseable {
     }
 
     private TaskContext taskContext(
-            LlmClientSession modelSession,
+            ModelClientSession modelSession,
             ModelSelection modelSelection,
             SessionConfig turnConfig,
             ToolCancellationSource cancellationSource,
@@ -896,13 +895,13 @@ public class Session implements AutoCloseable {
 
     private Long modelContextWindowTokens() {
         ModelSelection selection = activeModelSelection();
-        LlmModel model = selection == null ? null : selection.model();
+        ModelInfo model = selection == null ? null : selection.model();
         return model == null ? null : model.getContextWindowTokens();
     }
 
     private Long autoCompactTokenLimit() {
         ModelSelection selection = activeModelSelection();
-        LlmModel model = selection == null ? null : selection.model();
+        ModelInfo model = selection == null ? null : selection.model();
         return model == null ? null : model.resolvedAutoCompactTokenLimit();
     }
 
@@ -913,9 +912,11 @@ public class Session implements AutoCloseable {
         if (left == null || right == null) {
             return false;
         }
-        LlmModel leftModel = left.model();
-        LlmModel rightModel = right.model();
-        return Objects.equals(leftModel == null ? null : leftModel.getProvider(), rightModel == null ? null : rightModel.getProvider())
+        ModelInfo leftModel = left.model();
+        ModelInfo rightModel = right.model();
+        var leftEndpoint = left.endpoint();
+        var rightEndpoint = right.endpoint();
+        return Objects.equals(leftEndpoint == null ? null : leftEndpoint.providerId(), rightEndpoint == null ? null : rightEndpoint.providerId())
                 && Objects.equals(leftModel == null ? null : leftModel.getId(), rightModel == null ? null : rightModel.getId())
                 && Objects.equals(reasoningEffort(left), reasoningEffort(right));
     }

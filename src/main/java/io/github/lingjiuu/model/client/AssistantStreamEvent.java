@@ -1,8 +1,8 @@
-package io.github.lingjiuu.llm;
+package io.github.lingjiuu.model.client;
 
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
-import io.github.lingjiuu.provider.ProviderReplayData;
+import io.github.lingjiuu.wire.WireReplayData;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -38,7 +38,7 @@ public class AssistantStreamEvent {
 
     private ToolCallContent toolCall;
 
-    private ProviderReplayData providerState;
+    private WireReplayData providerState;
 
     public enum Type {
         START,

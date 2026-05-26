@@ -1,18 +1,18 @@
 package io.github.lingjiuu.agent.task;
 
-import io.github.lingjiuu.llm.AssistantStream;
-import io.github.lingjiuu.llm.AssistantStreamEvent;
-import io.github.lingjiuu.llm.LlmClient;
-import io.github.lingjiuu.llm.LlmModel;
+import io.github.lingjiuu.TestModelSelections;
+import io.github.lingjiuu.model.client.AssistantStream;
+import io.github.lingjiuu.model.client.AssistantStreamEvent;
+import io.github.lingjiuu.model.client.ModelClient;
+import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
-import io.github.lingjiuu.provider.Provider;
-import io.github.lingjiuu.provider.ProviderRegistry;
-import io.github.lingjiuu.provider.ProviderSession;
-import io.github.lingjiuu.provider.RequestAuth;
+import io.github.lingjiuu.wire.WireAdapter;
+import io.github.lingjiuu.wire.WireAdapterRegistry;
+import io.github.lingjiuu.wire.WireSession;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionBuilder;
 import io.github.lingjiuu.session.SessionConfig;
@@ -106,23 +106,15 @@ public class ToolCancellationClosureTest extends TestCase {
         assertTrue(resultText.matches("Wall time: \\d+\\.\\d seconds\\naborted by user"));
     }
 
-    private SessionConfig sessionConfig(Provider provider, ToolDefinition tool) {
+    private SessionConfig sessionConfig(WireAdapter provider, ToolDefinition tool) {
         return new SessionConfig(
-                new LlmClient(new ProviderRegistry().register(provider)),
+                new ModelClient(new WireAdapterRegistry().register(provider)),
                 "You are a test agent.",
                 "",
                 "",
                 List.of(),
                 Path.of(".").toAbsolutePath().normalize(),
-                LlmModel.builder()
-                        .id("fake-model")
-                        .api("fake")
-                        .provider("fake")
-                        .input(List.of("text"))
-                        .contextWindowTokens(100_000L)
-                        .build(),
-                RequestAuth.ok("test", Map.of()),
-                null,
+                TestModelSelections.fakeSelection(),
                 null,
                 List.of(tool),
                 List.of(tool.name())
@@ -133,7 +125,7 @@ public class ToolCancellationClosureTest extends TestCase {
             ToolCallContent toolCall,
             CountDownLatch toolCallEmitted,
             CountDownLatch streamMayFinish
-    ) implements Provider {
+    ) implements WireAdapter {
 
         @Override
         public String name() {
@@ -141,7 +133,7 @@ public class ToolCancellationClosureTest extends TestCase {
         }
 
         @Override
-        public ProviderSession openSession(LlmModel model, RequestAuth auth) {
+        public WireSession openSession(ModelSelection selection) {
             return (request, cancellationToken) -> new FakeStream(toolCall, toolCallEmitted, streamMayFinish);
         }
     }
