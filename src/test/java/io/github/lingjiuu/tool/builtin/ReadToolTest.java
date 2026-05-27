@@ -83,6 +83,29 @@ public class ReadToolTest extends TestCase {
         assertTrue(readFileState.get(file).partial());
     }
 
+    public void testPartialReadDoesNotDowngradeExistingFullReadState() throws Exception {
+        Path root = Files.createTempDirectory("aether-read-preserve-full-state-test");
+        Path file = root.resolve("hello.txt");
+        Files.writeString(file, "hello\nworld", StandardCharsets.UTF_8);
+        ReadFileState readFileState = new ReadFileState();
+        ReadTool tool = new ReadTool(WorkspaceAccessPolicy.rootedAt(root));
+
+        tool.execute(ToolInvocation.builder()
+                .toolCall(toolCall("read", "{\"file_path\":\"hello.txt\"}"))
+                .arguments(Map.of("file_path", "hello.txt"))
+                .readFileState(readFileState)
+                .build());
+        tool.execute(ToolInvocation.builder()
+                .toolCall(toolCall("read", "{\"file_path\":\"hello.txt\",\"limit\":1}"))
+                .arguments(Map.of("file_path", "hello.txt", "limit", 1))
+                .readFileState(readFileState)
+                .build());
+
+        assertNotNull(readFileState.get(file));
+        assertFalse(readFileState.get(file).partial());
+        assertEquals("hello\nworld", readFileState.get(file).content());
+    }
+
     public void testImageReadDoesNotRecordTextReadState() throws Exception {
         Path root = Files.createTempDirectory("aether-read-image-test");
         Path file = root.resolve("image.png");

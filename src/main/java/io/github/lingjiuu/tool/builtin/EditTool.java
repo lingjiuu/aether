@@ -216,7 +216,7 @@ public class EditTool implements Tool {
             ReadFileState readFileState,
             Path resolvedPath,
             String currentContent
-    ) {
+    ) throws IOException {
         if (readFileState == null) {
             throw new IllegalStateException("File has not been read yet. Read it first before editing.");
         }
@@ -224,10 +224,7 @@ public class EditTool implements Tool {
         if (snapshot == null) {
             throw new IllegalStateException("File has not been read yet. Read it first before editing.");
         }
-        if (snapshot.partial()) {
-            throw new IllegalStateException("File was only partially read. Read the full file before editing.");
-        }
-        if (!currentContent.equals(snapshot.content())) {
+        if (!snapshot.matchesCurrent(currentContent, Files.getLastModifiedTime(resolvedPath))) {
             throw new IllegalStateException("File has been modified since read. Read it again before editing.");
         }
     }

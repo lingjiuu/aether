@@ -11,6 +11,7 @@ import junit.framework.TestCase;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.Map;
 
 public class WriteToolTest extends TestCase {
@@ -50,7 +51,7 @@ public class WriteToolTest extends TestCase {
                 || error.getMessage().contains("Unknown tool argument: path"));
     }
 
-    public void testWriteExistingFileRequiresPriorFullRead() throws Exception {
+    public void testWriteExistingFileRequiresPriorRead() throws Exception {
         Path root = Files.createTempDirectory("aether-write-read-required-test");
         Path file = root.resolve("hello.txt");
         Files.writeString(file, "old", StandardCharsets.UTF_8);
@@ -63,7 +64,7 @@ public class WriteToolTest extends TestCase {
         assertEquals("old", Files.readString(file, StandardCharsets.UTF_8));
     }
 
-    public void testWriteRejectsPartialRead() throws Exception {
+    public void testWriteAfterPartialReadUpdatesFileWhenUnchanged() throws Exception {
         Path root = Files.createTempDirectory("aether-write-partial-read-test");
         Path file = root.resolve("hello.txt");
         Files.writeString(file, "old\ncontent", StandardCharsets.UTF_8);
@@ -79,9 +80,34 @@ public class WriteToolTest extends TestCase {
         WriteTool tool = new WriteTool(accessPolicy);
         ToolExecutionResult result = tool.execute(writeInvocation(readFileState, "hello.txt", "new"));
 
+        assertFalse(result.isError());
+        assertEquals("new", Files.readString(file, StandardCharsets.UTF_8));
+        assertEquals("new", readFileState.get(file).content());
+        assertFalse(readFileState.get(file).partial());
+    }
+
+    public void testWriteRejectsFileChangedSincePartialRead() throws Exception {
+        Path root = Files.createTempDirectory("aether-write-partial-stale-read-test");
+        Path file = root.resolve("hello.txt");
+        Files.writeString(file, "old\ncontent", StandardCharsets.UTF_8);
+        WorkspaceAccessPolicy accessPolicy = WorkspaceAccessPolicy.rootedAt(root);
+        ReadFileState readFileState = new ReadFileState();
+        ReadTool readTool = new ReadTool(accessPolicy);
+        readTool.execute(ToolInvocation.builder()
+                .toolCall(toolCall("read", "{\"file_path\":\"hello.txt\",\"limit\":1}"))
+                .arguments(Map.of("file_path", "hello.txt", "limit", 1))
+                .readFileState(readFileState)
+                .build());
+
+        Files.writeString(file, "old\nuser changed", StandardCharsets.UTF_8);
+        Files.setLastModifiedTime(file, FileTime.fromMillis(readFileState.get(file).modifiedAt().toMillis() + 5000));
+
+        WriteTool tool = new WriteTool(accessPolicy);
+        ToolExecutionResult result = tool.execute(writeInvocation(readFileState, "hello.txt", "new"));
+
         assertTrue(result.isError());
-        assertToolTextContains(result, "only partially read");
-        assertEquals("old\ncontent", Files.readString(file, StandardCharsets.UTF_8));
+        assertToolTextContains(result, "modified since read");
+        assertEquals("old\nuser changed", Files.readString(file, StandardCharsets.UTF_8));
     }
 
     public void testWriteRejectsFileChangedSinceRead() throws Exception {

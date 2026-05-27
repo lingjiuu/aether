@@ -11,11 +11,12 @@ import junit.framework.TestCase;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.Map;
 
 public class EditToolTest extends TestCase {
 
-    public void testEditRequiresPriorFullRead() throws Exception {
+    public void testEditRequiresPriorRead() throws Exception {
         Path root = Files.createTempDirectory("aether-edit-read-required-test");
         Files.writeString(root.resolve("hello.txt"), "hello world", StandardCharsets.UTF_8);
 
@@ -71,7 +72,7 @@ public class EditToolTest extends TestCase {
         assertEquals("hi world", readFileState.get(file).content());
     }
 
-    public void testEditRejectsPartialRead() throws Exception {
+    public void testEditAfterPartialReadUpdatesFileWhenUnchanged() throws Exception {
         Path root = Files.createTempDirectory("aether-edit-partial-read-test");
         Path file = root.resolve("hello.txt");
         Files.writeString(file, "hello\nworld", StandardCharsets.UTF_8);
@@ -93,9 +94,40 @@ public class EditToolTest extends TestCase {
                 false
         ));
 
+        assertFalse(result.isError());
+        assertEquals("hi\nworld", Files.readString(file, StandardCharsets.UTF_8));
+        assertEquals("hi\nworld", readFileState.get(file).content());
+        assertFalse(readFileState.get(file).partial());
+    }
+
+    public void testEditRejectsFileChangedSincePartialRead() throws Exception {
+        Path root = Files.createTempDirectory("aether-edit-partial-stale-read-test");
+        Path file = root.resolve("hello.txt");
+        Files.writeString(file, "hello\nworld", StandardCharsets.UTF_8);
+        WorkspaceAccessPolicy accessPolicy = WorkspaceAccessPolicy.rootedAt(root);
+        ReadFileState readFileState = new ReadFileState();
+        ReadTool readTool = new ReadTool(accessPolicy);
+        readTool.execute(ToolInvocation.builder()
+                .toolCall(toolCall("read", "{\"file_path\":\"hello.txt\",\"limit\":1}"))
+                .arguments(Map.of("file_path", "hello.txt", "limit", 1))
+                .readFileState(readFileState)
+                .build());
+
+        Files.writeString(file, "hello\nuser changed", StandardCharsets.UTF_8);
+        Files.setLastModifiedTime(file, FileTime.fromMillis(readFileState.get(file).modifiedAt().toMillis() + 5000));
+
+        EditTool tool = new EditTool(accessPolicy);
+        ToolExecutionResult result = tool.execute(editInvocation(
+                readFileState,
+                "hello.txt",
+                "hello",
+                "hi",
+                false
+        ));
+
         assertTrue(result.isError());
-        assertToolTextContains(result, "only partially read");
-        assertEquals("hello\nworld", Files.readString(file, StandardCharsets.UTF_8));
+        assertToolTextContains(result, "modified since read");
+        assertEquals("hello\nuser changed", Files.readString(file, StandardCharsets.UTF_8));
     }
 
     public void testEditRejectsFileChangedSinceRead() throws Exception {

@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class ReadFileState {
@@ -18,6 +19,10 @@ public final class ReadFileState {
 
     public void recordPartial(Path path, FileTime modifiedAt) {
         Path normalized = normalize(path);
+        Snapshot existing = snapshots.get(normalized);
+        if (existing != null && !existing.partial() && existing.sameModifiedAt(modifiedAt)) {
+            return;
+        }
         snapshots.put(normalized, new Snapshot(normalized, null, modifiedAt, true));
     }
 
@@ -52,5 +57,15 @@ public final class ReadFileState {
             FileTime modifiedAt,
             boolean partial
     ) {
+        public boolean matchesCurrent(String currentContent, FileTime currentModifiedAt) {
+            if (partial) {
+                return sameModifiedAt(currentModifiedAt);
+            }
+            return Objects.equals(content, currentContent == null ? "" : currentContent);
+        }
+
+        public boolean sameModifiedAt(FileTime currentModifiedAt) {
+            return Objects.equals(modifiedAt, currentModifiedAt);
+        }
     }
 }

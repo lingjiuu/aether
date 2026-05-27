@@ -127,12 +127,9 @@ public class WriteTool implements Tool {
         if (snapshot == null) {
             throw new IllegalStateException("File has not been read yet. Read it first before writing to it.");
         }
-        if (snapshot.partial()) {
-            throw new IllegalStateException("File was only partially read. Read the full file before writing to it.");
-        }
 
         String currentContent = Files.readString(resolvedPath, StandardCharsets.UTF_8);
-        if (!currentContent.equals(snapshot.content())) {
+        if (!snapshot.matchesCurrent(currentContent, Files.getLastModifiedTime(resolvedPath))) {
             throw new IllegalStateException("File has been modified since read. Read it again before writing to it.");
         }
     }
