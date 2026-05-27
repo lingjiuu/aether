@@ -1,7 +1,7 @@
 package io.github.lingjiuu.tool.builtin;
 
-import io.github.lingjiuu.tool.ToolDefinition;
-import io.github.lingjiuu.tool.ToolExecutionContext;
+import io.github.lingjiuu.tool.Tool;
+import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
@@ -14,7 +14,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
-public class LsTool implements ToolDefinition {
+public class LsTool implements Tool {
 
     private final WorkspaceAccessPolicy accessPolicy;
 
@@ -69,17 +69,7 @@ public class LsTool implements ToolDefinition {
     }
 
     @Override
-    public String promptSnippet() {
-        return "List directory contents";
-    }
-
-    @Override
-    public List<String> promptGuidelines() {
-        return List.of("Use ls to inspect directory contents before choosing files to search.");
-    }
-
-    @Override
-    public ToolExecutionResult execute(ToolExecutionContext context) {
+    public ToolExecutionResult execute(ToolInvocation context) {
         try {
             context.throwIfCancellationRequested();
             String requestedPath = ToolArguments.optionalString(context.getArguments(), "path", ".");

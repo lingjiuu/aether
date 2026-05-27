@@ -2,7 +2,7 @@ package io.github.lingjiuu.model.client;
 
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.model.ReasoningOptions;
-import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.tool.Tool;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -21,7 +21,7 @@ public class ModelRequest {
             String baseInstructions,
             ReasoningOptions reasoning,
             List<Message> messages,
-            List<ToolDefinition> tools
+            List<Tool> tools
     ) {
         return ModelRequest.builder()
                 .baseInstructions(baseInstructions)
@@ -36,7 +36,7 @@ public class ModelRequest {
     private String baseInstructions;
 
     @Builder.Default
-    private List<ToolDefinition> tools = new ArrayList<>();
+    private List<Tool> tools = new ArrayList<>();
 
     @Builder.Default
     private List<Message> messages = new ArrayList<>();

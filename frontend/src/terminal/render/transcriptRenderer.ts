@@ -20,7 +20,7 @@ export function renderTranscript(presentation: TerminalPresentation, width: numb
 
   appendLocalEntries(transcript, presentation.localCommandEntries, 0, width);
   for (const [index, turn] of presentation.turns.entries()) {
-    transcript.push(...turnLines(turn, width));
+    transcript.push(...turnLines(turn, width, presentation.session.cwd));
     appendLocalEntries(transcript, presentation.localCommandEntries, index + 1, width);
   }
 
@@ -39,7 +39,7 @@ export function renderTranscriptSections(presentation: TerminalPresentation, wid
   for (const [turnIndex, turn] of presentation.turns.entries()) {
     const targetForCompletedTurn = activeStarted ? active : history;
     if (isStableTurn(turn)) {
-      targetForCompletedTurn.push(...turnLines(turn, width));
+      targetForCompletedTurn.push(...turnLines(turn, width, presentation.session.cwd));
       appendLocalEntries(targetForCompletedTurn, presentation.localCommandEntries, turnIndex + 1, width);
       continue;
     }
@@ -49,10 +49,10 @@ export function renderTranscriptSections(presentation: TerminalPresentation, wid
     const stableItems = turn.items.slice(0, splitIndex);
     const activeItems = turn.items.slice(splitIndex);
     for (const item of stableItems.filter(isVisibleTimelineItem)) {
-      history.push(...itemLines(item, width));
+      history.push(...itemLines(item, width, presentation.session.cwd));
     }
     for (const item of activeItems.filter(isVisibleTimelineItem)) {
-      active.push(...itemLines(item, width));
+      active.push(...itemLines(item, width, presentation.session.cwd));
     }
     active.push(...turnStatusLines(turn, width));
     appendLocalEntries(active, presentation.localCommandEntries, turnIndex + 1, width);
@@ -109,16 +109,16 @@ function isStableItem(item: TimelineItem): boolean {
   return item.status === 'COMPLETED' || item.status === 'ABORTED' || item.status === 'ERROR' || item.status === 'SKIPPED';
 }
 
-function turnLines(turn: TimelineTurn, width: number): RenderedLine[] {
+function turnLines(turn: TimelineTurn, width: number, cwd?: string | null): RenderedLine[] {
   const lines: RenderedLine[] = [];
   for (const item of turn.items.filter(isVisibleTimelineItem)) {
-    lines.push(...itemLines(item, width));
+    lines.push(...itemLines(item, width, cwd));
   }
   lines.push(...turnStatusLines(turn, width));
   return lines;
 }
 
-function itemLines(item: TimelineItem, width: number): RenderedLine[] {
+function itemLines(item: TimelineItem, width: number, cwd?: string | null): RenderedLine[] {
   switch (item.kind) {
     case 'USER_MESSAGE':
       return [blankLine(), userMessageLine(item.text, width)];
@@ -127,7 +127,7 @@ function itemLines(item: TimelineItem, width: number): RenderedLine[] {
     case 'REASONING':
       return item.text ? [blankLine(), ...prefixedWrapped('✻ ', item.text, width, true)] : [];
     case 'TOOL_CALL':
-      return toolCallLines(item, width);
+      return toolCallLines(item, width, cwd);
     case 'TOOL_RESULT':
       return [];
     case 'CONTEXT_MESSAGE':
@@ -135,8 +135,8 @@ function itemLines(item: TimelineItem, width: number): RenderedLine[] {
   }
 }
 
-function toolCallLines(item: TimelineItem, width: number): RenderedLine[] {
-  const toolUse = toolUseView(item);
+function toolCallLines(item: TimelineItem, width: number, cwd?: string | null): RenderedLine[] {
+  const toolUse = toolUseView(item, cwd);
   const isError = Boolean(item.toolResult?.error || item.status === 'ERROR' || item.status === 'FAILED' || item.status === 'ABORTED');
   const isRunning = item.status === 'RUNNING' || (!item.toolResult && !isError);
   const header = `● ${toolUse.name}${toolUse.summary ? `(${toolUse.summary})` : ''}`;
@@ -148,7 +148,7 @@ function toolCallLines(item: TimelineItem, width: number): RenderedLine[] {
     lines.push(...responseLines(toolProgressView(item).lines, width));
     return lines;
   }
-  lines.push(...responseLines(toolResultView(item).lines, width));
+  lines.push(...responseLines(toolResultView(item, cwd).lines, width));
   return lines;
 }
 

@@ -1,27 +1,20 @@
 package io.github.lingjiuu.tool.builtin;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.lingjiuu.tool.ToolDefinition;
-import io.github.lingjiuu.tool.ToolExecutionContext;
+import io.github.lingjiuu.tool.Tool;
+import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.file.ReadFileState;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class EditTool implements ToolDefinition {
-
-    private static final String OUTSIDE_WORKSPACE_DENIAL = "用户拒绝了此次调用";
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
+public class EditTool implements Tool {
 
     private final WorkspaceAccessPolicy accessPolicy;
 
@@ -44,75 +37,24 @@ public class EditTool implements ToolDefinition {
 
     @Override
     public String description() {
-        return "Edit one workspace text file using one or more exact text replacements. "
-                + "Every edits[].oldText must be unique in the original file and edits must not overlap.";
+        return "Edit one text file using an exact string replacement. "
+                + "The file must be read first unless old_string is empty for creating an empty or missing file. "
+                + "old_string must be unique unless replace_all is true.";
     }
 
     @Override
     public Map<String, Object> parametersSchema() {
-        Map<String, Object> replacementSchema = Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "oldText", Map.of("type", "string", "description", "Exact text to replace. Must appear once."),
-                        "newText", Map.of("type", "string", "description", "Replacement text.")
-                ),
-                "required", List.of("oldText", "newText"),
-                "additionalProperties", false
-        );
         return Map.of(
                 "type", "object",
                 "properties", Map.of(
-                        "path", Map.of("type", "string", "description", "Workspace file path to edit."),
-                        "edits", Map.of(
-                                "type", "array",
-                                "description", "One or more targeted replacements. Each oldText must be unique in the original file and edits must not overlap.",
-                                "items", replacementSchema
-                        )
+                        "file_path", Map.of("type", "string", "description", "File path to edit."),
+                        "old_string", Map.of("type", "string", "description", "Exact text to replace."),
+                        "new_string", Map.of("type", "string", "description", "Replacement text. Must differ from old_string."),
+                        "replace_all", Map.of("type", "boolean", "description", "Replace all occurrences of old_string. Defaults to false.")
                 ),
-                "required", List.of("path", "edits"),
+                "required", List.of("file_path", "old_string", "new_string"),
                 "additionalProperties", false
         );
-    }
-
-    @Override
-    public Object prepareArguments(Object arguments) {
-        if (!(arguments instanceof Map<?, ?> input)) {
-            return arguments;
-        }
-
-        Map<String, Object> prepared = new LinkedHashMap<>();
-        for (Map.Entry<?, ?> entry : input.entrySet()) {
-            if (entry.getKey() != null) {
-                prepared.put(String.valueOf(entry.getKey()), entry.getValue());
-            }
-        }
-
-        Object editsValue = prepared.get("edits");
-        if (editsValue instanceof String editsJson) {
-            try {
-                JsonNode parsed = OBJECT_MAPPER.readTree(editsJson);
-                if (parsed != null && parsed.isArray()) {
-                    prepared.put("edits", OBJECT_MAPPER.convertValue(parsed, new TypeReference<List<Object>>() {
-                    }));
-                    editsValue = prepared.get("edits");
-                }
-            } catch (Exception ignored) {
-            }
-        }
-
-        Object oldText = prepared.get("oldText");
-        Object newText = prepared.get("newText");
-        if (oldText instanceof String oldTextValue && newText instanceof String newTextValue) {
-            List<Object> edits = editsValue instanceof List<?> existing
-                    ? new ArrayList<>(existing)
-                    : new ArrayList<>();
-            edits.add(Map.of("oldText", oldTextValue, "newText", newTextValue));
-            prepared.put("edits", edits);
-            prepared.remove("oldText");
-            prepared.remove("newText");
-        }
-
-        return prepared;
     }
 
     @Override
@@ -121,38 +63,26 @@ public class EditTool implements ToolDefinition {
     }
 
     @Override
-    public String promptSnippet() {
-        return "Make precise file edits with exact text replacement, including multiple disjoint edits in one call";
-    }
-
-    @Override
-    public List<String> promptGuidelines() {
-        return List.of(
-                "Read the file before using edit.",
-                "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[].",
-                "Each edits[].oldText is matched against the original file, not after earlier edits are applied.",
-                "Do not emit overlapping or nested edits; merge nearby changes into one replacement.",
-                "Keep edits[].oldText as small as possible while still unique in the file."
-        );
-    }
-
-    @Override
-    public ToolExecutionResult execute(ToolExecutionContext context) {
+    public ToolExecutionResult execute(ToolInvocation context) {
         try {
             context.throwIfCancellationRequested();
-            String requestedPath = ToolArguments.requiredString(context.getArguments(), "path");
-            List<EditApplier.Edit> edits = requiredEdits(context.getArguments());
-
-            Path resolvedPath;
-            try {
-                resolvedPath = accessPolicy.resolveWritablePath(requestedPath);
-            } catch (IllegalArgumentException e) {
-                if (isOutsideWorkspaceError(e)) {
-                    return ToolExecutionResult.errorText(OUTSIDE_WORKSPACE_DENIAL);
-                }
-                throw e;
+            String requestedPath = ToolArguments.requiredString(context.getArguments(), "file_path");
+            String oldString = requiredString(context.getArguments(), "old_string");
+            String newString = requiredString(context.getArguments(), "new_string");
+            boolean replaceAll = ToolArguments.optionalBoolean(context.getArguments(), "replace_all", false);
+            if (oldString.equals(newString)) {
+                throw new IllegalArgumentException("old_string and new_string must be different");
             }
-            ToolExecutionResult result = editFile(requestedPath, resolvedPath, edits);
+
+            Path resolvedPath = accessPolicy.resolveWritablePath(requestedPath);
+            ToolExecutionResult result = editFile(
+                    context.readFileState(),
+                    requestedPath,
+                    resolvedPath,
+                    oldString,
+                    newString,
+                    replaceAll
+            );
             context.throwIfCancellationRequested();
             return result;
         } catch (Exception e) {
@@ -160,10 +90,20 @@ public class EditTool implements ToolDefinition {
         }
     }
 
-    private ToolExecutionResult editFile(String requestedPath, Path resolvedPath, List<EditApplier.Edit> edits)
+    private ToolExecutionResult editFile(
+            ReadFileState readFileState,
+            String requestedPath,
+            Path resolvedPath,
+            String oldString,
+            String newString,
+            boolean replaceAll
+    )
             throws IOException {
         if (!Files.exists(resolvedPath)) {
-            throw new IOException("Path not found: " + requestedPath);
+            if (!oldString.isEmpty()) {
+                throw new IOException("Path not found: " + requestedPath);
+            }
+            return createFile(readFileState, requestedPath, resolvedPath, newString);
         }
         if (!Files.isRegularFile(resolvedPath)) {
             throw new IOException("Not a file: " + requestedPath);
@@ -171,58 +111,139 @@ public class EditTool implements ToolDefinition {
 
         String content = Files.readString(resolvedPath, StandardCharsets.UTF_8);
         EditApplier.TextState state = EditApplier.capture(content);
+        if (oldString.isEmpty()) {
+            if (!state.normalizedContent().isEmpty()) {
+                throw new IllegalArgumentException("Cannot create new file - file already exists.");
+            }
+            return writeAppliedContent(
+                    readFileState,
+                    requestedPath,
+                    resolvedPath,
+                    state,
+                    newString,
+                    1,
+                    1,
+                    "create",
+                    false,
+                    EditApplier.simpleDiff("", newString)
+            );
+        }
+
+        ensureFileWasRead(readFileState, resolvedPath, content);
         EditApplier.AppliedEdits applied = EditApplier.applyEditsToNormalizedContent(
                 state.normalizedContent(),
-                edits,
+                List.of(new EditApplier.Edit(oldString, newString, replaceAll)),
                 requestedPath
         );
 
-        Files.writeString(resolvedPath, state.restore(applied.newContent()), StandardCharsets.UTF_8);
+        return writeAppliedContent(
+                readFileState,
+                requestedPath,
+                resolvedPath,
+                state,
+                applied.newContent(),
+                applied.replacements(),
+                applied.firstChangedLine(),
+                "update",
+                replaceAll,
+                applied.diff()
+        );
+    }
+
+    private ToolExecutionResult createFile(
+            ReadFileState readFileState,
+            String requestedPath,
+            Path resolvedPath,
+            String content
+    ) throws IOException {
+        Path parent = resolvedPath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Files.writeString(resolvedPath, content, StandardCharsets.UTF_8);
+        recordFileState(readFileState, resolvedPath, content);
         return ToolExecutionResult.builder()
-                .contents(ToolExecutionResult.text(
-                        "Successfully replaced " + applied.replacements() + " block(s) in " + requestedPath + "."
-                ).getContents())
+                .contents(ToolExecutionResult.text("Created " + requestedPath + ".").getContents())
                 .details(Map.of(
                         "kind", "edit",
                         "path", requestedPath,
                         "resolvedPath", resolvedPath.toString(),
-                        "editCount", applied.replacements(),
-                        "firstChangedLine", applied.firstChangedLine(),
-                        "diffText", applied.diff()
+                        "operation", "create",
+                        "editCount", 1,
+                        "firstChangedLine", 1,
+                        "replaceAll", false,
+                        "diffText", EditApplier.simpleDiff("", content)
                 ))
                 .error(false)
                 .build();
     }
 
-    private List<EditApplier.Edit> requiredEdits(Map<String, Object> arguments) {
-        Object value = arguments.get("edits");
-        if (!(value instanceof List<?> rawEdits)) {
-            throw new IllegalArgumentException("edits must be an array");
-        }
-        if (rawEdits.isEmpty()) {
-            throw new IllegalArgumentException("edits must contain at least one replacement");
-        }
-
-        List<EditApplier.Edit> edits = new ArrayList<>();
-        for (int i = 0; i < rawEdits.size(); i++) {
-            Object rawEdit = rawEdits.get(i);
-            if (!(rawEdit instanceof Map<?, ?> editMap)) {
-                throw new IllegalArgumentException("edits[" + i + "] must be an object");
-            }
-            Object oldText = editMap.get("oldText");
-            Object newText = editMap.get("newText");
-            if (!(oldText instanceof String oldTextValue)) {
-                throw new IllegalArgumentException("edits[" + i + "].oldText must be a string");
-            }
-            if (!(newText instanceof String newTextValue)) {
-                throw new IllegalArgumentException("edits[" + i + "].newText must be a string");
-            }
-            edits.add(new EditApplier.Edit(oldTextValue, newTextValue));
-        }
-        return edits;
+    private ToolExecutionResult writeAppliedContent(
+            ReadFileState readFileState,
+            String requestedPath,
+            Path resolvedPath,
+            EditApplier.TextState state,
+            String normalizedNewContent,
+            int replacements,
+            int firstChangedLine,
+            String operation,
+            boolean replaceAll,
+            String diffText
+    ) throws IOException {
+        String restored = state.restore(normalizedNewContent);
+        Files.writeString(resolvedPath, restored, StandardCharsets.UTF_8);
+        recordFileState(readFileState, resolvedPath, restored);
+        String resultText = "create".equals(operation)
+                ? "Created " + requestedPath + "."
+                : "Successfully replaced " + replacements + " block(s) in " + requestedPath + ".";
+        return ToolExecutionResult.builder()
+                .contents(ToolExecutionResult.text(resultText).getContents())
+                .details(Map.of(
+                        "kind", "edit",
+                        "path", requestedPath,
+                        "resolvedPath", resolvedPath.toString(),
+                        "operation", operation,
+                        "editCount", replacements,
+                        "firstChangedLine", firstChangedLine,
+                        "replaceAll", replaceAll,
+                        "diffText", diffText
+                ))
+                .error(false)
+                .build();
     }
 
-    private boolean isOutsideWorkspaceError(IllegalArgumentException e) {
-        return e.getMessage() != null && e.getMessage().contains("outside the allowed root");
+    private void ensureFileWasRead(
+            ReadFileState readFileState,
+            Path resolvedPath,
+            String currentContent
+    ) {
+        if (readFileState == null) {
+            throw new IllegalStateException("File has not been read yet. Read it first before editing.");
+        }
+        ReadFileState.Snapshot snapshot = readFileState.get(resolvedPath);
+        if (snapshot == null) {
+            throw new IllegalStateException("File has not been read yet. Read it first before editing.");
+        }
+        if (snapshot.partial()) {
+            throw new IllegalStateException("File was only partially read. Read the full file before editing.");
+        }
+        if (!currentContent.equals(snapshot.content())) {
+            throw new IllegalStateException("File has been modified since read. Read it again before editing.");
+        }
     }
+
+    private void recordFileState(ReadFileState readFileState, Path resolvedPath, String content) throws IOException {
+        if (readFileState != null) {
+            readFileState.recordFull(resolvedPath, content, Files.getLastModifiedTime(resolvedPath));
+        }
+    }
+
+    private String requiredString(Map<String, Object> arguments, String name) {
+        Object value = arguments.get(name);
+        if (!(value instanceof String stringValue)) {
+            throw new IllegalArgumentException(name + " must be a string");
+        }
+        return stringValue;
+    }
+
 }

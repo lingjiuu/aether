@@ -1,30 +1,29 @@
 package io.github.lingjiuu.tool.builtin;
 
-import io.github.lingjiuu.tool.ToolDefinition;
-import io.github.lingjiuu.tool.ToolExecutionContext;
+import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
-import java.io.IOException;
 import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.io.InputStreamReader;
 import java.time.Duration;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
-public class FindTool implements ToolDefinition {
+public class GlobTool implements Tool {
 
     private final WorkspaceAccessPolicy accessPolicy;
 
-    public FindTool(WorkspaceAccessPolicy accessPolicy) {
+    public GlobTool(WorkspaceAccessPolicy accessPolicy) {
         if (accessPolicy == null) {
             throw new IllegalArgumentException("accessPolicy must not be null");
         }
@@ -33,19 +32,20 @@ public class FindTool implements ToolDefinition {
 
     @Override
     public String name() {
-        return "find";
+        return "glob";
     }
 
     @Override
     public String label() {
-        return "find";
+        return "glob";
     }
 
     @Override
     public String description() {
-        return "Search for files by glob pattern. Returns matching file paths relative to the search directory. "
-                + "Respects .gitignore. Output is truncated to " + ToolOutputLimits.FIND_DEFAULT_LIMIT
-                + " results or " + TextOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES)
+        return "Fast file pattern matching tool. Supports glob patterns like '**/*.java' or 'src/**/*.ts'. "
+                + "Returns matching file paths sorted by modification time. Output is truncated to "
+                + ToolOutputLimits.GLOB_DEFAULT_LIMIT + " files or "
+                + TextOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES)
                 + " (whichever is hit first).";
     }
 
@@ -56,16 +56,11 @@ public class FindTool implements ToolDefinition {
                 "properties", Map.of(
                         "pattern", Map.of(
                                 "type", "string",
-                                "description", "Glob pattern to match files, e.g. '*.java', '**/*.json', or 'src/**/*.java'."
+                                "description", "Glob pattern to match files against, e.g. '**/*.java' or 'src/**/*.ts'."
                         ),
                         "path", Map.of(
                                 "type", "string",
                                 "description", "Directory to search in (default: current directory)."
-                        ),
-                        "limit", Map.of(
-                                "type", "integer",
-                                "minimum", 1,
-                                "description", "Maximum number of results (default: 1000)."
                         )
                 ),
                 "required", List.of("pattern"),
@@ -79,34 +74,29 @@ public class FindTool implements ToolDefinition {
     }
 
     @Override
-    public String promptSnippet() {
-        return "Find files by glob pattern (respects .gitignore)";
-    }
-
-    @Override
-    public List<String> promptGuidelines() {
-        return List.of("Use find to discover candidate files before searching or inspecting them.");
-    }
-
-    @Override
-    public ToolExecutionResult execute(ToolExecutionContext context) {
+    public ToolExecutionResult execute(ToolInvocation context) {
         try {
             context.throwIfCancellationRequested();
             String pattern = ToolArguments.requiredString(context.getArguments(), "pattern");
             String requestedPath = ToolArguments.optionalString(context.getArguments(), "path", ".");
-            int limit = ToolArguments.optionalPositiveInt(context.getArguments(), "limit", ToolOutputLimits.FIND_DEFAULT_LIMIT);
             Path resolvedPath = accessPolicy.resolveReadablePath(requestedPath);
-            Optional<String> fdPath = findOnPath("fd");
-            if (fdPath.isEmpty()) {
-                return ToolExecutionResult.errorText("find failed: fd is not available on PATH");
+            var rgPath = ExecutableFinder.findOnPath("rg");
+            if (rgPath.isEmpty()) {
+                return ToolExecutionResult.errorText("glob failed: ripgrep (rg) is not available on PATH");
             }
-            return findFiles(context, fdPath.get(), pattern, requestedPath, resolvedPath, limit);
+            return glob(context, rgPath.get(), pattern, requestedPath, resolvedPath);
         } catch (Exception e) {
-            return ToolExecutionResult.errorText("find failed: " + e.getMessage());
+            return ToolExecutionResult.errorText("glob failed: " + e.getMessage());
         }
     }
 
-    private ToolExecutionResult findFiles(ToolExecutionContext context, String fdPath, String pattern, String requestedPath, Path resolvedPath, int limit) throws IOException, InterruptedException {
+    private ToolExecutionResult glob(
+            ToolInvocation context,
+            String rgPath,
+            String pattern,
+            String requestedPath,
+            Path resolvedPath
+    ) throws IOException, InterruptedException {
         context.throwIfCancellationRequested();
         if (!Files.exists(resolvedPath)) {
             throw new IOException("Path not found: " + requestedPath);
@@ -116,27 +106,22 @@ public class FindTool implements ToolDefinition {
         }
 
         List<String> args = new ArrayList<>();
-        args.add(fdPath);
+        args.add(rgPath);
+        args.add("--files");
         args.add("--glob");
-        args.add("--color=never");
+        args.add(pattern);
+        args.add("--sortr=modified");
+        args.add("--no-ignore");
         args.add("--hidden");
-        args.add("--no-require-git");
-        args.add("--max-results");
-        args.add(String.valueOf(limit));
-
-        String effectivePattern = pattern;
-        if (pattern.contains("/")) {
-            args.add("--full-path");
-            if (!pattern.startsWith("/") && !pattern.startsWith("**/") && !pattern.equals("**")) {
-                effectivePattern = "**/" + pattern;
-            }
+        for (String ignoredVcsDir : List.of("!.git/**", "!.svn/**", "!.hg/**", "!.bzr/**", "!.jj/**", "!.sl/**")) {
+            args.add("--glob");
+            args.add(ignoredVcsDir);
         }
-        args.add("--");
-        args.add(effectivePattern);
         args.add(resolvedPath.toString());
 
         Process process = new ProcessBuilder(args)
                 .redirectErrorStream(false)
+                .directory(accessPolicy.root().toFile())
                 .start();
         AutoCloseable cancelRegistration = context.cancellationToken().onCancel(process::destroyForcibly);
         try {
@@ -145,36 +130,39 @@ public class FindTool implements ToolDefinition {
             Duration timeout = context.remainingTimeoutOr(Duration.ofSeconds(30));
             if (timeout.isZero()) {
                 process.destroyForcibly();
-                throw new IOException("fd timed out");
+                throw new IOException("ripgrep timed out");
             }
             boolean finished = process.waitFor(Math.max(1L, timeout.toMillis()), TimeUnit.MILLISECONDS);
             if (!finished) {
                 process.destroyForcibly();
                 context.throwIfCancellationRequested();
-                throw new IOException("fd timed out");
+                throw new IOException("ripgrep timed out");
             }
             context.throwIfCancellationRequested();
             int exitCode = process.exitValue();
-            if (exitCode != 0 && lines.isEmpty()) {
-                String message = stderr.isBlank() ? "fd exited with code " + exitCode : stderr;
+            if (exitCode != 0 && exitCode != 1) {
+                String message = stderr.isBlank() ? "ripgrep exited with code " + exitCode : stderr;
                 throw new IOException(message);
             }
 
-            List<String> returned = new ArrayList<>();
+            List<String> filenames = new ArrayList<>();
             for (String line : lines) {
                 String cleaned = line.replace("\r", "").trim();
-                if (cleaned.isEmpty()) {
-                    continue;
+                if (!cleaned.isEmpty()) {
+                    filenames.add(displayPath(cleaned));
                 }
-                returned.add(relativizeOutput(resolvedPath, cleaned));
             }
-            boolean resultLimitReached = returned.size() >= limit;
-            String rawOutput = returned.isEmpty() ? "No files found matching pattern" : String.join("\n", returned);
+
+            boolean resultLimitReached = filenames.size() > ToolOutputLimits.GLOB_DEFAULT_LIMIT;
+            List<String> returned = filenames.size() <= ToolOutputLimits.GLOB_DEFAULT_LIMIT
+                    ? filenames
+                    : filenames.subList(0, ToolOutputLimits.GLOB_DEFAULT_LIMIT);
+            String rawOutput = returned.isEmpty() ? "No files found" : String.join("\n", returned);
             TextOutputTruncator.TruncationResult truncation = TextOutputTruncator.truncateHead(rawOutput, ToolOutputLimits.DEFAULT_MAX_BYTES);
             String output = truncation.content();
             List<String> notices = new ArrayList<>();
             if (resultLimitReached) {
-                notices.add(limit + " results limit reached. Use limit=" + (limit * 2) + " for more, or refine pattern");
+                notices.add("Results are truncated. Consider using a more specific path or pattern");
             }
             if (truncation.truncated()) {
                 notices.add(TextOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES) + " limit reached");
@@ -183,18 +171,14 @@ public class FindTool implements ToolDefinition {
                 output += "\n\n[" + String.join(". ", notices) + "]";
             }
 
-            List<String> preview = returned.size() <= 20
-                    ? List.copyOf(returned)
-                    : List.copyOf(returned.subList(0, 20));
             Map<String, Object> details = new LinkedHashMap<>();
-            details.put("kind", "find");
+            details.put("kind", "glob");
             details.put("pattern", pattern);
             details.put("path", requestedPath);
             details.put("resolvedPath", resolvedPath.toString());
-            details.put("resultCount", returned.size());
-            details.put("limitReached", resultLimitReached);
-            details.put("truncated", truncation.truncated());
-            details.put("filesPreview", preview);
+            details.put("numFiles", returned.size());
+            details.put("filenames", List.copyOf(returned));
+            details.put("truncated", resultLimitReached || truncation.truncated());
 
             return ToolExecutionResult.builder()
                     .contents(ToolExecutionResult.text(output).getContents())
@@ -203,15 +187,6 @@ public class FindTool implements ToolDefinition {
                     .build();
         } finally {
             closeQuietly(cancelRegistration);
-        }
-    }
-
-    private void closeQuietly(AutoCloseable closeable) {
-        try {
-            if (closeable != null) {
-                closeable.close();
-            }
-        } catch (Exception ignored) {
         }
     }
 
@@ -240,49 +215,27 @@ public class FindTool implements ToolDefinition {
         return output.toString();
     }
 
-    private String relativizeOutput(Path searchPath, String outputLine) {
-        boolean trailingSlash = outputLine.endsWith("/") || outputLine.endsWith("\\");
-        Path outputPath = Path.of(outputLine);
-        String relative;
-        if (outputPath.isAbsolute()) {
-            Path normalized = outputPath.toAbsolutePath().normalize();
-            if (normalized.startsWith(searchPath)) {
-                relative = toPosix(searchPath.relativize(normalized));
-            } else {
-                relative = toPosix(searchPath.relativize(normalized));
-            }
-        } else {
-            relative = outputLine;
-            while (relative.startsWith("./") || relative.startsWith(".\\")) {
-                relative = relative.substring(2);
-            }
+    private String displayPath(String outputLine) {
+        Path path = Path.of(outputLine);
+        Path absolutePath = path.isAbsolute()
+                ? path.toAbsolutePath().normalize()
+                : accessPolicy.root().resolve(path).toAbsolutePath().normalize();
+        if (absolutePath.startsWith(accessPolicy.root())) {
+            return toPosix(accessPolicy.root().relativize(absolutePath));
         }
-        relative = relative.replace('\\', '/');
-        if (trailingSlash && !relative.endsWith("/")) {
-            relative += "/";
+        return toPosix(absolutePath);
+    }
+
+    private void closeQuietly(AutoCloseable closeable) {
+        try {
+            if (closeable != null) {
+                closeable.close();
+            }
+        } catch (Exception ignored) {
         }
-        return relative;
     }
 
     private static String toPosix(Path path) {
         return path.toString().replace('\\', '/');
-    }
-
-    private Optional<String> findOnPath(String executable) {
-        String path = System.getenv("PATH");
-        if (path == null || path.isBlank()) {
-            return Optional.empty();
-        }
-        String separator = System.getProperty("path.separator");
-        for (String entry : path.split(java.util.regex.Pattern.quote(separator))) {
-            if (entry.isBlank()) {
-                continue;
-            }
-            Path candidate = Path.of(entry).resolve(executable);
-            if (Files.isExecutable(candidate)) {
-                return Optional.of(candidate.toString());
-            }
-        }
-        return Optional.empty();
     }
 }

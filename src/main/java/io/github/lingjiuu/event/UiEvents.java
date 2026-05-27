@@ -27,7 +27,7 @@ import io.github.lingjiuu.protocol.UiTokenUsage;
 import io.github.lingjiuu.protocol.UiToolCall;
 import io.github.lingjiuu.protocol.UiToolResult;
 import io.github.lingjiuu.protocol.UiToolUpdate;
-import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.permission.ApprovalRequest;
 import io.github.lingjiuu.tool.permission.ApprovalResponse;
@@ -99,7 +99,7 @@ public final class UiEvents {
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
-            ToolDefinition toolDefinition
+            Tool toolDefinition
     ) {
         return event(UiEventType.ITEM_STARTED, turnContext)
                 .payload(new UiEventPayloads.ItemStarted(
@@ -117,7 +117,7 @@ public final class UiEvents {
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
-            ToolDefinition toolDefinition,
+            Tool toolDefinition,
             String text
     ) {
         UiItem item = itemKind == UiItemKind.TOOL_CALL
@@ -141,7 +141,7 @@ public final class UiEvents {
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
-            ToolDefinition toolDefinition,
+            Tool toolDefinition,
             String delta
     ) {
         return event(UiEventType.TOOL_CALL_ARGUMENTS_DELTA, turnContext)
@@ -159,7 +159,7 @@ public final class UiEvents {
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
-            ToolDefinition toolDefinition
+            Tool toolDefinition
     ) {
         return event(UiEventType.TOOL_CALL_ARGUMENTS_DONE, turnContext)
                 .payload(new UiEventPayloads.ToolArgumentsDone(toolCallItem(
@@ -174,7 +174,7 @@ public final class UiEvents {
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
-            ToolDefinition toolDefinition,
+            Tool toolDefinition,
             TurnContext turnContext
     ) {
         return event(UiEventType.TOOL_CALL, turnContext)
@@ -186,7 +186,7 @@ public final class UiEvents {
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
-            ToolDefinition toolDefinition,
+            Tool toolDefinition,
             TurnContext turnContext
     ) {
         return event(UiEventType.TOOL_EXECUTION_BEGIN, turnContext)
@@ -202,7 +202,7 @@ public final class UiEvents {
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
-            ToolDefinition toolDefinition,
+            Tool toolDefinition,
             ToolExecutionResult partialResult,
             Long durationMs,
             TurnContext turnContext
@@ -220,7 +220,7 @@ public final class UiEvents {
             String sourceItemId,
             Integer contentIndex,
             ToolCallContent toolCall,
-            ToolDefinition toolDefinition,
+            Tool toolDefinition,
             ToolResultMessage toolResult,
             String status,
             Long durationMs,
@@ -421,7 +421,7 @@ public final class UiEvents {
             String itemId,
             Integer contentIndex,
             ToolCallContent toolCall,
-            ToolDefinition toolDefinition
+            Tool toolDefinition
     ) {
         if (toolCall == null) {
             return null;
@@ -535,7 +535,7 @@ public final class UiEvents {
         return null;
     }
 
-    private static String toolDisplayName(ToolCallContent toolCall, ToolDefinition toolDefinition) {
+    private static String toolDisplayName(ToolCallContent toolCall, Tool toolDefinition) {
         if (toolDefinition != null && toolDefinition.label() != null && !toolDefinition.label().isBlank()) {
             return toolDefinition.label();
         }
@@ -547,8 +547,9 @@ public final class UiEvents {
         if (arguments instanceof JsonNode node && node.isObject()) {
             return switch (toolName == null ? "" : toolName) {
                 case "bash" -> jsonText(node, "command");
-                case "read", "write", "edit", "ls" -> jsonText(node, "path");
-                case "find" -> joinSummary(
+                case "read", "write", "edit" -> jsonText(node, "file_path");
+                case "ls" -> jsonText(node, "path");
+                case "glob" -> joinSummary(
                         jsonText(node, "pattern"),
                         prefixed("in ", jsonText(node, "path"))
                 );
@@ -565,8 +566,9 @@ public final class UiEvents {
         }
         return switch (toolName == null ? "" : toolName) {
             case "bash" -> stringValue(map.get("command"));
-            case "read", "write", "edit", "ls" -> stringValue(map.get("path"));
-            case "find" -> joinSummary(
+            case "read", "write", "edit" -> stringValue(map.get("file_path"));
+            case "ls" -> stringValue(map.get("path"));
+            case "glob" -> joinSummary(
                     stringValue(map.get("pattern")),
                     prefixed("in ", stringValue(map.get("path")))
             );

@@ -70,28 +70,32 @@ type ToolHistory = {
   id: string;
   toolCall: NonNullable<AppState['turns'][string]['items'][number]['toolCall']>;
   toolResult: NonNullable<AppState['turns'][string]['items'][number]['toolResult']>;
+  cwd?: string;
 };
 
-export function toolHistoryState({ id, toolCall, toolResult }: ToolHistory): AppState {
-  return reducer(initialState, {
-    type: 'history',
-    history: {
-      sessionId: 'session-1',
-      turns: [
-        {
-          turnId: 'turn-1',
-          status: 'COMPLETED',
-          items: [
-            {
-              id,
-              kind: 'TOOL_CALL',
-              status: 'COMPLETED',
-              toolCall,
-              toolResult,
-            },
-          ],
-        },
-      ],
+export function toolHistoryState({ id, toolCall, toolResult, cwd }: ToolHistory): AppState {
+  return reducer(
+    cwd ? { ...initialState, session: { ...initialState.session, cwd } } : initialState,
+    {
+      type: 'history',
+      history: {
+        sessionId: 'session-1',
+        turns: [
+          {
+            turnId: 'turn-1',
+            status: 'COMPLETED',
+            items: [
+              {
+                id,
+                kind: 'TOOL_CALL',
+                status: 'COMPLETED',
+                toolCall,
+                toolResult,
+              },
+            ],
+          },
+        ],
+      },
     },
-  });
+  );
 }

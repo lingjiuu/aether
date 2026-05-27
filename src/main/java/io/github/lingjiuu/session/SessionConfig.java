@@ -6,7 +6,8 @@ import io.github.lingjiuu.model.ReasoningOptions;
 import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.provider.ProviderAuth;
 import io.github.lingjiuu.provider.ProviderEndpoint;
-import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.tool.Tool;
+import io.github.lingjiuu.tool.permission.PermissionPreset;
 import io.github.lingjiuu.transcript.TranscriptStore;
 
 import java.nio.file.Path;
@@ -21,17 +22,46 @@ public record SessionConfig(
         Path cwd,
         ModelSelection modelSelection,
         TranscriptStore transcriptStore,
-        List<ToolDefinition> toolDefinitions,
-        List<String> activeToolNames
+        List<Tool> tools,
+        List<String> activeToolNames,
+        PermissionPreset permissionPreset
 ) {
+
+    public SessionConfig(
+            ModelClient modelClient,
+            String baseInstructions,
+            String developerInstructions,
+            String userInstructions,
+            List<Path> instructionSources,
+            Path cwd,
+            ModelSelection modelSelection,
+            TranscriptStore transcriptStore,
+            List<Tool> tools,
+            List<String> activeToolNames
+    ) {
+        this(
+                modelClient,
+                baseInstructions,
+                developerInstructions,
+                userInstructions,
+                instructionSources,
+                cwd,
+                modelSelection,
+                transcriptStore,
+                tools,
+                activeToolNames,
+                PermissionPreset.DEFAULT
+        );
+    }
 
     public SessionConfig {
         baseInstructions = baseInstructions == null ? "" : baseInstructions;
         developerInstructions = developerInstructions == null ? "" : developerInstructions;
         userInstructions = userInstructions == null ? "" : userInstructions;
         instructionSources = instructionSources == null ? List.of() : List.copyOf(instructionSources);
-        toolDefinitions = toolDefinitions == null ? List.of() : List.copyOf(toolDefinitions);
+        tools = tools == null ? List.of() : List.copyOf(tools);
         activeToolNames = activeToolNames == null ? null : List.copyOf(activeToolNames);
+        permissionPreset = permissionPreset == null ? PermissionPreset.DEFAULT : permissionPreset;
     }
 
     public ModelInfo model() {
@@ -63,8 +93,25 @@ public record SessionConfig(
                 cwd,
                 selection,
                 transcriptStore,
-                toolDefinitions,
-                activeToolNames
+                tools,
+                activeToolNames,
+                permissionPreset
+        );
+    }
+
+    public SessionConfig withPermissionPreset(PermissionPreset preset) {
+        return new SessionConfig(
+                modelClient,
+                baseInstructions,
+                developerInstructions,
+                userInstructions,
+                instructionSources,
+                cwd,
+                modelSelection,
+                transcriptStore,
+                tools,
+                activeToolNames,
+                preset
         );
     }
 }

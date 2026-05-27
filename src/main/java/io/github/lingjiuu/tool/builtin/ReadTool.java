@@ -2,10 +2,11 @@ package io.github.lingjiuu.tool.builtin;
 
 import io.github.lingjiuu.message.content.ImageContent;
 import io.github.lingjiuu.message.content.TextContent;
-import io.github.lingjiuu.tool.ToolDefinition;
-import io.github.lingjiuu.tool.ToolExecutionContext;
+import io.github.lingjiuu.tool.Tool;
+import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.file.ReadFileState;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
 import java.io.IOException;
@@ -18,9 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ReadTool implements ToolDefinition {
-
-    private static final String OUTSIDE_WORKSPACE_DENIAL = "用户拒绝了此次调用";
+public class ReadTool implements Tool {
 
     private final WorkspaceAccessPolicy accessPolicy;
 
@@ -43,7 +42,8 @@ public class ReadTool implements ToolDefinition {
 
     @Override
     public String description() {
-        return "Read the contents of a workspace file. Supports text files and images (jpg, png, gif, webp). "
+        return "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). "
+                + "Text results are returned with line numbers; do not include those line numbers when editing. "
                 + "Images are sent as attachments. For text files, output is truncated to "
                 + TextOutputTruncator.formatSize(ToolOutputLimits.READ_MAX_BYTES)
                 + ". Supports offset and limit for large text files. When more text remains, continue with offset.";
@@ -54,11 +54,11 @@ public class ReadTool implements ToolDefinition {
         return Map.of(
                 "type", "object",
                 "properties", Map.of(
-                        "path", Map.of("type", "string", "description", "Workspace file path to read."),
+                        "file_path", Map.of("type", "string", "description", "File path to read."),
                         "offset", Map.of("type", "integer", "minimum", 1, "description", "Line number to start reading from, 1-indexed."),
                         "limit", Map.of("type", "integer", "minimum", 1, "description", "Maximum number of lines to read.")
                 ),
-                "required", List.of("path"),
+                "required", List.of("file_path"),
                 "additionalProperties", false
         );
     }
@@ -69,31 +69,13 @@ public class ReadTool implements ToolDefinition {
     }
 
     @Override
-    public String promptSnippet() {
-        return "Read file contents";
-    }
-
-    @Override
-    public List<String> promptGuidelines() {
-        return List.of("Use read to examine files found by ls, find, or grep.");
-    }
-
-    @Override
-    public ToolExecutionResult execute(ToolExecutionContext context) {
+    public ToolExecutionResult execute(ToolInvocation context) {
         String requestedPath;
         try {
             context.throwIfCancellationRequested();
-            requestedPath = ToolArguments.requiredString(context.getArguments(), "path");
-            Path resolvedPath;
-            try {
-                resolvedPath = accessPolicy.resolveReadablePath(requestedPath);
-            } catch (IllegalArgumentException e) {
-                if (isOutsideWorkspaceError(e)) {
-                    return ToolExecutionResult.errorText(OUTSIDE_WORKSPACE_DENIAL);
-                }
-                throw e;
-            }
-            ToolExecutionResult result = readFile(requestedPath, resolvedPath, context.getArguments());
+            requestedPath = ToolArguments.requiredString(context.getArguments(), "file_path");
+            Path resolvedPath = accessPolicy.resolveReadablePath(requestedPath);
+            ToolExecutionResult result = readFile(requestedPath, resolvedPath, context.getArguments(), context.readFileState());
             context.throwIfCancellationRequested();
             return result;
         } catch (Exception e) {
@@ -108,7 +90,12 @@ public class ReadTool implements ToolDefinition {
         return ToolArguments.optionalPositiveInt(arguments, "limit", 1);
     }
 
-    private ToolExecutionResult readFile(String requestedPath, Path resolvedPath, Map<String, Object> arguments) throws IOException {
+    private ToolExecutionResult readFile(
+            String requestedPath,
+            Path resolvedPath,
+            Map<String, Object> arguments,
+            ReadFileState readFileState
+    ) throws IOException {
         if (!Files.exists(resolvedPath)) {
             throw new IOException("Path not found: " + requestedPath);
         }
@@ -129,6 +116,14 @@ public class ReadTool implements ToolDefinition {
         String content = Files.readString(resolvedPath, StandardCharsets.UTF_8);
         List<String> lines = splitLines(content);
         int totalLines = lines.size();
+        if (totalLines == 0) {
+            recordTextRead(readFileState, resolvedPath, content, true);
+            return ToolExecutionResult.builder()
+                    .contents(ToolExecutionResult.text("[File is empty.]").getContents())
+                    .details(textReadDetails(requestedPath, resolvedPath, offset, limit, 0, 0, false, false))
+                    .error(false)
+                    .build();
+        }
         int startIndex = offset - 1;
         if (startIndex >= totalLines) {
             throw new IOException("Offset " + offset + " is beyond end of file (" + totalLines + " lines total)");
@@ -153,7 +148,7 @@ public class ReadTool implements ToolDefinition {
             returnedLines = 0;
             hasMore = true;
         } else {
-            output = truncation.content();
+            output = formatNumberedLines(truncation.content(), offset, returnedLines);
             List<String> notices = new ArrayList<>();
             if (truncated) {
                 int endLineDisplay = Math.max(offset, offset + returnedLines - 1);
@@ -170,11 +165,23 @@ public class ReadTool implements ToolDefinition {
             }
         }
 
+        recordTextRead(readFileState, resolvedPath, content, offset == 1 && !hasMore);
         return ToolExecutionResult.builder()
                 .contents(ToolExecutionResult.text(output).getContents())
                 .details(textReadDetails(requestedPath, resolvedPath, offset, limit, returnedLines, totalLines, truncated, hasMore))
                 .error(false)
                 .build();
+    }
+
+    private void recordTextRead(ReadFileState readFileState, Path resolvedPath, String content, boolean fullRead) throws IOException {
+        if (readFileState == null) {
+            return;
+        }
+        if (fullRead) {
+            readFileState.recordFull(resolvedPath, content, Files.getLastModifiedTime(resolvedPath));
+        } else {
+            readFileState.recordPartial(resolvedPath, Files.getLastModifiedTime(resolvedPath));
+        }
     }
 
     private ToolExecutionResult readImageFile(String requestedPath, Path resolvedPath, String mimeType) throws IOException {
@@ -252,14 +259,29 @@ public class ReadTool implements ToolDefinition {
         return details;
     }
 
-    private boolean isOutsideWorkspaceError(IllegalArgumentException e) {
-        return e.getMessage() != null && e.getMessage().contains("outside the allowed root");
+    private String formatNumberedLines(String content, int startLine, int lineCount) {
+        List<String> lines = new ArrayList<>(splitLines(content));
+        while (lines.size() < lineCount) {
+            lines.add("");
+        }
+        List<String> numbered = new ArrayList<>();
+        for (int i = 0; i < lines.size(); i++) {
+            numbered.add(String.format(java.util.Locale.ROOT, "%6d\t%s", startLine + i, lines.get(i)));
+        }
+        return String.join("\n", numbered);
     }
 
     private List<String> splitLines(String content) {
         String normalized = (content == null ? "" : content)
                 .replace("\r\n", "\n")
                 .replace("\r", "\n");
-        return List.of(normalized.split("\n", -1));
+        if (normalized.isEmpty()) {
+            return List.of();
+        }
+        String[] parts = normalized.split("\n", -1);
+        if (normalized.endsWith("\n")) {
+            return List.of(java.util.Arrays.copyOf(parts, parts.length - 1));
+        }
+        return List.of(parts);
     }
 }

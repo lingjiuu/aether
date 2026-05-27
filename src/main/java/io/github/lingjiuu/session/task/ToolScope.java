@@ -2,17 +2,15 @@ package io.github.lingjiuu.session.task;
 
 import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.session.turn.TurnContext;
-import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.session.Session;
-import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolExecutionResult;
-import io.github.lingjiuu.tool.ToolRunResult;
+import io.github.lingjiuu.tool.ToolRouter;
 import io.github.lingjiuu.tool.permission.ApprovalId;
 import io.github.lingjiuu.tool.permission.ApprovalRequest;
 import io.github.lingjiuu.tool.permission.ApprovalResponse;
 import io.github.lingjiuu.tool.permission.PermissionDecision;
-import io.github.lingjiuu.tool.permission.PermissionMode;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -59,13 +57,13 @@ final class ToolScope implements AutoCloseable {
         return new ToolScope(session, context, turnContext);
     }
 
-    void fork(AssistantMessage assistantMessage, ToolCallRef toolCallRef) {
+    void fork(ToolCallRef toolCallRef) {
         if (closed || context.isCancelled() || toolCallRef == null || toolCallRef.toolCall() == null) {
             return;
         }
         emitToolCallScheduled(toolCallRef);
         long startedAtNanos = System.nanoTime();
-        Future<ToolOutcome> future = executor.submit(() -> runToolCall(assistantMessage, toolCallRef, startedAtNanos));
+        Future<ToolOutcome> future = executor.submit(() -> runToolCall(toolCallRef, startedAtNanos));
         tasks.add(new ToolTask(toolCallRef, future, startedAtNanos));
     }
 
@@ -137,27 +135,22 @@ final class ToolScope implements AutoCloseable {
         executor.shutdownNow();
     }
 
-    private ToolOutcome runToolCall(
-            AssistantMessage assistantMessage,
-            ToolCallRef toolCallRef,
-            long startedAtNanos
-    ) {
+    private ToolOutcome runToolCall(ToolCallRef toolCallRef, long startedAtNanos) {
         if (context.isCancelled()) {
             return abortedOutcome(toolCallRef, startedAtNanos);
         }
         ToolCallContent toolCall = toolCallRef.toolCall();
-        ToolDefinition toolDefinition = session.toolRegistry().findDefinition(toolCall.getToolName());
-        ToolRunResult prepared = session.toolRunner().prepare(
-                assistantMessage,
+        ToolRouter.PreparedToolCall prepared = session.toolRouter().buildInvocation(
                 toolCall,
                 activeToolNames,
                 context.cancellationToken(),
                 null,
-                partialResult -> session.events().emit(UiEvents.toolExecutionUpdate(
+                session.readFileState(),
+                (tool, partialResult) -> session.events().emit(UiEvents.toolExecutionUpdate(
                         toolCallRef.itemId(),
                         toolCallRef.contentIndex(),
                         toolCall,
-                        toolDefinition,
+                        tool,
                         partialResult,
                         elapsedMillis(startedAtNanos),
                         turnContext
@@ -170,13 +163,13 @@ final class ToolScope implements AutoCloseable {
             return abortedOutcome(toolCallRef, startedAtNanos);
         }
 
-        Lock executionLock = prepared.definition().supportsParallelToolCalls()
+        Lock executionLock = prepared.tool().supportsParallelToolCalls()
                 ? parallelLock.readLock()
                 : parallelLock.writeLock();
         try {
             executionLock.lockInterruptibly();
             try {
-                emitToolExecutionBegin(toolCallRef, toolDefinition);
+                emitToolExecutionBegin(toolCallRef, prepared.tool());
                 ToolOutcome outcome = runPreparedToolCall(toolCallRef, prepared, startedAtNanos);
                 if (context.isCancelled()) {
                     return abortedOutcome(toolCallRef, startedAtNanos);
@@ -196,24 +189,24 @@ final class ToolScope implements AutoCloseable {
 
     private ToolOutcome runPreparedToolCall(
             ToolCallRef toolCallRef,
-            ToolRunResult prepared,
+            ToolRouter.PreparedToolCall prepared,
             long startedAtNanos
     ) {
         if (context.isCancelled()) {
             return abortedOutcome(toolCallRef, startedAtNanos);
         }
-        PermissionDecision decision = session.permissionManager().decide(prepared.invocation(), prepared.context());
+        PermissionDecision decision = session.permissionManager().decide(prepared.invocation());
         if (decision == null || decision.allowed()) {
-            return completedOutcome(toolCallRef, session.toolRunner().run(prepared), startedAtNanos);
+            return completedOutcome(toolCallRef, session.toolRouter().dispatch(prepared), startedAtNanos);
         }
 
-        if (decision.mode() == PermissionMode.ASK) {
+        if (decision.action() == PermissionDecision.Action.ASK) {
             ApprovalResponse response = session.requestApproval(approvalRequest(prepared, decision), turnContext);
             if (response != null && response.approved()) {
                 if (context.isCancelled()) {
                     return abortedOutcome(toolCallRef, startedAtNanos);
                 }
-                return completedOutcome(toolCallRef, session.toolRunner().run(prepared), startedAtNanos);
+                return completedOutcome(toolCallRef, session.toolRouter().dispatch(prepared), startedAtNanos);
             }
             String reason = response == null || response.reason() == null || response.reason().isBlank()
                     ? "Tool permission was not approved."
@@ -227,7 +220,7 @@ final class ToolScope implements AutoCloseable {
         return declinedOutcome(toolCallRef, "Tool permission denied: " + reason, startedAtNanos);
     }
 
-    private void emitToolExecutionBegin(ToolCallRef toolCallRef, ToolDefinition toolDefinition) {
+    private void emitToolExecutionBegin(ToolCallRef toolCallRef, Tool toolDefinition) {
         session.events().emit(UiEvents.toolExecutionBegin(
                 toolCallRef.itemId(),
                 toolCallRef.contentIndex(),
@@ -336,24 +329,24 @@ final class ToolScope implements AutoCloseable {
         return TimeUnit.NANOSECONDS.toMillis(elapsedNanos);
     }
 
-    private ApprovalRequest approvalRequest(ToolRunResult prepared, PermissionDecision decision) {
+    private ApprovalRequest approvalRequest(ToolRouter.PreparedToolCall prepared, PermissionDecision decision) {
         return new ApprovalRequest(
                 ApprovalId.create(),
-                prepared.invocation().definition().name(),
-                prepared.context().getToolCallId(),
-                prepared.invocation().definition().riskLevel(),
-                prepared.context().getArguments(),
+                prepared.tool().name(),
+                prepared.invocation().toolCallId(),
+                prepared.tool().riskLevel(),
+                prepared.invocation().getArguments(),
                 decision.reason()
         );
     }
 
     private void emitToolCallScheduled(ToolCallRef toolCallRef) {
-        ToolDefinition toolDefinition = session.toolRegistry().findDefinition(toolCallRef.toolCall().getToolName());
+        Tool tool = session.toolRegistry().findTool(toolCallRef.toolCall().getToolName());
         session.events().emit(UiEvents.toolCall(
                 toolCallRef.itemId(),
                 toolCallRef.contentIndex(),
                 toolCallRef.toolCall(),
-                toolDefinition,
+                tool,
                 turnContext
         ));
     }

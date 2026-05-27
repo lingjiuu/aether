@@ -11,7 +11,6 @@ import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.wire.WireReplayData;
 import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.skill.SkillInjection;
-import io.github.lingjiuu.tool.ToolDefinition;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 
 import java.nio.file.Path;
@@ -147,12 +146,6 @@ public class ContextBuilder {
             </additional_instructions>
             """.trim();
 
-    private static final String TOOL_CONTEXT_TEMPLATE = """
-            <tool_context>
-            %s
-            </tool_context>
-            """.trim();
-
     private static final String AVAILABLE_SKILLS_CONTEXT_TEMPLATE = """
             <available_skills>
             %s
@@ -173,13 +166,6 @@ public class ContextBuilder {
         return contextMessage(
                 ContextMessage.ContextKind.INFORMATIONAL,
                 ADDITIONAL_INSTRUCTIONS_CONTEXT_TEMPLATE.formatted(instructions.trim())
-        );
-    }
-
-    public ContextMessage toolInstructionsMessage(List<ToolDefinition> activeTools) {
-        return contextMessage(
-                ContextMessage.ContextKind.INFORMATIONAL,
-                TOOL_CONTEXT_TEMPLATE.formatted(ContextMessageText.toolInstructions(activeTools))
         );
     }
 

@@ -1,56 +1,78 @@
 package io.github.lingjiuu.tool;
 
-import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
+import io.github.lingjiuu.tool.file.ReadFileState;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
-public final class ToolInvocation {
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Consumer;
 
-    private final AssistantMessage assistantMessage;
-    private final ToolCallContent toolCall;
-    private final ToolDefinition definition;
+@Getter
+@Builder(toBuilder = true)
+@NoArgsConstructor
+@AllArgsConstructor
+public class ToolInvocation {
 
-    private ToolInvocation(
-            AssistantMessage assistantMessage,
-            ToolCallContent toolCall,
-            ToolDefinition definition
-    ) {
-        if (toolCall == null) {
-            throw new IllegalArgumentException("toolCall must not be null");
-        }
-        this.assistantMessage = assistantMessage;
-        this.toolCall = toolCall;
-        this.definition = definition;
-    }
+    private Tool tool;
 
-    public static ToolInvocation of(
-            AssistantMessage assistantMessage,
-            ToolCallContent toolCall,
-            ToolDefinition definition
-    ) {
-        return new ToolInvocation(assistantMessage, toolCall, definition);
-    }
+    private ToolCallContent toolCall;
 
-    public AssistantMessage assistantMessage() {
-        return assistantMessage;
-    }
+    @Builder.Default
+    private Map<String, Object> arguments = Map.of();
 
-    public ToolCallContent toolCall() {
-        return toolCall;
-    }
+    @Builder.Default
+    private ToolCancellationToken cancellationToken = ToolCancellationToken.none();
 
-    public ToolDefinition definition() {
-        return definition;
-    }
+    private Instant deadline;
+
+    private Consumer<ToolExecutionResult> updateSink;
+
+    private ReadFileState readFileState;
 
     public String toolName() {
-        return toolCall.getToolName();
+        return toolCall == null ? null : toolCall.getToolName();
     }
 
     public String toolCallId() {
-        return toolCall.getToolCallId();
+        return toolCall == null ? null : toolCall.getToolCallId();
     }
 
-    public boolean hasDefinition() {
-        return definition != null;
+    public ToolCancellationToken cancellationToken() {
+        return cancellationToken == null ? ToolCancellationToken.none() : cancellationToken;
+    }
+
+    public void throwIfCancellationRequested() {
+        cancellationToken().throwIfCancellationRequested();
+    }
+
+    public Optional<Duration> remainingTimeout() {
+        if (deadline == null) {
+            return Optional.empty();
+        }
+        Duration remaining = Duration.between(Instant.now(), deadline);
+        if (remaining.isNegative() || remaining.isZero()) {
+            return Optional.of(Duration.ZERO);
+        }
+        return Optional.of(remaining);
+    }
+
+    public Duration remainingTimeoutOr(Duration fallback) {
+        return remainingTimeout().orElse(fallback);
+    }
+
+    public void emitUpdate(ToolExecutionResult partialResult) {
+        if (updateSink != null && partialResult != null) {
+            updateSink.accept(partialResult);
+        }
+    }
+
+    public ReadFileState readFileState() {
+        return readFileState;
     }
 }

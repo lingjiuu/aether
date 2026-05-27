@@ -4,7 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-final class TextOutputTruncator {
+public final class TextOutputTruncator {
 
     private TextOutputTruncator() {
     }
@@ -141,7 +141,7 @@ final class TextOutputTruncator {
         return new LineTruncation(safeLine.substring(0, maxChars) + "... [truncated]", true);
     }
 
-    static String formatSize(int bytes) {
+    public static String formatSize(int bytes) {
         if (bytes < 1024) {
             return bytes + "B";
         }

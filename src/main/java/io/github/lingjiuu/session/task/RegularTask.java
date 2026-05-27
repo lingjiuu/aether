@@ -13,7 +13,7 @@ import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
-import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.tool.Tool;
 
 import java.util.List;
 
@@ -153,7 +153,7 @@ public class RegularTask implements SessionTask {
                     event.getItemId(),
                     event.getContentIndex(),
                     event.getToolCall(),
-                    session.toolRegistry().findDefinition(event.getToolName())
+                    session.toolRegistry().findTool(event.getToolName())
             ));
             case TEXT_DELTA -> session.events().emit(UiEvents.assistantTextDelta(
                     turnContext,
@@ -172,7 +172,7 @@ public class RegularTask implements SessionTask {
                     event.getItemId(),
                     event.getContentIndex(),
                     event.getToolCall(),
-                    session.toolRegistry().findDefinition(event.getToolName()),
+                    session.toolRegistry().findTool(event.getToolName()),
                     event.getDelta()
             ));
             case TEXT_END -> completeTextItem(session, turnContext, event);
@@ -243,7 +243,7 @@ public class RegularTask implements SessionTask {
                 event.getItemId(),
                 event.getContentIndex(),
                 event.getToolCall(),
-                session.toolRegistry().findDefinition(event.getToolName())
+                session.toolRegistry().findTool(event.getToolName())
         ));
         session.events().emit(UiEvents.itemCompleted(
                 turnContext,
@@ -251,10 +251,10 @@ public class RegularTask implements SessionTask {
                 event.getItemId(),
                 event.getContentIndex(),
                 event.getToolCall(),
-                session.toolRegistry().findDefinition(event.getToolName()),
+                session.toolRegistry().findTool(event.getToolName()),
                 event.getToolCall().getArgumentsJson()
         ));
-        toolScope.fork(assistantMessage, new ToolCallRef(
+        toolScope.fork(new ToolCallRef(
                 event.getItemId(),
                 event.getContentIndex(),
                 event.getToolCall()
@@ -278,7 +278,7 @@ public class RegularTask implements SessionTask {
             if (toolResult == null) {
                 continue;
             }
-            ToolDefinition toolDefinition = session.toolRegistry().findDefinition(
+            Tool tool = session.toolRegistry().findTool(
                     toolCallRef.toolCall() == null ? null : toolCallRef.toolCall().getToolName()
             );
             session.recordConversationMessage(toolResult, turnContext);
@@ -286,7 +286,7 @@ public class RegularTask implements SessionTask {
                     toolCallRef.itemId(),
                     toolCallRef.contentIndex(),
                     toolCallRef.toolCall(),
-                    toolDefinition,
+                    tool,
                     toolResult,
                     outcome.status(),
                     outcome.durationMs(),

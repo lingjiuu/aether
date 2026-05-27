@@ -18,7 +18,7 @@ export type {
   ToolUseView,
 } from './tools/types.js';
 
-export function toolUseView(item: TimelineItem): ToolUseView {
+export function toolUseView(item: TimelineItem, cwd?: string | null): ToolUseView {
   const toolCall = item.toolCall;
   const toolName = normalizedToolName(item);
   const args = toolArguments(toolCall)
@@ -27,7 +27,7 @@ export function toolUseView(item: TimelineItem): ToolUseView {
   const presenter = presenterFor(toolName);
   const name = presenter?.userFacingName?.(toolName, toolCall)
     ?? defaultUserFacingName(toolName, toolCall);
-  const summary = presenter?.useSummary?.(args, toolCall, toolName)
+  const summary = presenter?.useSummary?.(args, toolCall, toolName, cwd)
     ?? defaultToolUseSummary(args, toolCall, toolName);
   return summary ? { name, summary } : { name };
 }
@@ -45,7 +45,7 @@ export function toolProgressView(item: TimelineItem): ToolResultView {
   return { lines: [{ text: updateText || 'Running...', tone: 'dim' }] };
 }
 
-export function toolResultView(item: TimelineItem): ToolResultView {
+export function toolResultView(item: TimelineItem, cwd?: string | null): ToolResultView {
   const result = item.toolResult;
   if (!result) {
     return { lines: [] };
@@ -53,7 +53,7 @@ export function toolResultView(item: TimelineItem): ToolResultView {
 
   const details = detailsRecord(result.details) ?? {};
   const kind = detailsKind(details, result, item.toolCall);
-  return presenterFor(kind)?.resultView?.(details, result)
+  return presenterFor(kind)?.resultView?.(details, result, cwd)
     ?? fallbackResultView(result);
 }
 

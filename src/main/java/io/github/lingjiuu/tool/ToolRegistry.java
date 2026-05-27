@@ -9,82 +9,112 @@ import java.util.Set;
 
 public class ToolRegistry {
 
-    private final Map<String, ToolDefinition> definitionsByName = new LinkedHashMap<>();
+    private final Map<String, Tool> toolsByName = new LinkedHashMap<>();
 
     public ToolRegistry() {
     }
 
-    public void register(ToolDefinition definition) {
-        if (definition == null) {
-            throw new IllegalArgumentException("tool definition must not be null");
+    public void register(Tool tool) {
+        if (tool == null) {
+            throw new IllegalArgumentException("tool must not be null");
         }
-        if (definition.name() == null || definition.name().isBlank()) {
-            throw new IllegalArgumentException("tool definition name must not be blank");
+        if (tool.name() == null || tool.name().isBlank()) {
+            throw new IllegalArgumentException("tool name must not be blank");
         }
-        definitionsByName.put(definition.name(), definition);
+        if (toolsByName.containsKey(tool.name())) {
+            throw new IllegalArgumentException("Tool already registered: " + tool.name());
+        }
+        toolsByName.put(tool.name(), tool);
     }
 
     public int size() {
-        return definitionsByName.size();
+        return toolsByName.size();
     }
 
-    public List<ToolDefinition> definitions() {
-        return List.copyOf(new ArrayList<>(definitionsByName.values()));
+    public List<Tool> tools() {
+        return List.copyOf(new ArrayList<>(toolsByName.values()));
     }
 
-    public ToolDefinition findDefinition(String name) {
+    public Tool findTool(String name) {
         if (name == null || name.isBlank()) {
             return null;
         }
-        return definitionsByName.get(name);
+        return toolsByName.get(name);
     }
 
-    public ToolDefinition requireDefinition(String name) {
-        ToolDefinition definition = definitionsByName.get(name);
-        if (definition == null) {
-            throw new IllegalArgumentException("Unsupported tool: " + name);
-        }
-        return definition;
-    }
-
-    public List<ToolDefinition> activeDefinitions(List<String> activeToolNames) {
+    public List<Tool> activeTools(List<String> activeToolNames) {
         if (activeToolNames == null) {
-            return definitions();
+            return tools();
         }
 
+        Set<String> requestedNames = requestedToolNames(activeToolNames);
+
+        List<Tool> activeTools = new ArrayList<>();
+        for (String name : requestedNames) {
+            Tool tool = findTool(name);
+            if (tool != null) {
+                activeTools.add(tool);
+            }
+        }
+        return List.copyOf(activeTools);
+    }
+
+    public ToolResolution resolve(String name, List<String> activeToolNames) {
+        if (name == null || name.isBlank()) {
+            return ToolResolution.unsupported(name);
+        }
+
+        Tool tool = findTool(name);
+        if (tool == null) {
+            return ToolResolution.unsupported(name);
+        }
+
+        if (activeToolNames != null && !requestedToolNames(activeToolNames).contains(name)) {
+            return ToolResolution.inactive(name);
+        }
+
+        return ToolResolution.found(tool);
+    }
+
+    private Set<String> requestedToolNames(List<String> activeToolNames) {
         Set<String> requestedNames = new LinkedHashSet<>();
         for (String name : activeToolNames) {
             if (name != null && !name.isBlank()) {
                 requestedNames.add(name);
             }
         }
-
-        List<ToolDefinition> activeDefinitions = new ArrayList<>();
-        for (String name : requestedNames) {
-            ToolDefinition definition = findDefinition(name);
-            if (definition != null) {
-                activeDefinitions.add(definition);
-            }
-        }
-        return List.copyOf(activeDefinitions);
+        return requestedNames;
     }
 
-    public ToolDefinition findActiveDefinition(String name, List<String> activeToolNames) {
-        if (name == null || name.isBlank()) {
-            return null;
-        }
-        if (activeToolNames == null) {
-            return findDefinition(name);
-        }
-        for (ToolDefinition definition : activeDefinitions(activeToolNames)) {
-            if (name.equals(definition.name())) {
-                return definition;
+    public record ToolResolution(
+            ToolResolutionStatus status,
+            String name,
+            Tool tool
+    ) {
+
+        public static ToolResolution found(Tool tool) {
+            if (tool == null) {
+                throw new IllegalArgumentException("tool must not be null");
             }
+            return new ToolResolution(ToolResolutionStatus.FOUND, tool.name(), tool);
         }
-        return null;
+
+        public static ToolResolution inactive(String name) {
+            return new ToolResolution(ToolResolutionStatus.INACTIVE, name, null);
+        }
+
+        public static ToolResolution unsupported(String name) {
+            return new ToolResolution(ToolResolutionStatus.UNSUPPORTED, name, null);
+        }
+
+        public boolean found() {
+            return status == ToolResolutionStatus.FOUND && tool != null;
+        }
     }
 
-    public boolean isRegistered(String name) {
-        return findDefinition(name) != null;
+    public enum ToolResolutionStatus {
+        FOUND,
+        INACTIVE,
+        UNSUPPORTED
     }
 }

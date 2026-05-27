@@ -16,49 +16,38 @@ public class WorkspaceAccessPolicy {
         return new WorkspaceAccessPolicy(root);
     }
 
-    public Path resolveReadablePath(String path) {
+    public Path resolvePath(String path) {
         if (path == null || path.isBlank()) {
             throw new IllegalArgumentException("path must not be blank");
         }
 
         Path requested = Path.of(path);
-        Path resolved = requested.isAbsolute()
+        return requested.isAbsolute()
                 ? requested.toAbsolutePath().normalize()
                 : root.resolve(requested).toAbsolutePath().normalize();
-        Path checked = normalizeExistingPath(resolved);
-        if (!checked.startsWith(root)) {
-            throw new IllegalArgumentException("Path is outside the allowed root: " + path);
-        }
-        return checked;
+    }
+
+    public Path resolveReadablePath(String path) {
+        return normalizeForAccess(resolvePath(path));
     }
 
     public Path resolveWritablePath(String path) {
-        if (path == null || path.isBlank()) {
-            throw new IllegalArgumentException("path must not be blank");
-        }
+        return normalizeForAccess(resolvePath(path));
+    }
 
-        Path requested = Path.of(path);
-        Path resolved = requested.isAbsolute()
-                ? requested.toAbsolutePath().normalize()
-                : root.resolve(requested).toAbsolutePath().normalize();
-        if (!resolved.startsWith(root)) {
-            throw new IllegalArgumentException("Path is outside the allowed root: " + path);
+    public boolean isInsideWorkspace(String path) {
+        try {
+            return isInsideWorkspace(resolvePath(path));
+        } catch (RuntimeException e) {
+            return false;
         }
-        if (Files.exists(resolved)) {
-            Path checked = normalizeExistingPath(resolved);
-            if (!checked.startsWith(root)) {
-                throw new IllegalArgumentException("Path is outside the allowed root: " + path);
-            }
-            return checked;
-        }
+    }
 
-        Path parent = resolved.getParent();
-        Path nearestExistingParent = nearestExistingParent(parent);
-        Path checkedParent = normalizeExistingPath(nearestExistingParent);
-        if (!checkedParent.startsWith(root)) {
-            throw new IllegalArgumentException("Path is outside the allowed root: " + path);
+    public boolean isInsideWorkspace(Path path) {
+        if (path == null) {
+            return false;
         }
-        return resolved;
+        return normalizeForAccess(path.toAbsolutePath().normalize()).startsWith(root);
     }
 
     public Path root() {
@@ -87,6 +76,23 @@ public class WorkspaceAccessPolicy {
             } catch (IOException e) {
                 return path;
             }
+        }
+        return path;
+    }
+
+    private Path normalizeForAccess(Path path) {
+        if (Files.exists(path)) {
+            return normalizeExistingPath(path);
+        }
+
+        Path parent = path.getParent();
+        Path nearestExistingParent = nearestExistingParent(parent);
+        Path checkedParent = normalizeExistingPath(nearestExistingParent);
+        try {
+            if (nearestExistingParent != null && path.startsWith(nearestExistingParent)) {
+                return checkedParent.resolve(nearestExistingParent.relativize(path)).normalize();
+            }
+        } catch (IllegalArgumentException ignored) {
         }
         return path;
     }

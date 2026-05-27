@@ -13,10 +13,10 @@ import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.model.ReasoningOptions;
 import io.github.lingjiuu.provider.ProviderEndpoint;
 import io.github.lingjiuu.skill.SkillsManager;
-import io.github.lingjiuu.tool.ToolDefinition;
-import io.github.lingjiuu.tool.builtin.BashTool;
+import io.github.lingjiuu.tool.Tool;
+import io.github.lingjiuu.tool.builtin.bash.BashTool;
 import io.github.lingjiuu.tool.builtin.EditTool;
-import io.github.lingjiuu.tool.builtin.FindTool;
+import io.github.lingjiuu.tool.builtin.GlobTool;
 import io.github.lingjiuu.tool.builtin.GrepTool;
 import io.github.lingjiuu.tool.builtin.LsTool;
 import io.github.lingjiuu.tool.builtin.ReadTool;
@@ -148,7 +148,7 @@ public class SessionFactory {
         InstructionsManager instructions = new InstructionsManager(resolvedCwd, resolvedAgentDir);
         AgentsMdInstructions agentsMdInstructions = instructions.loadAgentsMdInstructions();
 
-        List<ToolDefinition> toolDefinitions = buildDefaultTools(resolvedCwd);
+        List<Tool> tools = buildDefaultTools(resolvedCwd);
         return new SessionConfig(
                 modelClient,
                 instructions.baseInstructions(),
@@ -158,9 +158,9 @@ public class SessionFactory {
                 resolvedCwd,
                 modelSelection,
                 transcriptStore,
-                toolDefinitions,
-                toolDefinitions.stream()
-                        .map(ToolDefinition::name)
+                tools,
+                tools.stream()
+                        .map(Tool::name)
                         .toList()
         );
     }
@@ -276,12 +276,12 @@ public class SessionFactory {
         );
     }
 
-    private static List<ToolDefinition> buildDefaultTools(Path cwd) {
+    private static List<Tool> buildDefaultTools(Path cwd) {
         Path root = cwd == null ? Path.of(System.getProperty("user.dir")) : cwd;
         WorkspaceAccessPolicy accessPolicy = WorkspaceAccessPolicy.rootedAt(root);
         return List.of(
                 new LsTool(accessPolicy),
-                new FindTool(accessPolicy),
+                new GlobTool(accessPolicy),
                 new GrepTool(accessPolicy),
                 new ReadTool(accessPolicy),
                 new WriteTool(accessPolicy),

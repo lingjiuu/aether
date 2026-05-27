@@ -155,7 +155,7 @@ describe('bottom renderer', () => {
           approvalId: 'approval-1',
           toolName: 'write',
           riskLevel: 'medium',
-          arguments: { path: '滕王阁序.md' },
+          arguments: { file_path: '滕王阁序.md' },
           reason: 'Create a new file',
         },
       },

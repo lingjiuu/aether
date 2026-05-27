@@ -1,12 +1,14 @@
-package io.github.lingjiuu.tool.builtin;
+package io.github.lingjiuu.tool.builtin.bash;
 
 import io.github.lingjiuu.message.content.TextContent;
-import io.github.lingjiuu.tool.ToolExecutionContext;
+import io.github.lingjiuu.message.content.ToolCallContent;
+import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import junit.framework.TestCase;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 public class BashToolTest extends TestCase {
@@ -15,10 +17,8 @@ public class BashToolTest extends TestCase {
         Path root = Files.createTempDirectory("aether-bash-tool-test");
         BashTool tool = new BashTool(root);
 
-        ToolExecutionResult result = tool.execute(ToolExecutionContext.builder()
-                .toolCallId("call-1")
-                .toolName("bash")
-                .argumentsJson("{\"command\":\"printf out; printf err >&2; exit 7\"}")
+        ToolExecutionResult result = tool.execute(ToolInvocation.builder()
+                .toolCall(toolCall("bash", "{\"command\":\"printf out; printf err >&2; exit 7\"}"))
                 .arguments(Map.of("command", "printf out; printf err >&2; exit 7"))
                 .build());
 
@@ -53,10 +53,8 @@ public class BashToolTest extends TestCase {
         Path root = Files.createTempDirectory("aether-bash-tool-test");
         BashTool tool = new BashTool(root);
 
-        ToolExecutionResult result = tool.execute(ToolExecutionContext.builder()
-                .toolCallId("call-1")
-                .toolName("bash")
-                .argumentsJson("{\"command\":\"true\"}")
+        ToolExecutionResult result = tool.execute(ToolInvocation.builder()
+                .toolCall(toolCall("bash", "{\"command\":\"true\"}"))
                 .arguments(Map.of("command", "true"))
                 .build());
 
@@ -68,5 +66,26 @@ public class BashToolTest extends TestCase {
         assertEquals("", details.get("stderr"));
         assertEquals("", details.get("aggregatedOutput"));
         assertFalse(details.containsKey("outputPreview"));
+    }
+
+    public void testBashOutputCaptureKeepsTailAndPersistsFullOutput() throws Exception {
+        BashOutputCapture output = new BashOutputCapture(2, 100);
+        String fullOutput = "line-1\nline-2\nline-3\nline-4";
+
+        output.appendStdout(fullOutput.getBytes(StandardCharsets.UTF_8), fullOutput.getBytes(StandardCharsets.UTF_8).length);
+
+        BashOutputCapture.Snapshot snapshot = output.snapshot(true);
+        assertTrue(snapshot.stdout().truncated());
+        assertEquals("line-3\nline-4", snapshot.stdout().content());
+        assertNotNull(snapshot.stdout().fullOutputPath());
+        assertEquals(fullOutput, Files.readString(snapshot.stdout().fullOutputPath(), StandardCharsets.UTF_8));
+    }
+
+    private ToolCallContent toolCall(String toolName, String argumentsJson) {
+        return ToolCallContent.builder()
+                .toolCallId("call-1")
+                .toolName(toolName)
+                .argumentsJson(argumentsJson)
+                .build();
     }
 }

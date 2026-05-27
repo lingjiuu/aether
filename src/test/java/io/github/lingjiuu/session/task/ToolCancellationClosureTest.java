@@ -16,10 +16,11 @@ import io.github.lingjiuu.wire.WireSession;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.session.SessionFactory;
-import io.github.lingjiuu.tool.ToolDefinition;
-import io.github.lingjiuu.tool.ToolExecutionContext;
+import io.github.lingjiuu.tool.Tool;
+import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.permission.PermissionPreset;
 import junit.framework.TestCase;
 
 import java.nio.file.Path;
@@ -80,7 +81,8 @@ public class ToolCancellationClosureTest extends TestCase {
                 .build();
         Session session = new SessionFactory(sessionConfig(
                         new FakeProvider(toolCall, toolCallEmitted, streamMayFinish),
-                        new SlowTool(toolStarted, "bash", ToolRiskLevel.READ_ONLY)
+                        new SlowTool(toolStarted, "bash", ToolRiskLevel.READ_ONLY),
+                        PermissionPreset.FULL_ACCESS
                 ))
                 .openSession();
 
@@ -104,7 +106,11 @@ public class ToolCancellationClosureTest extends TestCase {
         assertTrue(resultText.matches("Wall time: \\d+\\.\\d seconds\\naborted by user"));
     }
 
-    private SessionConfig sessionConfig(WireAdapter provider, ToolDefinition tool) {
+    private SessionConfig sessionConfig(WireAdapter provider, Tool tool) {
+        return sessionConfig(provider, tool, PermissionPreset.DEFAULT);
+    }
+
+    private SessionConfig sessionConfig(WireAdapter provider, Tool tool, PermissionPreset permissionPreset) {
         return new SessionConfig(
                 new ModelClient(new WireAdapterRegistry().register(provider)),
                 "You are a test agent.",
@@ -115,7 +121,8 @@ public class ToolCancellationClosureTest extends TestCase {
                 TestModelSelections.fakeSelection(),
                 null,
                 List.of(tool),
-                List.of(tool.name())
+                List.of(tool.name()),
+                permissionPreset
         );
     }
 
@@ -181,7 +188,7 @@ public class ToolCancellationClosureTest extends TestCase {
         }
     }
 
-    private record SlowTool(CountDownLatch toolStarted, String name, ToolRiskLevel riskLevel) implements ToolDefinition {
+    private record SlowTool(CountDownLatch toolStarted, String name, ToolRiskLevel riskLevel) implements Tool {
         private SlowTool(CountDownLatch toolStarted) {
             this(toolStarted, "slow", ToolRiskLevel.READ_ONLY);
         }
@@ -215,7 +222,7 @@ public class ToolCancellationClosureTest extends TestCase {
         }
 
         @Override
-        public ToolExecutionResult execute(ToolExecutionContext context) {
+        public ToolExecutionResult execute(ToolInvocation context) {
             toolStarted.countDown();
             while (!context.cancellationToken().isCancellationRequested()) {
                 try {

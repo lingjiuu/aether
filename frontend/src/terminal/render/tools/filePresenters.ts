@@ -1,6 +1,7 @@
 import type { ToolLine, ToolLineTone, ToolPresentationDefinition, ToolPresenter, ToolResultView } from './types.js';
 import { fallbackResultView } from './fallbackPresenter.js';
 import {
+  displayPath,
   formatBytes,
   numberField,
   pathSummary,
@@ -32,8 +33,11 @@ export const readPresenter: ToolPresenter = {
 export const writePresenter: ToolPresenter = {
   userFacingName: () => 'Write',
   useSummary: pathSummary,
-  resultView(details): ToolResultView {
-    const path = stringField(details, 'path') ?? 'file';
+  resultView(details, result, cwd): ToolResultView {
+    if (result.error) {
+      return fallbackResultView(result);
+    }
+    const path = displayPath(stringField(details, 'path'), cwd) ?? 'file';
     const lineCount = numberField(details, 'lineCount');
     if (lineCount != null) {
       return { lines: [{ text: `Wrote ${lineCount} ${plural(lineCount, 'line', 'lines')} to ${path}`, tone: 'dim' }] };
@@ -50,15 +54,23 @@ export const writePresenter: ToolPresenter = {
 export const editPresenter: ToolPresenter = {
   userFacingName: () => 'Update',
   useSummary: pathSummary,
-  resultView(details): ToolResultView {
-    const path = stringField(details, 'path') ?? 'file';
+  resultView(details, result, cwd): ToolResultView {
+    if (result.error) {
+      return fallbackResultView(result);
+    }
+    const path = displayPath(stringField(details, 'path'), cwd) ?? 'file';
     const editCount = numberField(details, 'editCount');
+    const diffLines = compactDiffLines(splitOutputLines(stringField(details, 'diffText')));
+    const changed = diffStats(diffLines.all);
     const summary = editCount == null
       ? `Updated ${path}`
       : `Updated ${path} with ${editCount} ${plural(editCount, 'edit', 'edits')}`;
     const lines: ToolLine[] = [{ text: summary, tone: 'dim' }];
+    if (changed.total > 0) {
+      lines.push({ text: `${changed.added} added, ${changed.removed} removed`, tone: 'dim' });
+    }
 
-    for (const diffLine of splitOutputLines(stringField(details, 'diffText'))) {
+    for (const diffLine of diffLines.visible) {
       lines.push({ text: diffLine, tone: diffTone(diffLine) });
     }
     return { lines };
@@ -79,4 +91,28 @@ function diffTone(line: string): ToolLineTone {
     return 'success';
   }
   return 'dim';
+}
+
+function compactDiffLines(lines: string[]): { all: string[]; visible: string[] } {
+  const maxLines = 14;
+  if (lines.length <= maxLines) {
+    return { all: lines, visible: lines };
+  }
+
+  const headCount = 5;
+  const tailCount = 5;
+  return {
+    all: lines,
+    visible: [
+      ...lines.slice(0, headCount),
+      `... ${lines.length - headCount - tailCount} diff lines hidden`,
+      ...lines.slice(-tailCount),
+    ],
+  };
+}
+
+function diffStats(lines: string[]): { added: number; removed: number; total: number } {
+  const added = lines.filter(diffLine => diffLine.startsWith('+')).length;
+  const removed = lines.filter(diffLine => diffLine.startsWith('-')).length;
+  return { added, removed, total: added + removed };
 }

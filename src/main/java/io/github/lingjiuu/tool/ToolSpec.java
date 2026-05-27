@@ -1,34 +1,68 @@
-package io.github.lingjiuu.tool.validation;
+package io.github.lingjiuu.tool;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.lingjiuu.tool.ToolDefinition;
 
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-public class ToolSchemaValidator {
+public record ToolSpec(
+        String name,
+        String label,
+        String description,
+        Map<String, Object> parametersSchema,
+        ToolRiskLevel riskLevel
+) {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
 
-    public Map<String, Object> validate(ToolDefinition definition, String argumentsJson) {
+    public ToolSpec {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("tool name must not be blank");
+        }
+        label = label == null || label.isBlank() ? name : label;
+        description = description == null ? "" : description;
+        parametersSchema = parametersSchema == null ? Map.of() : Map.copyOf(parametersSchema);
+        riskLevel = riskLevel == null ? ToolRiskLevel.UNKNOWN : riskLevel;
+    }
+
+    public static ToolSpec of(
+            String name,
+            String label,
+            String description,
+            Map<String, Object> parametersSchema,
+            ToolRiskLevel riskLevel
+    ) {
+        return new ToolSpec(
+                name,
+                label,
+                description,
+                parametersSchema,
+                riskLevel
+        );
+    }
+
+    public Map<String, Object> validateArguments(String argumentsJson) {
+        return validateArguments(argumentsJson, null);
+    }
+
+    public Map<String, Object> validateArguments(String argumentsJson, ToolArgumentPreparer preparer) {
         try {
             String json = argumentsJson == null || argumentsJson.isBlank() ? "{}" : argumentsJson;
             JsonNode argumentsNode = OBJECT_MAPPER.readTree(json);
             Object rawArguments = OBJECT_MAPPER.convertValue(argumentsNode, Object.class);
-            Object preparedArguments = definition.prepareArguments(rawArguments);
+            Object preparedArguments = preparer == null ? rawArguments : preparer.prepareArguments(rawArguments);
             JsonNode preparedNode = OBJECT_MAPPER.valueToTree(preparedArguments);
             if (preparedNode == null || !preparedNode.isObject()) {
                 throw new IllegalArgumentException("Tool arguments must be a JSON object");
             }
 
-            JsonNode parametersNode = definition.parametersSchema() == null
+            JsonNode parametersNode = parametersSchema.isEmpty()
                     ? null
-                    : OBJECT_MAPPER.valueToTree(definition.parametersSchema());
-
+                    : OBJECT_MAPPER.valueToTree(parametersSchema);
             if (parametersNode != null) {
                 validateNode(preparedNode, parametersNode, "");
             }
@@ -44,7 +78,7 @@ public class ToolSchemaValidator {
         }
     }
 
-    private void validateNode(JsonNode value, JsonNode schema, String path) {
+    private static void validateNode(JsonNode value, JsonNode schema, String path) {
         if (schema == null || schema.isMissingNode() || schema.isNull()) {
             return;
         }
@@ -67,7 +101,7 @@ public class ToolSchemaValidator {
         }
     }
 
-    private void validateType(JsonNode value, JsonNode schema, String path) {
+    private static void validateType(JsonNode value, JsonNode schema, String path) {
         JsonNode typeNode = schema.get("type");
         if (typeNode == null || typeNode.isNull()) {
             return;
@@ -91,7 +125,7 @@ public class ToolSchemaValidator {
         }
     }
 
-    private boolean matchesType(JsonNode value, String type) {
+    private static boolean matchesType(JsonNode value, String type) {
         return switch (type) {
             case "object" -> value.isObject();
             case "array" -> value.isArray();
@@ -104,7 +138,7 @@ public class ToolSchemaValidator {
         };
     }
 
-    private void validateObject(JsonNode value, JsonNode schema, String path) {
+    private static void validateObject(JsonNode value, JsonNode schema, String path) {
         if (!value.isObject()) {
             return;
         }
@@ -142,7 +176,7 @@ public class ToolSchemaValidator {
         }
     }
 
-    private void validateArray(JsonNode value, JsonNode schema, String path) {
+    private static void validateArray(JsonNode value, JsonNode schema, String path) {
         if (!value.isArray()) {
             return;
         }
@@ -155,7 +189,7 @@ public class ToolSchemaValidator {
         }
     }
 
-    private void validateEnum(JsonNode value, JsonNode schema, String path) {
+    private static void validateEnum(JsonNode value, JsonNode schema, String path) {
         JsonNode enumNode = schema.get("enum");
         if (enumNode == null || !enumNode.isArray()) {
             return;
@@ -168,7 +202,7 @@ public class ToolSchemaValidator {
         throw new IllegalArgumentException(field(path) + " must be one of " + enumNode);
     }
 
-    private void validateNumber(JsonNode value, JsonNode schema, String path) {
+    private static void validateNumber(JsonNode value, JsonNode schema, String path) {
         JsonNode minimum = schema.get("minimum");
         if (minimum != null && minimum.isNumber() && value.asDouble() < minimum.asDouble()) {
             throw new IllegalArgumentException(field(path) + " must be >= " + minimum.asText());
@@ -179,7 +213,7 @@ public class ToolSchemaValidator {
         }
     }
 
-    private void validateString(JsonNode value, JsonNode schema, String path) {
+    private static void validateString(JsonNode value, JsonNode schema, String path) {
         JsonNode minLength = schema.get("minLength");
         if (minLength != null && minLength.isIntegralNumber() && value.asText().length() < minLength.asInt()) {
             throw new IllegalArgumentException(field(path) + " length must be >= " + minLength.asInt());
@@ -190,7 +224,7 @@ public class ToolSchemaValidator {
         }
     }
 
-    private String primaryType(JsonNode schema) {
+    private static String primaryType(JsonNode schema) {
         JsonNode type = schema.get("type");
         if (type == null) {
             return null;
@@ -204,15 +238,15 @@ public class ToolSchemaValidator {
         return null;
     }
 
-    private String childPath(String parent, String child) {
+    private static String childPath(String parent, String child) {
         return parent == null || parent.isBlank() ? child : parent + "." + child;
     }
 
-    private String field(String path) {
+    private static String field(String path) {
         return path == null || path.isBlank() ? "root" : path;
     }
 
-    private String typeName(String type) {
+    private static String typeName(String type) {
         return switch (type) {
             case "object" -> "object";
             case "array" -> "array";
@@ -225,10 +259,15 @@ public class ToolSchemaValidator {
         };
     }
 
-    private String article(String type) {
+    private static String article(String type) {
         return switch (type) {
             case "object", "array", "integer" -> "an ";
             default -> "a ";
         };
+    }
+
+    @FunctionalInterface
+    public interface ToolArgumentPreparer {
+        Object prepareArguments(Object arguments);
     }
 }

@@ -1,9 +1,10 @@
 package io.github.lingjiuu.tool.builtin;
 
-import io.github.lingjiuu.tool.ToolDefinition;
-import io.github.lingjiuu.tool.ToolExecutionContext;
+import io.github.lingjiuu.tool.Tool;
+import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.file.ReadFileState;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
 import java.io.IOException;
@@ -14,9 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class WriteTool implements ToolDefinition {
-
-    private static final String OUTSIDE_WORKSPACE_DENIAL = "用户拒绝了此次调用";
+public class WriteTool implements Tool {
 
     private final WorkspaceAccessPolicy accessPolicy;
 
@@ -39,7 +38,8 @@ public class WriteTool implements ToolDefinition {
 
     @Override
     public String description() {
-        return "Create or overwrite a workspace text file, creating parent directories as needed.";
+        return "Write a text file, creating parent directories as needed. "
+                + "Existing files must be read first; prefer edit for small changes.";
     }
 
     @Override
@@ -47,10 +47,10 @@ public class WriteTool implements ToolDefinition {
         return Map.of(
                 "type", "object",
                 "properties", Map.of(
-                        "path", Map.of("type", "string", "description", "Workspace file path to write."),
+                        "file_path", Map.of("type", "string", "description", "File path to write."),
                         "content", Map.of("type", "string", "description", "UTF-8 text content to write.")
                 ),
-                "required", List.of("path", "content"),
+                "required", List.of("file_path", "content"),
                 "additionalProperties", false
         );
     }
@@ -61,41 +61,24 @@ public class WriteTool implements ToolDefinition {
     }
 
     @Override
-    public String promptSnippet() {
-        return "Create or overwrite files";
-    }
-
-    @Override
-    public List<String> promptGuidelines() {
-        return List.of(
-                "Use write for new files or complete rewrites.",
-                "Prefer edit for targeted changes to existing files."
-        );
-    }
-
-    @Override
-    public ToolExecutionResult execute(ToolExecutionContext context) {
+    public ToolExecutionResult execute(ToolInvocation context) {
         try {
             context.throwIfCancellationRequested();
-            String requestedPath = ToolArguments.requiredString(context.getArguments(), "path");
+            String requestedPath = ToolArguments.requiredString(context.getArguments(), "file_path");
             String content = requiredContent(context.getArguments());
-            Path resolvedPath;
-            try {
-                resolvedPath = accessPolicy.resolveWritablePath(requestedPath);
-            } catch (IllegalArgumentException e) {
-                if (isOutsideWorkspaceError(e)) {
-                    return ToolExecutionResult.errorText(OUTSIDE_WORKSPACE_DENIAL);
-                }
-                throw e;
-            }
+            Path resolvedPath = accessPolicy.resolveWritablePath(requestedPath);
 
             boolean existedBefore = Files.exists(resolvedPath);
+            if (existedBefore) {
+                ensureExistingFileCanBeWritten(context.readFileState(), requestedPath, resolvedPath);
+            }
             Path parent = resolvedPath.getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
             }
             context.throwIfCancellationRequested();
             Files.writeString(resolvedPath, content, StandardCharsets.UTF_8);
+            recordWrite(context.readFileState(), resolvedPath, content);
             context.throwIfCancellationRequested();
 
             int bytes = content.getBytes(StandardCharsets.UTF_8).length;
@@ -103,7 +86,7 @@ public class WriteTool implements ToolDefinition {
             details.put("kind", "write");
             details.put("path", requestedPath);
             details.put("resolvedPath", resolvedPath.toString());
-            details.put("operation", existedBefore ? "overwrite" : "create");
+            details.put("operation", existedBefore ? "update" : "create");
             details.put("chars", content.length());
             details.put("bytes", bytes);
             details.put("lineCount", lineCount(content));
@@ -129,8 +112,35 @@ public class WriteTool implements ToolDefinition {
         return stringValue;
     }
 
-    private boolean isOutsideWorkspaceError(IllegalArgumentException e) {
-        return e.getMessage() != null && e.getMessage().contains("outside the allowed root");
+    private void ensureExistingFileCanBeWritten(
+            ReadFileState readFileState,
+            String requestedPath,
+            Path resolvedPath
+    ) throws IOException {
+        if (!Files.isRegularFile(resolvedPath)) {
+            throw new IOException("Not a file: " + requestedPath);
+        }
+        if (readFileState == null) {
+            throw new IllegalStateException("File has not been read yet. Read it first before writing to it.");
+        }
+        ReadFileState.Snapshot snapshot = readFileState.get(resolvedPath);
+        if (snapshot == null) {
+            throw new IllegalStateException("File has not been read yet. Read it first before writing to it.");
+        }
+        if (snapshot.partial()) {
+            throw new IllegalStateException("File was only partially read. Read the full file before writing to it.");
+        }
+
+        String currentContent = Files.readString(resolvedPath, StandardCharsets.UTF_8);
+        if (!currentContent.equals(snapshot.content())) {
+            throw new IllegalStateException("File has been modified since read. Read it again before writing to it.");
+        }
+    }
+
+    private void recordWrite(ReadFileState readFileState, Path resolvedPath, String content) throws IOException {
+        if (readFileState != null) {
+            readFileState.recordFull(resolvedPath, content, Files.getLastModifiedTime(resolvedPath));
+        }
     }
 
     private String firstLine(String content) {

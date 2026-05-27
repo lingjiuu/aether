@@ -32,21 +32,24 @@ import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.skill.SkillsManager;
 import io.github.lingjiuu.skill.SkillsWatcher;
 import io.github.lingjiuu.tool.ToolCancellationToken;
-import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolCancellationSource;
+import io.github.lingjiuu.tool.file.ReadFileState;
 import io.github.lingjiuu.tool.ToolRegistry;
-import io.github.lingjiuu.tool.ToolRunner;
+import io.github.lingjiuu.tool.ToolRouter;
 import io.github.lingjiuu.tool.permission.ApprovalHandler;
 import io.github.lingjiuu.tool.permission.ApprovalRequest;
 import io.github.lingjiuu.tool.permission.ApprovalResponse;
 import io.github.lingjiuu.tool.permission.DenyAllApprovalHandler;
 import io.github.lingjiuu.tool.permission.PermissionManager;
+import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import io.github.lingjiuu.transcript.TranscriptRecorder;
 import io.github.lingjiuu.transcript.TranscriptReconstruction;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
 import io.github.lingjiuu.transcript.item.TurnContextItem;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -61,10 +64,11 @@ public class Session implements AutoCloseable {
     private final TranscriptRecorder transcriptRecorder;
     private final EventManager eventManager;
     private final ToolRegistry toolRegistry;
-    private final ToolRunner toolRunner;
+    private final ToolRouter toolRouter;
+    private final ReadFileState readFileState = new ReadFileState();
     private final SkillsManager skillsManager;
     private final SkillsWatcher skillsWatcher;
-    private final PermissionManager permissionManager = new PermissionManager();
+    private final PermissionManager permissionManager;
     private final TaskRunner taskRunner = new TaskRunner();
     private final TurnInputProcessor turnInputProcessor;
     private volatile List<String> activeToolNames;
@@ -132,7 +136,13 @@ public class Session implements AutoCloseable {
         this.config = config;
         this.state = new SessionState(sessionId);
         this.contextManager = new ContextManager(initialMessages);
-        this.toolRegistry = buildToolRegistry(config.toolDefinitions());
+        this.toolRegistry = buildToolRegistry(config.tools());
+        this.permissionManager = new PermissionManager(
+                config.permissionPreset(),
+                WorkspaceAccessPolicy.rootedAt(config.cwd() == null
+                        ? Path.of(System.getProperty("user.dir"))
+                        : config.cwd())
+        );
         this.skillsManager = skillsManager == null ? SkillsManager.empty(config.cwd()) : skillsManager;
         this.activeToolNames = config.activeToolNames();
         this.activeModelSelection = config.modelSelection();
@@ -145,16 +155,16 @@ public class Session implements AutoCloseable {
         if (recordSessionMeta && this.transcriptRecorder != null) {
             this.transcriptRecorder.recordSessionMeta(sessionMeta);
         }
-        this.toolRunner = new ToolRunner(toolRegistry);
+        this.toolRouter = new ToolRouter(toolRegistry);
         state.setInitialContextBaseline(initialContextBaseline);
         this.skillsWatcher = startSkillsWatcher();
         recomputeTokenUsageFromHistory();
     }
 
-    private static ToolRegistry buildToolRegistry(List<ToolDefinition> toolDefinitions) {
+    private static ToolRegistry buildToolRegistry(List<Tool> tools) {
         ToolRegistry registry = new ToolRegistry();
-        for (ToolDefinition definition : toolDefinitions) {
-            registry.register(definition);
+        for (Tool tool : tools) {
+            registry.register(tool);
         }
         return registry;
     }
@@ -193,17 +203,18 @@ public class Session implements AutoCloseable {
         ensureIdle();
         int originalMessageCount = contextManager.snapshot().size();
         replaceCompactedHistory("session reset", List.of(), 0, originalMessageCount, 0);
+        readFileState.clear();
         state.clearTokenUsage();
         clearInitialContextBaseline();
         state.touch();
         eventManager.emit(UiEvents.sessionReset(sessionId()));
     }
 
-    public synchronized void registerTool(ToolDefinition definition) {
-        if (definition == null) {
-            throw new IllegalArgumentException("tool definition must not be null");
+    public synchronized void registerTool(Tool tool) {
+        if (tool == null) {
+            throw new IllegalArgumentException("tool must not be null");
         }
-        toolRegistry.register(definition);
+        toolRegistry.register(tool);
         state.touch();
     }
 
@@ -213,14 +224,14 @@ public class Session implements AutoCloseable {
     }
 
     public List<String> activeToolNames() {
-        return toolRegistry.activeDefinitions(activeToolNames)
+        return toolRegistry.activeTools(activeToolNames)
                 .stream()
-                .map(ToolDefinition::name)
+                .map(Tool::name)
                 .toList();
     }
 
-    public List<ToolDefinition> activeTools() {
-        return toolRegistry.activeDefinitions(activeToolNames);
+    public List<Tool> activeTools() {
+        return toolRegistry.activeTools(activeToolNames);
     }
 
     public synchronized boolean canContinue() {
@@ -328,8 +339,12 @@ public class Session implements AutoCloseable {
         return toolRegistry;
     }
 
-    public ToolRunner toolRunner() {
-        return toolRunner;
+    public ToolRouter toolRouter() {
+        return toolRouter;
+    }
+
+    public ReadFileState readFileState() {
+        return readFileState;
     }
 
     public List<Skill> availableSkills() {
@@ -445,11 +460,6 @@ public class Session implements AutoCloseable {
         String developerInstructions = config.developerInstructions();
         if (hasOneLineText(developerInstructions)) {
             messages.add(contextBuilder.additionalInstructionsMessage(developerInstructions));
-        }
-
-        List<ToolDefinition> tools = activeTools();
-        if (tools.stream().anyMatch(tool -> tool != null && tool.hasModelVisibleInstructions())) {
-            messages.add(contextBuilder.toolInstructionsMessage(tools));
         }
 
         String userInstructions = config.userInstructions();

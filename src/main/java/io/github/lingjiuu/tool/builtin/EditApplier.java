@@ -43,13 +43,13 @@ final class EditApplier {
         for (int i = 0; i < edits.size(); i++) {
             Edit edit = edits.get(i);
             if (edit == null) {
-                throw new IllegalArgumentException(editLabel(i, edits.size()) + " must not be null");
+                throw new IllegalArgumentException(editField(i, edits.size()) + " must not be null");
             }
             String oldText = normalizeLineEndings(edit.oldText());
             if (oldText.isEmpty()) {
-                throw new IllegalArgumentException(editLabel(i, edits.size()) + ".oldText must not be empty");
+                throw new IllegalArgumentException(oldStringField(i, edits.size()) + " must not be empty");
             }
-            normalizedEdits.add(new NormalizedEdit(oldText, normalizeLineEndings(edit.newText())));
+            normalizedEdits.add(new NormalizedEdit(oldText, normalizeLineEndings(edit.newText()), edit.replaceAll()));
         }
 
         String safeContent = normalizedContent == null ? "" : normalizedContent;
@@ -60,16 +60,23 @@ final class EditApplier {
             if (occurrences == 0) {
                 throw new IllegalArgumentException(notFoundMessage(path, i, normalizedEdits.size()));
             }
-            if (occurrences > 1) {
+            if (occurrences > 1 && !edit.replaceAll()) {
                 throw new IllegalArgumentException(duplicateMessage(path, i, normalizedEdits.size(), occurrences));
             }
-            matchedEdits.add(new MatchedEdit(
-                    i,
-                    safeContent.indexOf(edit.oldText()),
-                    edit.oldText().length(),
-                    edit.oldText(),
-                    edit.newText()
-            ));
+            int index = 0;
+            while ((index = safeContent.indexOf(edit.oldText(), index)) >= 0) {
+                matchedEdits.add(new MatchedEdit(
+                        i,
+                        index,
+                        edit.oldText().length(),
+                        edit.oldText(),
+                        edit.newText()
+                ));
+                index += edit.oldText().length();
+                if (!edit.replaceAll()) {
+                    break;
+                }
+            }
         }
 
         matchedEdits.sort(java.util.Comparator.comparingInt(MatchedEdit::matchIndex));
@@ -154,7 +161,10 @@ final class EditApplier {
         }
     }
 
-    record Edit(String oldText, String newText) {
+    record Edit(String oldText, String newText, boolean replaceAll) {
+        Edit(String oldText, String newText) {
+            this(oldText, newText, false);
+        }
     }
 
     record AppliedEdits(
@@ -166,7 +176,7 @@ final class EditApplier {
     ) {
     }
 
-    private record NormalizedEdit(String oldText, String newText) {
+    private record NormalizedEdit(String oldText, String newText, boolean replaceAll) {
     }
 
     private record MatchedEdit(
@@ -178,21 +188,25 @@ final class EditApplier {
     ) {
     }
 
-    private static String editLabel(int editIndex, int totalEdits) {
-        return totalEdits == 1 ? "oldText" : "edits[" + editIndex + "]";
+    private static String oldStringField(int editIndex, int totalEdits) {
+        return totalEdits == 1 ? "old_string" : "edits[" + editIndex + "].old_string";
+    }
+
+    private static String editField(int editIndex, int totalEdits) {
+        return totalEdits == 1 ? "edit" : "edits[" + editIndex + "]";
     }
 
     private static String notFoundMessage(String path, int editIndex, int totalEdits) {
         if (totalEdits == 1) {
-            return "exact oldText not found in " + path;
+            return "exact old_string not found in " + path;
         }
-        return "edits[" + editIndex + "] exact oldText not found in " + path;
+        return "edits[" + editIndex + "] exact old_string not found in " + path;
     }
 
     private static String duplicateMessage(String path, int editIndex, int totalEdits, int occurrences) {
         if (totalEdits == 1) {
-            return "oldText matched multiple times in " + path + "; it must be unique";
+            return "old_string matched multiple times in " + path + "; it must be unique";
         }
-        return "edits[" + editIndex + "] matched " + occurrences + " times in " + path + "; each oldText must be unique";
+        return "edits[" + editIndex + "] matched " + occurrences + " times in " + path + "; each old_string must be unique";
     }
 }

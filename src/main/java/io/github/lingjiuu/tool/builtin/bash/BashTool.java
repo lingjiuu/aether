@@ -1,10 +1,13 @@
-package io.github.lingjiuu.tool.builtin;
+package io.github.lingjiuu.tool.builtin.bash;
 
 import io.github.lingjiuu.tool.ToolCancelledException;
-import io.github.lingjiuu.tool.ToolDefinition;
-import io.github.lingjiuu.tool.ToolExecutionContext;
+import io.github.lingjiuu.tool.Tool;
+import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.builtin.ExecutableFinder;
+import io.github.lingjiuu.tool.builtin.TextOutputTruncator;
+import io.github.lingjiuu.tool.builtin.ToolOutputLimits;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
 import java.io.IOException;
@@ -22,7 +25,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class BashTool implements ToolDefinition {
+public class BashTool implements Tool {
 
     private static final int DEFAULT_TIMEOUT_SECONDS = 120;
 
@@ -77,37 +80,24 @@ public class BashTool implements ToolDefinition {
     }
 
     @Override
-    public String promptSnippet() {
-        return "Execute bash commands";
-    }
-
-    @Override
-    public List<String> promptGuidelines() {
-        return List.of(
-                "Use bash to run tests, builds, formatters, and project commands.",
-                "Prefer grep, find, and ls for file exploration when those tools are available."
-        );
-    }
-
-    @Override
-    public ToolExecutionResult execute(ToolExecutionContext context) {
+    public ToolExecutionResult execute(ToolInvocation context) {
         Instant startedAt = Instant.now();
         Process process = null;
         Thread stdoutReaderThread = null;
         Thread stderrReaderThread = null;
         try {
             context.throwIfCancellationRequested();
-            String command = ToolArguments.requiredString(context.getArguments(), "command");
+            String command = requiredString(context.getArguments(), "command");
             int timeoutSeconds = optionalPositiveNumber(context.getArguments(), "timeout", DEFAULT_TIMEOUT_SECONDS);
             List<String> shellCommand = shellCommand(command);
-            BashOutputAccumulator output = new BashOutputAccumulator();
+            BashOutputCapture output = new BashOutputCapture();
             ProcessBuilder builder = new ProcessBuilder(shellCommand)
                     .directory(workspaceRoot.toFile())
                     .redirectErrorStream(false);
             process = builder.start();
             Process runningProcess = process;
             CountDownLatch readerDone = new CountDownLatch(2);
-            AtomicReference<IOException> readerError = new AtomicReference<>();
+            AtomicReference<Exception> readerError = new AtomicReference<>();
             stdoutReaderThread = new Thread(
                     () -> readOutput(
                             runningProcess.getInputStream(),
@@ -140,7 +130,7 @@ public class BashTool implements ToolDefinition {
                 if (!finished) {
                     destroyProcessTree(process);
                     readerDone.await(1, TimeUnit.SECONDS);
-                    BashOutputAccumulator.Snapshot snapshot = output.snapshot(true);
+                    BashOutputCapture.Snapshot snapshot = output.snapshot(true);
                     return result(command, null, startedAt, snapshot,
                             "Command timed out after " + timeoutSeconds + " seconds", true);
                 }
@@ -149,7 +139,7 @@ public class BashTool implements ToolDefinition {
                     throw readerError.get();
                 }
                 context.throwIfCancellationRequested();
-                BashOutputAccumulator.Snapshot snapshot = output.snapshot(true);
+                BashOutputCapture.Snapshot snapshot = output.snapshot(true);
                 int exitCode = process.exitValue();
                 if (exitCode != 0) {
                     return result(command, exitCode, startedAt, snapshot,
@@ -177,10 +167,10 @@ public class BashTool implements ToolDefinition {
     private void readOutput(
             InputStream input,
             OutputAppender appendOutput,
-            BashOutputAccumulator output,
-            ToolExecutionContext context,
+            BashOutputCapture output,
+            ToolInvocation context,
             CountDownLatch readerDone,
-            AtomicReference<IOException> readerError
+            AtomicReference<Exception> readerError
     ) {
         byte[] buffer = new byte[4096];
         long lastUpdateAt = 0L;
@@ -195,17 +185,17 @@ public class BashTool implements ToolDefinition {
                 }
             }
             emitPartial(output, context);
-        } catch (IOException e) {
+        } catch (Exception e) {
             readerError.set(e);
         } finally {
             readerDone.countDown();
         }
     }
 
-    private void emitPartial(BashOutputAccumulator output, ToolExecutionContext context) {
+    private void emitPartial(BashOutputCapture output, ToolInvocation context) {
         try {
-            BashOutputAccumulator.Snapshot snapshot = output.snapshot(false);
-            String command = ToolArguments.requiredString(context.getArguments(), "command");
+            BashOutputCapture.Snapshot snapshot = output.snapshot(false);
+            String command = requiredString(context.getArguments(), "command");
             context.emitUpdate(ToolExecutionResult.builder()
                     .contents(ToolExecutionResult.text(snapshot.content()).getContents())
                     .details(partialDetails(command, snapshot))
@@ -220,7 +210,7 @@ public class BashTool implements ToolDefinition {
             String command,
             Integer exitCode,
             Instant startedAt,
-            BashOutputAccumulator.Snapshot snapshot,
+            BashOutputCapture.Snapshot snapshot,
             String status,
             boolean error
     ) {
@@ -270,7 +260,7 @@ public class BashTool implements ToolDefinition {
 
     private Map<String, Object> partialDetails(
             String command,
-            BashOutputAccumulator.Snapshot snapshot
+            BashOutputCapture.Snapshot snapshot
     ) {
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("kind", "bash");
@@ -294,7 +284,7 @@ public class BashTool implements ToolDefinition {
         return details;
     }
 
-    private String truncationNotice(BashOutputAccumulator.Snapshot snapshot) {
+    private String truncationNotice(BashOutputCapture.Snapshot snapshot) {
         List<String> notices = new ArrayList<>();
         addTruncationNotice(notices, "stdout", snapshot.stdout());
         addTruncationNotice(notices, "stderr", snapshot.stderr());
@@ -304,12 +294,12 @@ public class BashTool implements ToolDefinition {
     private void addTruncationNotice(
             List<String> notices,
             String streamName,
-            BashOutputAccumulator.StreamSnapshot stream
+            BashOutputCapture.StreamSnapshot stream
     ) {
         if (!stream.truncated() || stream.fullOutputPath() == null) {
             return;
         }
-        TextOutputTruncator.TruncationResult truncation = stream.truncation();
+        BashOutputCapture.StreamTruncation truncation = stream.truncation();
         if (truncation.lastLinePartial()) {
             int line = truncation.totalLines();
             notices.add("[Showing last " + TextOutputTruncator.formatSize(truncation.outputBytes())
@@ -344,10 +334,18 @@ public class BashTool implements ToolDefinition {
         return parsed;
     }
 
+    private String requiredString(Map<String, Object> arguments, String name) {
+        Object value = arguments.get(name);
+        if (!(value instanceof String stringValue) || stringValue.isBlank()) {
+            throw new IllegalArgumentException(name + " must be a non-blank string");
+        }
+        return stringValue;
+    }
+
     private List<String> shellCommand(String command) {
         String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
         if (os.contains("win")) {
-            Optional<String> bash = findOnPath("bash.exe");
+            Optional<String> bash = ExecutableFinder.findOnPath("bash.exe");
             if (bash.isPresent()) {
                 return List.of(bash.get(), "-c", command);
             }
@@ -356,7 +354,7 @@ public class BashTool implements ToolDefinition {
         if (Files.isExecutable(Path.of("/bin/bash"))) {
             return List.of("/bin/bash", "-c", command);
         }
-        Optional<String> bash = findOnPath("bash");
+        Optional<String> bash = ExecutableFinder.findOnPath("bash");
         if (bash.isPresent()) {
             return List.of(bash.get(), "-c", command);
         }
@@ -366,24 +364,6 @@ public class BashTool implements ToolDefinition {
     @FunctionalInterface
     private interface OutputAppender {
         void append(byte[] bytes, int length);
-    }
-
-    private Optional<String> findOnPath(String executable) {
-        String path = System.getenv("PATH");
-        if (path == null || path.isBlank()) {
-            return Optional.empty();
-        }
-        String separator = System.getProperty("path.separator");
-        for (String entry : path.split(java.util.regex.Pattern.quote(separator))) {
-            if (entry.isBlank()) {
-                continue;
-            }
-            Path candidate = Path.of(entry).resolve(executable);
-            if (Files.isExecutable(candidate)) {
-                return Optional.of(candidate.toString());
-            }
-        }
-        return Optional.empty();
     }
 
     private void destroyProcessTree(Process process) {

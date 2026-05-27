@@ -1,11 +1,11 @@
 import type { UiToolResult } from '../../../protocol/wire.js';
-import { formatDuration } from '../../../utils/format.js';
+import { compactText, formatDuration } from '../../../utils/format.js';
 import type { Details, ToolLine, ToolPresentationDefinition, ToolPresenter, ToolResultView } from './types.js';
 import { booleanField, numberField, splitOutputLines, stringField } from './utils.js';
 
 export const bashPresenter: ToolPresenter = {
   userFacingName: () => 'Bash',
-  useSummary: args => stringField(args, 'command'),
+  useSummary: args => bashSummary(args),
   progressView(details): ToolResultView | undefined {
     const output = bashOutputLines(details);
     return output.length ? { lines: [...output, { text: 'Running...', tone: 'dim' }] } : undefined;
@@ -33,6 +33,11 @@ function bashResultView(details: Details, result: UiToolResult): ToolResultView 
   const duration = formatDuration(numberField(details, 'durationMs') ?? result.durationMs);
   const status = result.error ? 'Error' : 'Done';
   return { lines: [{ text: `${status}${duration ? ` ${duration}` : ''}`, tone: result.error ? 'error' : 'dim' }] };
+}
+
+function bashSummary(details: Details | undefined): string | undefined {
+  const command = stringField(details, 'command');
+  return command ? compactText(command, 160) : undefined;
 }
 
 function bashOutputLines(details: Details): ToolLine[] {

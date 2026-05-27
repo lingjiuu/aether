@@ -1,10 +1,12 @@
 import type { UiToolCall, UiToolResult, UiToolUpdate } from '../../../protocol/wire.js';
+import path from 'node:path';
 import { formatToolUseSummary } from '../../../utils/format.js';
 import { stripAnsi } from '../../shared/text.js';
 import type { Details } from './types.js';
 
-export function pathSummary(args: Details | undefined, toolCall: UiToolCall | undefined): string | undefined {
-  return stringField(args, 'path') ?? clean(toolCall?.displaySummary);
+export function pathSummary(args: Details | undefined, toolCall: UiToolCall | undefined, _toolName?: string, cwd?: string | null): string | undefined {
+  const value = stringField(args, 'path') ?? stringField(args, 'file_path') ?? clean(toolCall?.displaySummary);
+  return displayPath(value, cwd);
 }
 
 export function searchSummary(args: Details | undefined, fallback?: string): string | undefined {
@@ -30,7 +32,25 @@ export function defaultToolUseSummary(
   return clean(toolCall?.displaySummary)
     ?? formatToolUseSummary(toolCall?.toolName ?? toolName, toolCall?.argumentsJson, 160)
     ?? stringField(args, 'path')
+    ?? stringField(args, 'file_path')
     ?? stringField(args, 'command');
+}
+
+export function displayPath(value: string | undefined, cwd?: string | null): string | undefined {
+  if (!value || !path.isAbsolute(value) || !cwd?.trim()) {
+    return value;
+  }
+
+  const root = path.resolve(cwd);
+  const absolute = path.resolve(value);
+  const relative = path.relative(root, absolute);
+  if (!relative) {
+    return '.';
+  }
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    return value;
+  }
+  return relative;
 }
 
 export function defaultUserFacingName(toolName: string, toolCall: UiToolCall | undefined): string {

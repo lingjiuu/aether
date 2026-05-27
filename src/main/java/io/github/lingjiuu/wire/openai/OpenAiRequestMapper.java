@@ -30,7 +30,7 @@ import io.github.lingjiuu.model.ModelInfo;
 import io.github.lingjiuu.model.ReasoningOptions;
 import io.github.lingjiuu.model.client.ModelCallOptions;
 import io.github.lingjiuu.model.client.ModelRequest;
-import io.github.lingjiuu.tool.ToolDefinition;
+import io.github.lingjiuu.tool.Tool;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,7 +75,7 @@ public class OpenAiRequestMapper {
 
         if (request.getTools() != null && !request.getTools().isEmpty()) {
             builder.parallelToolCalls(true);
-            for (ToolDefinition tool : request.getTools()) {
+            for (Tool tool : request.getTools()) {
                 if (tool != null) {
                     builder.addTool(toOpenAiTool(tool));
                 }
@@ -319,9 +319,9 @@ public class OpenAiRequestMapper {
                 .build();
     }
 
-    private FunctionTool toOpenAiTool(ToolDefinition definition) {
+    private FunctionTool toOpenAiTool(Tool tool) {
         FunctionTool.Parameters.Builder parametersBuilder = FunctionTool.Parameters.builder();
-        Map<String, Object> parametersSchema = definition.parametersSchema();
+        Map<String, Object> parametersSchema = tool.parametersSchema();
         if (parametersSchema != null) {
             for (Map.Entry<String, Object> entry : parametersSchema.entrySet()) {
                 parametersBuilder.putAdditionalProperty(entry.getKey(), JsonValue.from(entry.getValue()));
@@ -329,8 +329,8 @@ public class OpenAiRequestMapper {
         }
 
         return FunctionTool.builder()
-                .name(definition.name())
-                .description(definition.description())
+                .name(tool.name())
+                .description(tool.description())
                 .strict(false)
                 .parameters(parametersBuilder.build())
                 .build();

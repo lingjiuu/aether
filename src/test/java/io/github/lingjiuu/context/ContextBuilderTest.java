@@ -6,16 +6,12 @@ import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.skill.SkillInjection;
-import io.github.lingjiuu.tool.ToolDefinition;
-import io.github.lingjiuu.tool.ToolExecutionContext;
-import io.github.lingjiuu.tool.ToolExecutionResult;
 import junit.framework.TestCase;
 
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
-import java.util.Map;
 
 public class ContextBuilderTest extends TestCase {
 
@@ -105,7 +101,6 @@ public class ContextBuilderTest extends TestCase {
         ContextBuilder builder = new ContextBuilder();
 
         String additional = MessageContents.text(builder.additionalInstructionsMessage("Prefer small diffs."));
-        String tools = MessageContents.text(builder.toolInstructionsMessage(List.of(toolDefinition())));
         String project = MessageContents.text(builder.userInstructionsMessage(Path.of("/tmp/aether"), "Project rules."));
         String skills = MessageContents.text(builder.availableSkillsMessage(List.of(Skill.builder()
                 .name("demo")
@@ -115,9 +110,6 @@ public class ContextBuilderTest extends TestCase {
 
         assertTrue(additional.startsWith("<additional_instructions>"));
         assertTrue(additional.contains("Prefer small diffs."));
-        assertTrue(tools.startsWith("<tool_context>"));
-        assertTrue(tools.contains("Available tools:"));
-        assertTrue(tools.contains("Tool guidelines:"));
         assertTrue(project.startsWith("# AGENTS.md instructions for "));
         assertTrue(project.contains("<INSTRUCTIONS>"));
         assertTrue(project.contains("Project rules."));
@@ -146,42 +138,4 @@ public class ContextBuilderTest extends TestCase {
         );
     }
 
-    private ToolDefinition toolDefinition() {
-        return new ToolDefinition() {
-            @Override
-            public String name() {
-                return "demo";
-            }
-
-            @Override
-            public String label() {
-                return "Demo";
-            }
-
-            @Override
-            public String description() {
-                return "Demo tool";
-            }
-
-            @Override
-            public Map<String, Object> parametersSchema() {
-                return Map.of();
-            }
-
-            @Override
-            public String promptSnippet() {
-                return "Use demo carefully.";
-            }
-
-            @Override
-            public List<String> promptGuidelines() {
-                return List.of("Do not guess.");
-            }
-
-            @Override
-            public ToolExecutionResult execute(ToolExecutionContext context) {
-                return ToolExecutionResult.text("ok");
-            }
-        };
-    }
 }

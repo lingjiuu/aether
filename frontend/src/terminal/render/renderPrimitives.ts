@@ -85,11 +85,13 @@ export function flattenLines(node: RenderNode): RenderedLine[] {
 
 function renderLine(text: string, raw: string, width: number, role?: string): RenderedLine {
   const key = `${role ?? 'line'}:${lineSequence++}`;
-  if (visualWidth(raw) > width) {
-    const truncated = truncatePlain(raw, width);
+  const safeText = text.replace(/[\r\n]+/g, ' ');
+  const safeRaw = raw.replace(/[\r\n]+/g, ' ');
+  if (visualWidth(safeRaw) > width) {
+    const truncated = truncatePlain(safeRaw, width);
     return { kind: 'line', key, text: truncated, raw: truncated, role };
   }
-  return { kind: 'line', key, text, raw, role };
+  return { kind: 'line', key, text: safeText, raw: safeRaw, role };
 }
 
 function fitCardRow(row: CardRow, width: number): CardRow {

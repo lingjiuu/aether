@@ -49,7 +49,7 @@ export function formatToolUseSummary(toolName: string, argumentsJson?: string | 
       return compactText(String(parsed), width);
     }
     const summary = toolSpecificSummary(toolName, parsed) ?? JSON.stringify(parsed);
-    return truncate(summary.trim(), width);
+    return compactText(summary, width);
   } catch {
     return compactText(argumentsJson, width);
   }
@@ -85,10 +85,10 @@ function toolSpecificSummary(toolName: string, args: Record<string, unknown>): s
     case 'read':
     case 'write':
     case 'edit':
-      return stringArg(args, 'path');
+      return stringArg(args, 'file_path');
     case 'ls':
       return stringArg(args, 'path') ?? '.';
-    case 'find': {
+    case 'glob': {
       const pattern = stringArg(args, 'pattern');
       const path = stringArg(args, 'path');
       return [pattern, path ? `in ${path}` : undefined].filter(Boolean).join(' ');
