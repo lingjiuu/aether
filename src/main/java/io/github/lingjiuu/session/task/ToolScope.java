@@ -7,6 +7,7 @@ import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRouter;
+import io.github.lingjiuu.trace.TraceSpan;
 import io.github.lingjiuu.tool.permission.ApprovalId;
 import io.github.lingjiuu.tool.permission.ApprovalRequest;
 import io.github.lingjiuu.tool.permission.ApprovalResponse;
@@ -92,7 +93,8 @@ final class ToolScope implements AutoCloseable {
                         task.toolCallRef(),
                         ToolExecutionResult.errorText("Tool execution failed: " + exceptionMessage(e.getCause())),
                         "FAILED",
-                        elapsedMillis(task.startedAtNanos())
+                        elapsedMillis(task.startedAtNanos()),
+                        null
                 ));
             }
         }
@@ -136,55 +138,74 @@ final class ToolScope implements AutoCloseable {
     }
 
     private ToolOutcome runToolCall(ToolCallRef toolCallRef, long startedAtNanos) {
-        if (context.isCancelled()) {
-            return abortedOutcome(toolCallRef, startedAtNanos);
-        }
         ToolCallContent toolCall = toolCallRef.toolCall();
-        ToolRouter.PreparedToolCall prepared = session.toolRouter().buildInvocation(
-                toolCall,
-                activeToolNames,
-                context.cancellationToken(),
-                null,
-                session.readFileState(),
-                (tool, partialResult) -> session.events().emit(UiEvents.toolExecutionUpdate(
-                        toolCallRef.itemId(),
-                        toolCallRef.contentIndex(),
-                        toolCall,
-                        tool,
-                        partialResult,
-                        elapsedMillis(startedAtNanos),
-                        turnContext
-                ))
-        );
-        if (!prepared.ready()) {
-            return failedOutcome(toolCallRef, prepared.failureResult(), startedAtNanos);
-        }
+        TraceSpan traceSpan = session.config().traceRecorder().startToolSpan(context.traceContext(), toolCall);
         if (context.isCancelled()) {
-            return abortedOutcome(toolCallRef, startedAtNanos);
+            return finishTracedOutcome(traceSpan, abortedOutcome(toolCallRef, startedAtNanos));
         }
-
-        Lock executionLock = prepared.tool().supportsParallelToolCalls()
-                ? parallelLock.readLock()
-                : parallelLock.writeLock();
         try {
-            executionLock.lockInterruptibly();
-            try {
-                emitToolExecutionBegin(toolCallRef, prepared.tool());
-                ToolOutcome outcome = runPreparedToolCall(toolCallRef, prepared, startedAtNanos);
-                if (context.isCancelled()) {
-                    return abortedOutcome(toolCallRef, startedAtNanos);
-                }
-                return outcome;
-            } finally {
-                executionLock.unlock();
+            ToolRouter.PreparedToolCall prepared = session.toolRouter().buildInvocation(
+                    toolCall,
+                    activeToolNames,
+                    context.cancellationToken(),
+                    null,
+                    session.readFileState(),
+                    (tool, partialResult) -> session.events().emit(UiEvents.toolExecutionUpdate(
+                            toolCallRef.itemId(),
+                            toolCallRef.contentIndex(),
+                            toolCall,
+                            tool,
+                            partialResult,
+                            elapsedMillis(startedAtNanos),
+                            turnContext
+                    ))
+            );
+            if (!prepared.ready()) {
+                return finishTracedOutcome(traceSpan, failedOutcome(toolCallRef, prepared.failureResult(), startedAtNanos));
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
             if (context.isCancelled()) {
-                return abortedOutcome(toolCallRef, startedAtNanos);
+                return finishTracedOutcome(traceSpan, abortedOutcome(toolCallRef, startedAtNanos));
             }
-            return failedOutcome(toolCallRef, ToolExecutionResult.errorText("Tool execution interrupted."), startedAtNanos);
+
+            Lock executionLock = prepared.tool().supportsParallelToolCalls()
+                    ? parallelLock.readLock()
+                    : parallelLock.writeLock();
+            try {
+                executionLock.lockInterruptibly();
+                try {
+                    emitToolExecutionBegin(toolCallRef, prepared.tool());
+                    ToolOutcome outcome = runPreparedToolCall(toolCallRef, prepared, startedAtNanos);
+                    if (context.isCancelled()) {
+                        return finishTracedOutcome(traceSpan, abortedOutcome(toolCallRef, startedAtNanos));
+                    }
+                    return finishTracedOutcome(traceSpan, outcome);
+                } finally {
+                    executionLock.unlock();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                if (context.isCancelled()) {
+                    return finishTracedOutcome(traceSpan, abortedOutcome(toolCallRef, startedAtNanos));
+                }
+                return finishTracedOutcome(traceSpan, failedOutcome(toolCallRef, ToolExecutionResult.errorText("Tool execution interrupted."), startedAtNanos));
+            }
+        } catch (RuntimeException e) {
+            traceSpan.fail(e);
+            throw e;
         }
+    }
+
+    private ToolOutcome finishTracedOutcome(TraceSpan traceSpan, ToolOutcome outcome) {
+        if (outcome == null) {
+            return null;
+        }
+        session.config().traceRecorder().recordToolExecutionOutput(
+                traceSpan,
+                outcome.executionResult(),
+                outcome.status(),
+                outcome.durationMs()
+        );
+        return outcome.withTraceSpanId(traceSpan == null ? null : traceSpan.id());
     }
 
     private ToolOutcome runPreparedToolCall(
@@ -250,7 +271,8 @@ final class ToolScope implements AutoCloseable {
                 task.toolCallRef(),
                 abortedResult(task.toolCallRef().toolCall(), elapsedSeconds(task)),
                 "ABORTED",
-                elapsedMillis(task.startedAtNanos())
+                elapsedMillis(task.startedAtNanos()),
+                null
         );
     }
 
@@ -259,7 +281,8 @@ final class ToolScope implements AutoCloseable {
                 toolCallRef,
                 abortedResult(toolCallRef.toolCall(), elapsedSeconds(startedAtNanos)),
                 "ABORTED",
-                elapsedMillis(startedAtNanos)
+                elapsedMillis(startedAtNanos),
+                null
         );
     }
 
@@ -275,7 +298,8 @@ final class ToolScope implements AutoCloseable {
                 toolCallRef,
                 safeResult,
                 safeResult.isError() ? "FAILED" : "COMPLETED",
-                elapsedMillis(startedAtNanos)
+                elapsedMillis(startedAtNanos),
+                null
         );
     }
 
@@ -287,7 +311,7 @@ final class ToolScope implements AutoCloseable {
         ToolExecutionResult safeResult = result == null
                 ? ToolExecutionResult.errorText("Tool execution failed.")
                 : result;
-        return new ToolOutcome(toolCallRef, safeResult, "FAILED", elapsedMillis(startedAtNanos));
+        return new ToolOutcome(toolCallRef, safeResult, "FAILED", elapsedMillis(startedAtNanos), null);
     }
 
     private ToolOutcome declinedOutcome(ToolCallRef toolCallRef, String message, long startedAtNanos) {
@@ -295,7 +319,8 @@ final class ToolScope implements AutoCloseable {
                 toolCallRef,
                 ToolExecutionResult.errorText(message),
                 "DECLINED",
-                elapsedMillis(startedAtNanos)
+                elapsedMillis(startedAtNanos),
+                null
         );
     }
 
@@ -369,6 +394,10 @@ record ToolOutcome(
         ToolCallRef toolCallRef,
         ToolExecutionResult executionResult,
         String status,
-        Long durationMs
+        Long durationMs,
+        String traceSpanId
 ) {
+    ToolOutcome withTraceSpanId(String traceSpanId) {
+        return new ToolOutcome(toolCallRef, executionResult, status, durationMs, traceSpanId);
+    }
 }

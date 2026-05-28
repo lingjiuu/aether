@@ -11,6 +11,8 @@ import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
+import io.github.lingjiuu.trace.TracePayloads;
+import io.github.lingjiuu.trace.TraceSpan;
 
 import java.util.List;
 
@@ -41,6 +43,11 @@ public class CompactTask implements SessionTask {
         Session session = context.session();
         TurnContext turnContext = context.turnContext();
         List<Message> originalMessages = session.contextManager().snapshot();
+        TraceSpan span = session.config().traceRecorder().startCompactSpan(
+                context.traceContext(),
+                trigger,
+                originalMessages.size()
+        );
         session.events().emit(UiEvents.compactStarted(turnContext, trigger, originalMessages.size()));
 
         if (originalMessages.isEmpty()) {
@@ -50,14 +57,22 @@ public class CompactTask implements SessionTask {
                     originalMessages.size(),
                     originalMessages.size()
             ));
+            span.finish("SKIPPED", TracePayloads.compactOutput(
+                    "SKIPPED",
+                    originalMessages.size(),
+                    originalMessages.size(),
+                    "No context to compact."
+            ));
             return false;
         }
 
         if (context.isCancelled()) {
+            span.finish("ABORTED", TracePayloads.compactOutput("ABORTED", originalMessages.size(), null, null));
             return false;
         }
         AssistantMessage assistantMessage = summarize(context, session, turnContext, originalMessages);
         if (assistantMessage.isAborted() || context.isCancelled()) {
+            span.finish("ABORTED", TracePayloads.compactOutput("ABORTED", originalMessages.size(), null, null));
             return false;
         }
         if (assistantMessage.isError()) {
@@ -66,6 +81,12 @@ public class CompactTask implements SessionTask {
                     assistantMessage.getErrorMessage(),
                     originalMessages.size(),
                     originalMessages.size()
+            ));
+            span.finish("FAILED", TracePayloads.compactOutput(
+                    "FAILED",
+                    originalMessages.size(),
+                    originalMessages.size(),
+                    assistantMessage.getErrorMessage()
             ));
             return false;
         }
@@ -90,6 +111,7 @@ public class CompactTask implements SessionTask {
                 session.contextBuilder()
         );
         if (context.isCancelled()) {
+            span.finish("ABORTED", TracePayloads.compactOutput("ABORTED", originalMessages.size(), replacementMessages.size(), null));
             return false;
         }
         session.replaceCompactedHistory(
@@ -106,6 +128,7 @@ public class CompactTask implements SessionTask {
         }
         session.recomputeTokenUsageFromHistory(turnContext);
         session.events().emit(UiEvents.compactFinished(turnContext, summary, originalMessages.size(), replacementMessages.size()));
+        span.succeed(TracePayloads.compactOutput("COMPLETED", originalMessages.size(), replacementMessages.size(), null));
         return true;
     }
 
@@ -128,11 +151,13 @@ public class CompactTask implements SessionTask {
                     normalizedCompactInput,
                     session.contextBuilder()
             );
-            AssistantMessage assistantMessage = session.sampleModel(
+            AssistantMessage assistantMessage = session.sampleModelItems(
                     context.modelSession(),
                     request,
                     turnContext,
-                    context.cancellationToken()
+                    context.cancellationToken(),
+                    context.traceContext(),
+                    null
             );
             if (!assistantMessage.isContextWindowExceeded()
                     || retries >= MAX_COMPACT_CONTEXT_RETRIES

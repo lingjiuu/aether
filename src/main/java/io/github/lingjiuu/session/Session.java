@@ -43,8 +43,12 @@ import io.github.lingjiuu.tool.permission.ApprovalResponse;
 import io.github.lingjiuu.tool.permission.DenyAllApprovalHandler;
 import io.github.lingjiuu.tool.permission.PermissionManager;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
+import io.github.lingjiuu.trace.TraceContext;
+import io.github.lingjiuu.trace.TracePayloads;
+import io.github.lingjiuu.trace.TraceSpan;
 import io.github.lingjiuu.transcript.TranscriptRecorder;
 import io.github.lingjiuu.transcript.TranscriptReconstruction;
+import io.github.lingjiuu.transcript.TranscriptRecord;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
 import io.github.lingjiuu.transcript.item.TurnContextItem;
 
@@ -152,6 +156,7 @@ public class Session implements AutoCloseable {
                 ? null
                 : new TranscriptRecorder(config.transcriptStore(), sessionId, lastTranscriptRecordId);
         this.eventManager = new EventManager(transcriptRecorder, initialTimelineEvents, initialEventSequence);
+        this.eventManager.subscribe(config.traceRecorder()::recordUiEvent);
         if (recordSessionMeta && this.transcriptRecorder != null) {
             this.transcriptRecorder.recordSessionMeta(sessionMeta);
         }
@@ -262,6 +267,7 @@ public class Session implements AutoCloseable {
             }
         }
         eventManager.flush();
+        config.traceRecorder().flush();
     }
 
     public boolean waitForIdle(Duration timeout) {
@@ -285,6 +291,7 @@ public class Session implements AutoCloseable {
             }
         }
         eventManager.flush();
+        config.traceRecorder().flush();
         return true;
     }
 
@@ -397,14 +404,16 @@ public class Session implements AutoCloseable {
         }
     }
 
-    public synchronized void recordConversationMessage(Message message, TurnContext turnContext) {
+    public synchronized TranscriptRecord recordConversationMessage(Message message, TurnContext turnContext) {
         if (message == null) {
-            return;
+            return null;
         }
         contextManager.record(message);
+        TranscriptRecord record = null;
         if (transcriptRecorder != null) {
-            transcriptRecorder.record(message, turnContext.turn());
+            record = transcriptRecorder.record(message, turnContext.turn());
         }
+        return record;
     }
 
     public synchronized void replaceCompactedHistory(
@@ -528,7 +537,7 @@ public class Session implements AutoCloseable {
             TurnContext turnContext,
             ToolCancellationToken cancellationToken
     ) {
-        return sampleModelItems(modelSession, request, turnContext, cancellationToken, null);
+        return sampleModelItems(modelSession, request, turnContext, cancellationToken, null, null);
     }
 
     public AssistantMessage sampleModelItems(
@@ -538,11 +547,23 @@ public class Session implements AutoCloseable {
             ToolCancellationToken cancellationToken,
             Consumer<AssistantStreamEvent> itemConsumer
     ) {
+        return sampleModelItems(modelSession, request, turnContext, cancellationToken, null, itemConsumer);
+    }
+
+    public AssistantMessage sampleModelItems(
+            ModelClientSession modelSession,
+            ModelRequest request,
+            TurnContext turnContext,
+            ToolCancellationToken cancellationToken,
+            TraceContext traceContext,
+            Consumer<AssistantStreamEvent> itemConsumer
+    ) {
         ToolCancellationToken token = cancellationToken == null ? ToolCancellationToken.none() : cancellationToken;
         if (token.isCancellationRequested()) {
             return AssistantMessage.aborted();
         }
 
+        TraceSpan span = config.traceRecorder().startModelSpan(traceContext, request);
         AssistantMessage assistantMessage;
         try (AssistantStream stream = modelSession.stream(request, token)) {
             AutoCloseable cancelRegistration = token.onCancel(() -> closeQuietly(stream));
@@ -559,20 +580,29 @@ public class Session implements AutoCloseable {
             }
         } catch (IOException e) {
             if (token.isCancellationRequested()) {
-                return AssistantMessage.aborted();
+                assistantMessage = AssistantMessage.aborted();
+                span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
+                return assistantMessage;
             }
+            span.fail(e);
             throw new RuntimeException("Failed to close assistant stream.", e);
         } catch (RuntimeException e) {
             if (token.isCancellationRequested()) {
-                return AssistantMessage.aborted();
+                assistantMessage = AssistantMessage.aborted();
+                span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
+                return assistantMessage;
             }
+            span.fail(e);
             throw e;
         }
 
         if (token.isCancellationRequested()) {
-            return AssistantMessage.aborted();
+            assistantMessage = AssistantMessage.aborted();
+            span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
+            return assistantMessage;
         }
         recordTokenUsage(assistantMessage, turnContext);
+        span.finish(modelTraceStatus(assistantMessage), TracePayloads.modelOutput(assistantMessage));
         return assistantMessage;
     }
 
@@ -626,6 +656,7 @@ public class Session implements AutoCloseable {
         try {
             waitForIdle(Duration.ofSeconds(5));
         } finally {
+            config.traceRecorder().flush();
             if (skillsWatcher != null) {
                 skillsWatcher.close();
             }
@@ -642,15 +673,19 @@ public class Session implements AutoCloseable {
             turn = state.nextTurn();
         }
         TurnContext turnContext = new TurnContext(TurnId.create(), sessionId(), turn, config.cwd(), commandId);
+        SessionConfig runConfig = config.withModelSelection(activeModelSelection());
+        long traceStartedAtMs = System.currentTimeMillis();
+        TraceContext traceContext = config.traceRecorder().startRun(turnContext, task.kind(), runConfig);
 
         eventManager.emit(UiEvents.turnStarted(turnContext));
         try {
             taskRunner.start(
                     cancellationSource,
                     "aether-" + task.kind().name().toLowerCase() + "-turn-" + turn,
-                    () -> runTaskBody(task, turnContext, processedInput, cancellationSource)
+                    () -> runTaskBody(task, turnContext, processedInput, cancellationSource, traceContext, traceStartedAtMs)
             );
         } catch (RuntimeException e) {
+            config.traceRecorder().finishRun(traceContext, "FAILED", traceStartedAtMs, e);
             eventManager.emit(UiEvents.error(sessionId(), turn, e.getMessage()));
             eventManager.emit(UiEvents.turnAborted(turnContext));
             synchronized (this) {
@@ -665,10 +700,13 @@ public class Session implements AutoCloseable {
             SessionTask task,
             TurnContext turnContext,
             ProcessedTurnInput processedInput,
-            ToolCancellationSource cancellationSource
+            ToolCancellationSource cancellationSource,
+            TraceContext traceContext,
+            long traceStartedAtMs
     ) {
         ModelSelection modelSelection = activeModelSelection();
         SessionConfig turnConfig = config.withModelSelection(modelSelection);
+        RuntimeException failure = null;
         try (ModelClientSession modelSession = config.modelClient().openSession(modelSelection)) {
             TaskContext context = new TaskContext(
                     this,
@@ -676,10 +714,12 @@ public class Session implements AutoCloseable {
                     processedInput,
                     cancellationSource.token(),
                     modelSession,
-                    turnConfig
+                    turnConfig,
+                    traceContext
             );
             task.run(context);
         } catch (RuntimeException e) {
+            failure = e;
             if (!cancellationSource.token().isCancellationRequested()) {
                 eventManager.emit(UiEvents.error(turnContext, e.getMessage()));
             }
@@ -699,6 +739,8 @@ public class Session implements AutoCloseable {
             } else {
                 eventManager.emit(UiEvents.turnCompleted(turnContext));
             }
+            String traceStatus = cancelled ? "ABORTED" : failure == null ? "COMPLETED" : "FAILED";
+            config.traceRecorder().finishRun(traceContext, traceStatus, traceStartedAtMs, failure);
             synchronized (this) {
                 state.markIdle();
                 notifyAll();
@@ -731,6 +773,13 @@ public class Session implements AutoCloseable {
         if (turnContext != null) {
             eventManager.emit(UiEvents.tokenUsage(turnContext, tokenUsageInfo(), currentContextTokenUsage(), autoCompactTokenLimit()));
         }
+    }
+
+    private String modelTraceStatus(AssistantMessage assistantMessage) {
+        if (assistantMessage == null || assistantMessage.isAborted()) {
+            return "ABORTED";
+        }
+        return assistantMessage.isError() ? "FAILED" : "COMPLETED";
     }
 
     private void recomputeTokenUsageFromHistory() {
