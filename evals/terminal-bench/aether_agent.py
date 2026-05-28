@@ -167,10 +167,12 @@ if command -v apt-get >/dev/null 2>&1; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    file \
     git \
     gzip \
     maven \
     nodejs \
+    ripgrep \
     tar
   DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-21-jdk || true
 fi
