@@ -21,7 +21,10 @@ import io.github.lingjiuu.tool.builtin.GrepTool;
 import io.github.lingjiuu.tool.builtin.LsTool;
 import io.github.lingjiuu.tool.builtin.ReadTool;
 import io.github.lingjiuu.tool.builtin.WriteTool;
+import io.github.lingjiuu.tool.permission.PermissionPreset;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
+import io.github.lingjiuu.trace.AgentTraceRecorder;
+import io.github.lingjiuu.trace.sqlite.SqliteTraceStore;
 import io.github.lingjiuu.transcript.TranscriptReconstruction;
 import io.github.lingjiuu.transcript.TranscriptRestorer;
 import io.github.lingjiuu.transcript.TranscriptStore;
@@ -114,6 +117,9 @@ public class SessionFactory {
             Path agentDir,
             TranscriptStore transcriptStore
     ) {
+        AgentTraceRecorder traceRecorder = new AgentTraceRecorder(
+                new SqliteTraceStore(AetherPaths.getTraceDbPath())
+        );
         AetherConfig aetherConfig = new AetherConfigLoader().load(configPath, provider, modelId);
         ModelSelection modelSelection = aetherConfig.modelSelection();
         ModelClient modelClient = new ModelClient();
@@ -125,6 +131,7 @@ public class SessionFactory {
                 modelClient,
                 modelSelection,
                 transcriptStore,
+                traceRecorder,
                 defaultCwd,
                 resolvedAgentDir
         );
@@ -136,6 +143,7 @@ public class SessionFactory {
             ModelClient modelClient,
             ModelSelection modelSelection,
             TranscriptStore transcriptStore,
+            AgentTraceRecorder traceRecorder,
             Path cwd,
             Path agentDir
     ) {
@@ -158,10 +166,12 @@ public class SessionFactory {
                 resolvedCwd,
                 modelSelection,
                 transcriptStore,
+                traceRecorder,
                 tools,
                 tools.stream()
                         .map(Tool::name)
-                        .toList()
+                        .toList(),
+                PermissionPreset.DEFAULT
         );
     }
 
@@ -244,6 +254,7 @@ public class SessionFactory {
                 config.modelClient(),
                 selection,
                 config.transcriptStore(),
+                config.traceRecorder(),
                 cwd,
                 agentDir
         );

@@ -6,6 +6,7 @@ import io.github.lingjiuu.model.client.ModelClientSession;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.tool.ToolCancellationToken;
+import io.github.lingjiuu.trace.TraceContext;
 
 public class TaskContext {
 
@@ -15,6 +16,7 @@ public class TaskContext {
     private final ToolCancellationToken cancellationToken;
     private final ModelClientSession modelSession;
     private final SessionConfig sessionConfig;
+    private final TraceContext traceContext;
 
     public TaskContext(
             Session session,
@@ -22,7 +24,8 @@ public class TaskContext {
             ProcessedTurnInput processedInput,
             ToolCancellationToken cancellationToken,
             ModelClientSession modelSession,
-            SessionConfig sessionConfig
+            SessionConfig sessionConfig,
+            TraceContext traceContext
     ) {
         if (session == null) {
             throw new IllegalArgumentException("session must not be null");
@@ -42,6 +45,7 @@ public class TaskContext {
             throw new IllegalArgumentException("session config must not be null");
         }
         this.sessionConfig = sessionConfig;
+        this.traceContext = traceContext;
     }
 
     public Session session() {
@@ -66,6 +70,10 @@ public class TaskContext {
 
     public SessionConfig sessionConfig() {
         return sessionConfig;
+    }
+
+    public TraceContext traceContext() {
+        return traceContext;
     }
 
     public boolean isCancelled() {

@@ -1,17 +1,24 @@
 package io.github.lingjiuu;
 
+import io.github.lingjiuu.infra.logging.AetherLogging;
 import io.github.lingjiuu.ui.cli.ConsoleInputLoop;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.session.SessionOptions;
 import io.github.lingjiuu.transport.stdio.StdioAetherServer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
 public class App {
+    private static final Logger LOGGER = LoggerFactory.getLogger(App.class);
+
     public static void main(String[] args) {
+        AetherLogging.initialize();
         LaunchOptions options = LaunchOptions.parse(args);
+        LOGGER.info("Starting Aether app; stdio={}, cwd={}", options.stdio(), options.cwd());
         SessionFactory sessionFactory = SessionFactory.createDefault();
         SessionOptions sessionOptions = options.cwd() == null
                 ? SessionOptions.defaults()

@@ -8,6 +8,7 @@ import io.github.lingjiuu.provider.ProviderAuth;
 import io.github.lingjiuu.provider.ProviderEndpoint;
 import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.permission.PermissionPreset;
+import io.github.lingjiuu.trace.AgentTraceRecorder;
 import io.github.lingjiuu.transcript.TranscriptStore;
 
 import java.nio.file.Path;
@@ -22,6 +23,7 @@ public record SessionConfig(
         Path cwd,
         ModelSelection modelSelection,
         TranscriptStore transcriptStore,
+        AgentTraceRecorder traceRecorder,
         List<Tool> tools,
         List<String> activeToolNames,
         PermissionPreset permissionPreset
@@ -48,9 +50,39 @@ public record SessionConfig(
                 cwd,
                 modelSelection,
                 transcriptStore,
+                null,
                 tools,
                 activeToolNames,
                 PermissionPreset.DEFAULT
+        );
+    }
+
+    public SessionConfig(
+            ModelClient modelClient,
+            String baseInstructions,
+            String developerInstructions,
+            String userInstructions,
+            List<Path> instructionSources,
+            Path cwd,
+            ModelSelection modelSelection,
+            TranscriptStore transcriptStore,
+            List<Tool> tools,
+            List<String> activeToolNames,
+            PermissionPreset permissionPreset
+    ) {
+        this(
+                modelClient,
+                baseInstructions,
+                developerInstructions,
+                userInstructions,
+                instructionSources,
+                cwd,
+                modelSelection,
+                transcriptStore,
+                null,
+                tools,
+                activeToolNames,
+                permissionPreset
         );
     }
 
@@ -59,6 +91,7 @@ public record SessionConfig(
         developerInstructions = developerInstructions == null ? "" : developerInstructions;
         userInstructions = userInstructions == null ? "" : userInstructions;
         instructionSources = instructionSources == null ? List.of() : List.copyOf(instructionSources);
+        traceRecorder = traceRecorder == null ? AgentTraceRecorder.noop() : traceRecorder;
         tools = tools == null ? List.of() : List.copyOf(tools);
         activeToolNames = activeToolNames == null ? null : List.copyOf(activeToolNames);
         permissionPreset = permissionPreset == null ? PermissionPreset.DEFAULT : permissionPreset;
@@ -93,6 +126,7 @@ public record SessionConfig(
                 cwd,
                 selection,
                 transcriptStore,
+                traceRecorder,
                 tools,
                 activeToolNames,
                 permissionPreset
@@ -109,6 +143,7 @@ public record SessionConfig(
                 cwd,
                 modelSelection,
                 transcriptStore,
+                traceRecorder,
                 tools,
                 activeToolNames,
                 preset

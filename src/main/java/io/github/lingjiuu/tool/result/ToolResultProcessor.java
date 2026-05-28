@@ -38,7 +38,7 @@ public class ToolResultProcessor {
         this.artifactStore = artifactStore;
     }
 
-    public List<ToolResultMessage> processBatch(List<ToolResultInput> inputs) {
+    public List<ProcessedToolResult> processBatch(List<ToolResultInput> inputs) {
         if (inputs == null || inputs.isEmpty()) {
             return List.of();
         }
@@ -47,20 +47,21 @@ public class ToolResultProcessor {
             processed.add(processOne(input));
         }
         applyAggregateBudget(processed);
-        return processed.stream().map(Processed::message).toList();
+        return processed.stream().map(Processed::result).toList();
     }
 
     private Processed processOne(ToolResultInput input) {
+        List<ToolResultArtifactRef> artifactRefs = new ArrayList<>();
         ToolExecutionResult result = input.executionResult() == null
                 ? ToolExecutionResult.errorText("Tool returned no result.")
                 : input.executionResult();
         ToolResultMessage message = contextBuilder.toolResultMessage(input.toolCall(), result);
         ToolResultPolicy policy = policy(input.tool());
         message = ensureNonEmptyContent(message);
-        message = maybePersistContent(input, message, policy, "output", policy.effectiveThreshold());
-        Object sanitizedDetails = sanitizeDetails(message.getDetails(), safeToolCallId(input), "details");
+        message = maybePersistContent(input, message, policy, "output", policy.effectiveThreshold(), artifactRefs);
+        Object sanitizedDetails = sanitizeDetails(message.getDetails(), safeToolCallId(input), "details", artifactRefs);
         message = copy(message, message.messageContents(), sanitizedDetails);
-        return new Processed(input, policy, message);
+        return new Processed(input, policy, message, artifactRefs);
     }
 
     private void applyAggregateBudget(List<Processed> processed) {
@@ -90,9 +91,15 @@ public class ToolResultProcessor {
                     current.message(),
                     current.policy(),
                     "batch-output",
-                    0L
+                    0L,
+                    current.artifactRefs()
             );
-            processed.set(candidate.index(), new Processed(current.input(), current.policy(), replaced));
+            processed.set(candidate.index(), new Processed(
+                    current.input(),
+                    current.policy(),
+                    replaced,
+                    current.artifactRefs()
+            ));
             total = total - candidate.size() + MessageContents.text(replaced).length();
         }
     }
@@ -114,7 +121,8 @@ public class ToolResultProcessor {
             ToolResultMessage message,
             ToolResultPolicy policy,
             String suffix,
-            long threshold
+            long threshold,
+            List<ToolResultArtifactRef> artifactRefs
     ) {
         if (!policy.persistLargeText() || hasImage(message.messageContents())) {
             return message;
@@ -124,6 +132,7 @@ public class ToolResultProcessor {
             return message;
         }
         PersistedToolOutput persisted = persistMainOutput(input, text, policy, suffix);
+        artifactRefs.add(artifactRef("tool_result_output", suffix, persisted));
         String replacement = buildPersistedOutputMessage(persisted, policy.previewMode());
         return copy(message, textContents(replacement), message.getDetails());
     }
@@ -165,7 +174,12 @@ public class ToolResultProcessor {
         return null;
     }
 
-    private Object sanitizeDetails(Object value, String toolCallId, String suffix) {
+    private Object sanitizeDetails(
+            Object value,
+            String toolCallId,
+            String suffix,
+            List<ToolResultArtifactRef> artifactRefs
+    ) {
         if (value == null) {
             return null;
         }
@@ -173,33 +187,51 @@ public class ToolResultProcessor {
             if (byteLength(text) <= ToolResultLimits.DETAIL_VALUE_MAX_BYTES) {
                 return text;
             }
-            return detailReference(artifactStore.persistText(toolCallId, suffix, text, ToolResultPreviewMode.HEAD));
+            PersistedToolOutput persisted = artifactStore.persistText(toolCallId, suffix, text, ToolResultPreviewMode.HEAD);
+            artifactRefs.add(artifactRef("tool_result_detail", suffix, persisted));
+            return detailReference(persisted);
         }
         if (value instanceof Map<?, ?> map) {
             Map<String, Object> sanitized = new LinkedHashMap<>();
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 String key = String.valueOf(entry.getKey());
-                sanitized.put(key, sanitizeDetails(entry.getValue(), toolCallId, suffix + "-" + key));
+                sanitized.put(key, sanitizeDetails(entry.getValue(), toolCallId, suffix + "-" + key, artifactRefs));
             }
             if (jsonSize(sanitized) <= ToolResultLimits.DETAIL_VALUE_MAX_BYTES) {
                 return sanitized;
             }
-            return detailReference(artifactStore.persistJson(toolCallId, suffix, sanitized, ToolResultPreviewMode.HEAD));
+            PersistedToolOutput persisted = artifactStore.persistJson(
+                    toolCallId,
+                    suffix,
+                    sanitized,
+                    ToolResultPreviewMode.HEAD
+            );
+            artifactRefs.add(artifactRef("tool_result_detail", suffix, persisted));
+            return detailReference(persisted);
         }
         if (value instanceof List<?> list) {
             List<Object> sanitized = new ArrayList<>(list.size());
             for (int i = 0; i < list.size(); i++) {
-                sanitized.add(sanitizeDetails(list.get(i), toolCallId, suffix + "-" + i));
+                sanitized.add(sanitizeDetails(list.get(i), toolCallId, suffix + "-" + i, artifactRefs));
             }
             if (jsonSize(sanitized) <= ToolResultLimits.DETAIL_VALUE_MAX_BYTES) {
                 return List.copyOf(sanitized);
             }
-            return detailReference(artifactStore.persistJson(toolCallId, suffix, sanitized, ToolResultPreviewMode.HEAD));
+            PersistedToolOutput persisted = artifactStore.persistJson(
+                    toolCallId,
+                    suffix,
+                    sanitized,
+                    ToolResultPreviewMode.HEAD
+            );
+            artifactRefs.add(artifactRef("tool_result_detail", suffix, persisted));
+            return detailReference(persisted);
         }
         if (jsonSize(value) <= ToolResultLimits.DETAIL_VALUE_MAX_BYTES) {
             return value;
         }
-        return detailReference(artifactStore.persistJson(toolCallId, suffix, value, ToolResultPreviewMode.HEAD));
+        PersistedToolOutput persisted = artifactStore.persistJson(toolCallId, suffix, value, ToolResultPreviewMode.HEAD);
+        artifactRefs.add(artifactRef("tool_result_detail", suffix, persisted));
+        return detailReference(persisted);
     }
 
     private Map<String, Object> detailReference(PersistedToolOutput output) {
@@ -211,6 +243,18 @@ public class ToolResultProcessor {
         reference.put("hasMore", output.hasMore());
         reference.put("json", output.json());
         return reference;
+    }
+
+    private ToolResultArtifactRef artifactRef(String kind, String label, PersistedToolOutput output) {
+        return new ToolResultArtifactRef(
+                kind,
+                label,
+                output.path(),
+                output.originalSizeBytes(),
+                output.json() ? "application/json" : "text/plain",
+                output.hasMore(),
+                output.json()
+        );
     }
 
     private ToolResultMessage ensureNonEmptyContent(ToolResultMessage message) {
@@ -308,7 +352,15 @@ public class ToolResultProcessor {
         return String.format(java.util.Locale.ROOT, "%.1fMB", bytes / (1024.0 * 1024.0));
     }
 
-    private record Processed(ToolResultInput input, ToolResultPolicy policy, ToolResultMessage message) {
+    private record Processed(
+            ToolResultInput input,
+            ToolResultPolicy policy,
+            ToolResultMessage message,
+            List<ToolResultArtifactRef> artifactRefs
+    ) {
+        private ProcessedToolResult result() {
+            return new ProcessedToolResult(message, artifactRefs);
+        }
     }
 
     private record Candidate(int index, long size) {

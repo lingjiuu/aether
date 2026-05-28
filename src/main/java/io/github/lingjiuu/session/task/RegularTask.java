@@ -14,8 +14,10 @@ import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.tool.Tool;
+import io.github.lingjiuu.tool.result.ProcessedToolResult;
 import io.github.lingjiuu.tool.result.ToolResultInput;
 import io.github.lingjiuu.tool.result.ToolResultProcessor;
+import io.github.lingjiuu.transcript.TranscriptRecord;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,7 +54,7 @@ public class RegularTask implements SessionTask {
 
         session.recordInitialContextIfChanged(turnContext);
         SessionConfig turnConfig = context.sessionConfig();
-        recordProcessedInput(session, context.processedInput(), turnContext);
+        recordProcessedInput(session, context, turnContext);
 
         int streamRecoveries = 0;
         while (!context.isCancelled()) {
@@ -81,14 +83,15 @@ public class RegularTask implements SessionTask {
                         request,
                         turnContext,
                         context.cancellationToken(),
-                        event -> handleStreamItem(session, turnContext, toolScope, event)
+                        context.traceContext(),
+                        event -> handleStreamItem(session, context, turnContext, toolScope, event)
                 );
                 if (context.isCancelled() || assistantMessage.isAborted()) {
-                    recordToolOutcomes(session, turnContext, toolScope.abortAndDrain());
+                    recordToolOutcomes(session, context, turnContext, toolScope.abortAndDrain());
                     return;
                 }
                 if (assistantMessage.isError()) {
-                    recordToolOutcomes(session, turnContext, toolScope.drain());
+                    recordToolOutcomes(session, context, turnContext, toolScope.drain());
                     if (assistantMessage.isContextWindowExceeded()
                             && contextWindowRecoveries < MAX_CONTEXT_WINDOW_RECOVERIES) {
                         contextWindowRecoveries++;
@@ -108,7 +111,13 @@ public class RegularTask implements SessionTask {
                         ));
                         continue;
                     }
-                    session.recordConversationMessage(assistantMessage, turnContext);
+                    TranscriptRecord record = session.recordConversationMessage(assistantMessage, turnContext);
+                    session.config().traceRecorder().recordConversationItem(
+                            context.traceContext(),
+                            "assistant_error",
+                            assistantMessage,
+                            record
+                    );
                     session.events().emit(UiEvents.error(turnContext, assistantMessage.getErrorMessage()));
                     return;
                 }
@@ -120,7 +129,7 @@ public class RegularTask implements SessionTask {
                 List<ToolOutcome> outcomes = context.isCancelled() || Thread.currentThread().isInterrupted()
                         ? toolScope.abortAndDrain()
                         : toolScope.drain();
-                recordToolOutcomes(session, turnContext, outcomes);
+                recordToolOutcomes(session, context, turnContext, outcomes);
                 if (context.isCancelled() || Thread.currentThread().isInterrupted()) {
                     return;
                 }
@@ -137,6 +146,7 @@ public class RegularTask implements SessionTask {
 
     private void handleStreamItem(
             Session session,
+            TaskContext context,
             TurnContext turnContext,
             ToolScope toolScope,
             AssistantStreamEvent event
@@ -190,9 +200,9 @@ public class RegularTask implements SessionTask {
                     session.toolRegistry().findTool(event.getToolName()),
                     event.getDelta()
             ));
-            case TEXT_END -> completeTextItem(session, turnContext, event);
-            case THINKING_END -> completeThinkingItem(session, turnContext, event);
-            case TOOLCALL_END -> completeToolCallItemAndFork(session, turnContext, toolScope, event);
+            case TEXT_END -> completeTextItem(session, context, turnContext, event);
+            case THINKING_END -> completeThinkingItem(session, context, turnContext, event);
+            case TOOLCALL_END -> completeToolCallItemAndFork(session, context, turnContext, toolScope, event);
             case ERROR -> {
             }
             default -> {
@@ -200,13 +210,19 @@ public class RegularTask implements SessionTask {
         }
     }
 
-    private void completeTextItem(Session session, TurnContext turnContext, AssistantStreamEvent event) {
+    private void completeTextItem(Session session, TaskContext context, TurnContext turnContext, AssistantStreamEvent event) {
         AssistantMessage assistantMessage = session.contextBuilder().assistantTextMessage(
                 event.getPartial(),
                 event.getContent(),
                 event.getProviderState()
         );
-        session.recordConversationMessage(assistantMessage, turnContext);
+        TranscriptRecord record = session.recordConversationMessage(assistantMessage, turnContext);
+        session.config().traceRecorder().recordConversationItem(
+                context.traceContext(),
+                "assistant_text",
+                assistantMessage,
+                record
+        );
         session.events().emit(UiEvents.itemCompleted(
                 turnContext,
                 UiItemKind.ASSISTANT_TEXT,
@@ -218,13 +234,19 @@ public class RegularTask implements SessionTask {
         ));
     }
 
-    private void completeThinkingItem(Session session, TurnContext turnContext, AssistantStreamEvent event) {
+    private void completeThinkingItem(Session session, TaskContext context, TurnContext turnContext, AssistantStreamEvent event) {
         AssistantMessage assistantMessage = session.contextBuilder().assistantThinkingMessage(
                 event.getPartial(),
                 event.getContent(),
                 event.getProviderState()
         );
-        session.recordConversationMessage(assistantMessage, turnContext);
+        TranscriptRecord record = session.recordConversationMessage(assistantMessage, turnContext);
+        session.config().traceRecorder().recordConversationItem(
+                context.traceContext(),
+                "assistant_reasoning",
+                assistantMessage,
+                record
+        );
         session.events().emit(UiEvents.itemCompleted(
                 turnContext,
                 UiItemKind.REASONING,
@@ -238,6 +260,7 @@ public class RegularTask implements SessionTask {
 
     private void completeToolCallItemAndFork(
             Session session,
+            TaskContext context,
             TurnContext turnContext,
             ToolScope toolScope,
             AssistantStreamEvent event
@@ -252,7 +275,13 @@ public class RegularTask implements SessionTask {
                 event.getToolCall(),
                 event.getProviderState()
         );
-        session.recordConversationMessage(assistantMessage, turnContext);
+        TranscriptRecord record = session.recordConversationMessage(assistantMessage, turnContext);
+        session.config().traceRecorder().recordConversationItem(
+                context.traceContext(),
+                "assistant_tool_call",
+                assistantMessage,
+                record
+        );
         session.events().emit(UiEvents.toolArgumentsDone(
                 turnContext,
                 event.getItemId(),
@@ -278,6 +307,7 @@ public class RegularTask implements SessionTask {
 
     private void recordToolOutcomes(
             Session session,
+            TaskContext context,
             TurnContext turnContext,
             List<ToolOutcome> outcomes
     ) {
@@ -300,7 +330,7 @@ public class RegularTask implements SessionTask {
             inputs.add(new ToolResultInput(toolCallRef.toolCall(), tool, outcome.executionResult()));
         }
 
-        List<ToolResultMessage> toolResults = new ToolResultProcessor(
+        List<ProcessedToolResult> processedResults = new ToolResultProcessor(
                 session.contextBuilder(),
                 session.toolArtifactStore()
         ).processBatch(inputs);
@@ -309,8 +339,18 @@ public class RegularTask implements SessionTask {
             ToolOutcome outcome = validOutcomes.get(i);
             ToolCallRef toolCallRef = outcome.toolCallRef();
             Tool tool = tools.get(i);
-            ToolResultMessage toolResult = toolResults.get(i);
-            session.recordConversationMessage(toolResult, turnContext);
+            ProcessedToolResult processedResult = processedResults.get(i);
+            ToolResultMessage toolResult = processedResult.message();
+            TranscriptRecord record = session.recordConversationMessage(toolResult, turnContext);
+            session.config().traceRecorder().recordToolResult(
+                    context.traceContext(),
+                    outcome.traceSpanId(),
+                    toolResult,
+                    record,
+                    processedResult.artifactRefs(),
+                    outcome.status(),
+                    outcome.durationMs()
+            );
             session.events().emit(UiEvents.toolExecutionEnd(
                     toolCallRef.itemId(),
                     toolCallRef.contentIndex(),
@@ -362,18 +402,31 @@ public class RegularTask implements SessionTask {
 
     private void recordProcessedInput(
             Session session,
-            ProcessedTurnInput processedInput,
+            TaskContext context,
             TurnContext turnContext
     ) {
+        ProcessedTurnInput processedInput = context.processedInput();
         if (processedInput == null) {
             return;
         }
 
         UserMessage userMessage = processedInput.userMessage();
-        session.recordConversationMessage(userMessage, turnContext);
+        TranscriptRecord userRecord = session.recordConversationMessage(userMessage, turnContext);
+        session.config().traceRecorder().recordConversationItem(
+                context.traceContext(),
+                "user",
+                userMessage,
+                userRecord
+        );
         session.events().emit(UiEvents.userMessage(userMessage, turnContext));
         for (ContextMessage contextMessage : processedInput.contextMessages()) {
-            session.recordConversationMessage(contextMessage, turnContext);
+            TranscriptRecord contextRecord = session.recordConversationMessage(contextMessage, turnContext);
+            session.config().traceRecorder().recordConversationItem(
+                    context.traceContext(),
+                    "context",
+                    contextMessage,
+                    contextRecord
+            );
             session.events().emit(UiEvents.contextMessage(contextMessage, turnContext));
         }
     }

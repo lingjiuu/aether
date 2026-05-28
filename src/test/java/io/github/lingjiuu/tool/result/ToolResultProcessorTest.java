@@ -21,11 +21,12 @@ public class ToolResultProcessorTest extends TestCase {
         ToolResultProcessor processor = processor(root);
         String large = "x".repeat(60_000);
 
-        ToolResultMessage message = processor.processBatch(List.of(input(
+        ProcessedToolResult result = processor.processBatch(List.of(input(
                 "call-1",
                 tool("grep", ToolResultPolicy.withMaxResultSizeChars(20_000)),
                 ToolExecutionResult.text(large)
         ))).getFirst();
+        ToolResultMessage message = result.message();
 
         String text = MessageContents.text(message);
         assertTrue(text.startsWith(ToolResultProcessor.PERSISTED_OUTPUT_TAG));
@@ -33,6 +34,9 @@ public class ToolResultProcessorTest extends TestCase {
         assertTrue(text.contains("Full output saved to:"));
         Path artifact = onlyArtifact(root);
         assertEquals(large, Files.readString(artifact, StandardCharsets.UTF_8));
+        assertEquals(1, result.artifactRefs().size());
+        assertEquals("tool_result_output", result.artifactRefs().getFirst().kind());
+        assertEquals(artifact, result.artifactRefs().getFirst().path());
     }
 
     public void testReadPolicyNeverPersists() throws Exception {
@@ -40,13 +44,15 @@ public class ToolResultProcessorTest extends TestCase {
         ToolResultProcessor processor = processor(root);
         String large = "r".repeat(60_000);
 
-        ToolResultMessage message = processor.processBatch(List.of(input(
+        ProcessedToolResult result = processor.processBatch(List.of(input(
                 "call-read",
                 tool("read", ToolResultPolicy.neverPersist()),
                 ToolExecutionResult.text(large)
         ))).getFirst();
+        ToolResultMessage message = result.message();
 
         assertEquals(large, MessageContents.text(message));
+        assertEquals(0, result.artifactRefs().size());
         assertEquals(0, artifactCount(root));
     }
 
@@ -55,7 +61,7 @@ public class ToolResultProcessorTest extends TestCase {
         ToolResultProcessor processor = processor(root);
         Tool tool = tool("ls", ToolResultPolicy.defaultPolicy());
 
-        List<ToolResultMessage> messages = processor.processBatch(List.of(
+        List<ProcessedToolResult> results = processor.processBatch(List.of(
                 input("call-1", tool, ToolExecutionResult.text("a".repeat(45_000))),
                 input("call-2", tool, ToolExecutionResult.text("b".repeat(45_000))),
                 input("call-3", tool, ToolExecutionResult.text("c".repeat(45_000))),
@@ -65,14 +71,18 @@ public class ToolResultProcessorTest extends TestCase {
 
         int persisted = 0;
         long modelVisibleChars = 0;
-        for (ToolResultMessage message : messages) {
+        long artifactRefs = 0;
+        for (ProcessedToolResult result : results) {
+            ToolResultMessage message = result.message();
             String text = MessageContents.text(message);
             modelVisibleChars += text.length();
             if (text.startsWith(ToolResultProcessor.PERSISTED_OUTPUT_TAG)) {
                 persisted++;
             }
+            artifactRefs += result.artifactRefs().size();
         }
         assertTrue("expected at least one aggregate replacement", persisted >= 1);
+        assertEquals(persisted, artifactRefs);
         assertTrue("model-visible chars should be under aggregate budget: " + modelVisibleChars,
                 modelVisibleChars <= ToolResultLimits.MAX_TOOL_RESULTS_PER_BATCH_CHARS);
     }
@@ -82,7 +92,7 @@ public class ToolResultProcessorTest extends TestCase {
         ToolResultProcessor processor = processor(root);
         String diff = "diff".repeat(20_000);
 
-        ToolResultMessage message = processor.processBatch(List.of(input(
+        ProcessedToolResult result = processor.processBatch(List.of(input(
                 "call-detail",
                 tool("edit", ToolResultPolicy.withMaxResultSizeChars(100_000)),
                 ToolExecutionResult.builder()
@@ -91,6 +101,7 @@ public class ToolResultProcessorTest extends TestCase {
                         .error(false)
                         .build()
         ))).getFirst();
+        ToolResultMessage message = result.message();
 
         assertTrue(message.getDetails() instanceof Map);
         @SuppressWarnings("unchecked")
@@ -100,6 +111,9 @@ public class ToolResultProcessorTest extends TestCase {
         Map<String, Object> diffRef = (Map<String, Object>) details.get("diffText");
         assertEquals(Boolean.TRUE, diffRef.get("persisted"));
         assertEquals(diff, Files.readString(Path.of(String.valueOf(diffRef.get("path"))), StandardCharsets.UTF_8));
+        assertEquals(1, result.artifactRefs().size());
+        assertEquals("tool_result_detail", result.artifactRefs().getFirst().kind());
+        assertEquals(Path.of(String.valueOf(diffRef.get("path"))), result.artifactRefs().getFirst().path());
     }
 
     public void testBashSourceFileIsPersistedAsMainOutput() throws Exception {
@@ -109,7 +123,7 @@ public class ToolResultProcessorTest extends TestCase {
         Files.writeString(source, fullOutput, StandardCharsets.UTF_8);
         ToolResultProcessor processor = processor(root);
 
-        ToolResultMessage message = processor.processBatch(List.of(input(
+        ProcessedToolResult result = processor.processBatch(List.of(input(
                 "call-bash",
                 tool("bash", ToolResultPolicy.withMaxResultSizeChars(30_000)),
                 ToolExecutionResult.builder()
@@ -118,10 +132,13 @@ public class ToolResultProcessorTest extends TestCase {
                         .error(false)
                         .build()
         ))).getFirst();
+        ToolResultMessage message = result.message();
 
         assertTrue(MessageContents.text(message).startsWith(ToolResultProcessor.PERSISTED_OUTPUT_TAG));
         Path artifact = onlyArtifact(root);
         assertEquals(fullOutput, Files.readString(artifact, StandardCharsets.UTF_8));
+        assertEquals(1, result.artifactRefs().size());
+        assertEquals(artifact, result.artifactRefs().getFirst().path());
     }
 
     private ToolResultProcessor processor(Path root) {

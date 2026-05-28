@@ -20,6 +20,22 @@ public final class AetherPaths {
         return getAgentDir().resolve("transcripts");
     }
 
+    public static Path getLogsDir() {
+        return getAgentDir().resolve("logs");
+    }
+
+    public static Path getLogFilePath() {
+        return getLogsDir().resolve("aether.log");
+    }
+
+    public static Path getTracesDir() {
+        return getAgentDir().resolve("traces");
+    }
+
+    public static Path getTraceDbPath() {
+        return getTracesDir().resolve("aether-trace.sqlite");
+    }
+
     public static Path getToolsDir() {
         return getAgentDir().resolve("bin");
     }
