@@ -3,7 +3,9 @@ package io.github.lingjiuu.session.task;
 import io.github.lingjiuu.event.UiEvents;
 import io.github.lingjiuu.session.turn.TurnContext;
 import io.github.lingjiuu.compact.Compaction;
+import io.github.lingjiuu.model.client.ModelErrorInfo;
 import io.github.lingjiuu.model.client.ModelRequest;
+import io.github.lingjiuu.model.client.ModelRetryOptions;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
@@ -140,7 +142,11 @@ public class CompactTask implements SessionTask {
     ) {
         SessionConfig turnConfig = context.sessionConfig();
         List<Message> compactInput = originalMessages;
-        int retries = 0;
+        ModelRetryOptions retryOptions = turnConfig.endpoint() == null
+                ? ModelRetryOptions.defaults()
+                : turnConfig.endpoint().retryOptions();
+        int contextRetries = 0;
+        int streamRetries = 0;
         while (true) {
             List<Message> normalizedCompactInput = session.contextManager().normalizeMessagesForModel(
                     compactInput,
@@ -160,14 +166,59 @@ public class CompactTask implements SessionTask {
                     null
             );
             if (!assistantMessage.isContextWindowExceeded()
-                    || retries >= MAX_COMPACT_CONTEXT_RETRIES
+                    || contextRetries >= MAX_COMPACT_CONTEXT_RETRIES
                     || compactInput.size() <= 1) {
+                if (assistantMessage.isRetryableStreamFailure()
+                        && streamRetries < retryOptions.streamMaxRetries()) {
+                    streamRetries++;
+                    session.events().emit(UiEvents.streamRetry(
+                            turnContext,
+                            streamRetries,
+                            retryOptions.streamMaxRetries()
+                    ));
+                    if (!sleepForRetry(context, retryDelayMillis(retryOptions, streamRetries, assistantMessage.getErrorInfo()))) {
+                        return AssistantMessage.aborted();
+                    }
+                    continue;
+                }
                 return assistantMessage;
             }
 
             session.markContextWindowFull(turnContext);
             compactInput = List.copyOf(compactInput.subList(1, compactInput.size()));
-            retries++;
+            contextRetries++;
+            streamRetries = 0;
         }
+    }
+
+    private long retryDelayMillis(
+            ModelRetryOptions retryOptions,
+            int attempt,
+            ModelErrorInfo errorInfo
+    ) {
+        if (errorInfo != null && errorInfo.retryAfterMillis() != null) {
+            return Math.min(errorInfo.retryAfterMillis(), retryOptions.maxDelayMillis());
+        }
+        return retryOptions.delayMillis(attempt);
+    }
+
+    private boolean sleepForRetry(TaskContext context, long delayMillis) {
+        long remainingMillis = Math.max(1L, delayMillis);
+        while (remainingMillis > 0L) {
+            if (context.isCancelled()) {
+                return false;
+            }
+            long chunk = Math.min(remainingMillis, 100L);
+            long before = System.nanoTime();
+            try {
+                Thread.sleep(chunk);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+            long elapsed = Math.max(1L, (System.nanoTime() - before) / 1_000_000L);
+            remainingMillis -= elapsed;
+        }
+        return !context.isCancelled();
     }
 }

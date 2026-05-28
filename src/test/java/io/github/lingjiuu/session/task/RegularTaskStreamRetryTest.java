@@ -1,17 +1,23 @@
 package io.github.lingjiuu.session.task;
 
-import io.github.lingjiuu.TestModelSelections;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
+import io.github.lingjiuu.model.ModelInfo;
 import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.model.client.AssistantStream;
 import io.github.lingjiuu.model.client.AssistantStreamEvent;
+import io.github.lingjiuu.model.client.ModelErrorCode;
+import io.github.lingjiuu.model.client.ModelErrorInfo;
+import io.github.lingjiuu.model.client.ModelInvocationException;
 import io.github.lingjiuu.model.client.ModelClient;
 import io.github.lingjiuu.model.client.ModelRequest;
+import io.github.lingjiuu.model.client.ModelRetryOptions;
 import io.github.lingjiuu.protocol.UiEventType;
+import io.github.lingjiuu.provider.ProviderAuth;
+import io.github.lingjiuu.provider.ProviderEndpoint;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.session.SessionFactory;
@@ -42,6 +48,8 @@ import java.util.function.Consumer;
 
 public class RegularTaskStreamRetryTest extends TestCase {
 
+    private static final ModelRetryOptions FAST_RETRY_OPTIONS = new ModelRetryOptions(4, 5, 1, 1, 0);
+
     public void testStreamDisconnectRetriesWithoutCancellingTools() throws Exception {
         AtomicInteger streamAttempts = new AtomicInteger();
         AtomicInteger toolExecutions = new AtomicInteger();
@@ -57,7 +65,7 @@ public class RegularTaskStreamRetryTest extends TestCase {
         assertTrue(session.timelineEvents()
                 .stream()
                 .anyMatch(event -> event.getType() == UiEventType.STREAM_RETRY
-                        && "Reconnecting... 1/3".equals(((io.github.lingjiuu.protocol.UiEventPayloads.Text) event.getPayload()).text())));
+                        && "Reconnecting... 1/5".equals(((io.github.lingjiuu.protocol.UiEventPayloads.Text) event.getPayload()).text())));
 
         ToolResultMessage toolResult = session.messages()
                 .stream()
@@ -147,7 +155,69 @@ public class RegularTaskStreamRetryTest extends TestCase {
         assertEquals(processedText, MessageContents.text(secondRequestToolResult));
     }
 
+    public void testRequestFailureRetriesWithRequestBudget() throws Exception {
+        AtomicInteger streamAttempts = new AtomicInteger();
+        Tool tool = new RetryableTool(new AtomicInteger());
+        Session session = new SessionFactory(sessionConfig(
+                new RequestRetryProvider(streamAttempts),
+                tool,
+                null
+        )).openSession();
+
+        session.submitAsync(io.github.lingjiuu.input.TurnInput.ofText("recover from request failure"));
+        assertTrue(session.waitForIdle(Duration.ofSeconds(5)));
+
+        assertEquals(2, streamAttempts.get());
+        assertTrue(session.timelineEvents()
+                .stream()
+                .anyMatch(event -> event.getType() == UiEventType.STREAM_RETRY
+                        && "Reconnecting... 1/4".equals(((io.github.lingjiuu.protocol.UiEventPayloads.Text) event.getPayload()).text())));
+        assertEquals("all done", session.messages()
+                .stream()
+                .filter(AssistantMessage.class::isInstance)
+                .map(AssistantMessage.class::cast)
+                .filter(message -> !message.isError() && !message.isAborted())
+                .map(MessageContents::text)
+                .reduce((first, second) -> second)
+                .orElse(""));
+    }
+
+    public void testStreamRetryCanBeDisabledByConfig() throws Exception {
+        AtomicInteger streamAttempts = new AtomicInteger();
+        AtomicInteger toolExecutions = new AtomicInteger();
+        Tool tool = new RetryableTool(toolExecutions);
+        Session session = new SessionFactory(sessionConfig(
+                new RetryableProvider(streamAttempts),
+                tool,
+                null,
+                new ModelRetryOptions(4, 0, 1, 1, 0)
+        )).openSession();
+
+        session.submitAsync(io.github.lingjiuu.input.TurnInput.ofText("do not retry stream"));
+        assertTrue(session.waitForIdle(Duration.ofSeconds(5)));
+
+        assertEquals(1, streamAttempts.get());
+        assertEquals(1, toolExecutions.get());
+        assertFalse(session.timelineEvents()
+                .stream()
+                .anyMatch(event -> event.getType() == UiEventType.STREAM_RETRY));
+        assertTrue(session.messages()
+                .stream()
+                .filter(AssistantMessage.class::isInstance)
+                .map(AssistantMessage.class::cast)
+                .anyMatch(AssistantMessage::isError));
+    }
+
     private SessionConfig sessionConfig(WireAdapter provider, Tool tool, TranscriptStore transcriptStore) {
+        return sessionConfig(provider, tool, transcriptStore, FAST_RETRY_OPTIONS);
+    }
+
+    private SessionConfig sessionConfig(
+            WireAdapter provider,
+            Tool tool,
+            TranscriptStore transcriptStore,
+            ModelRetryOptions retryOptions
+    ) {
         return new SessionConfig(
                 new ModelClient(new WireAdapterRegistry().register(provider)),
                 "You are a test agent.",
@@ -155,11 +225,24 @@ public class RegularTaskStreamRetryTest extends TestCase {
                 "",
                 List.of(),
                 Path.of(".").toAbsolutePath().normalize(),
-                TestModelSelections.fakeSelection(),
+                fakeSelection(retryOptions),
                 transcriptStore,
                 List.of(tool),
                 List.of(tool.name()),
                 PermissionPreset.FULL_ACCESS
+        );
+    }
+
+    private ModelSelection fakeSelection(ModelRetryOptions retryOptions) {
+        return new ModelSelection(
+                ModelInfo.builder()
+                        .id("fake-model")
+                        .input(List.of("text"))
+                        .contextWindowTokens(100_000L)
+                        .build(),
+                new ProviderEndpoint("fake", "fake", "http://fake.test/v1", Map.of(), retryOptions),
+                ProviderAuth.ok("test", Map.of()),
+                null
         );
     }
 
@@ -213,6 +296,27 @@ public class RegularTaskStreamRetryTest extends TestCase {
         }
     }
 
+    private record RequestRetryProvider(AtomicInteger streamAttempts) implements WireAdapter {
+        @Override
+        public String name() {
+            return "fake";
+        }
+
+        @Override
+        public WireSession openSession(ModelSelection selection) {
+            return (request, cancellationToken) -> {
+                int attempt = streamAttempts.incrementAndGet();
+                if (attempt == 1) {
+                    throw new ModelInvocationException(
+                            ModelErrorInfo.of(ModelErrorCode.HTTP_5XX, "synthetic server error"),
+                            null
+                    );
+                }
+                return new RetryableSecondStream();
+            };
+        }
+    }
+
     private static final class RetryableFirstStream extends AssistantStream {
         private AssistantMessage result;
 
@@ -240,6 +344,10 @@ public class RegularTaskStreamRetryTest extends TestCase {
             result = AssistantMessage.builder()
                     .stopReason(AssistantMessage.StopReason.ERROR)
                     .errorMessage("stream disconnected before completion: OpenAI stream ended unexpectedly")
+                    .errorInfo(ModelErrorInfo.of(
+                            ModelErrorCode.STREAM_DISCONNECTED,
+                            "stream disconnected before completion: OpenAI stream ended unexpectedly"
+                    ))
                     .contents(List.of(TextContent.builder().text("").build()))
                     .build();
             return result;

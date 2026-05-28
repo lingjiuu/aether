@@ -4,6 +4,7 @@ import io.github.lingjiuu.model.ModelInfo;
 import io.github.lingjiuu.model.ModelOption;
 import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.model.ReasoningOptions;
+import io.github.lingjiuu.model.client.ModelRetryOptions;
 import io.github.lingjiuu.provider.ProviderAuth;
 import io.github.lingjiuu.provider.ProviderEndpoint;
 
@@ -87,6 +88,11 @@ public record AetherConfig(
             String apiKey,
             Boolean authHeader,
             Map<String, String> headers,
+            Integer requestMaxRetries,
+            Integer streamMaxRetries,
+            Long retryInitialDelayMillis,
+            Long retryMaxDelayMillis,
+            Double retryJitterRatio,
             List<ModelDefinition> models
     ) {
 
@@ -104,6 +110,11 @@ public record AetherConfig(
             Long contextWindowTokens,
             Long autoCompactTokenLimit,
             Map<String, String> headers,
+            Integer requestMaxRetries,
+            Integer streamMaxRetries,
+            Long retryInitialDelayMillis,
+            Long retryMaxDelayMillis,
+            Double retryJitterRatio,
             List<String> input
     ) {
 
@@ -159,7 +170,8 @@ public record AetherConfig(
                 providerId,
                 api,
                 baseUrl,
-                resolvedHeaders(providerId, provider, modelDefinition)
+                resolvedHeaders(providerId, provider, modelDefinition),
+                resolvedRetryOptions(provider, modelDefinition)
         );
         return new ModelSelection(
                 model,
@@ -310,6 +322,19 @@ public record AetherConfig(
         return headers;
     }
 
+    private static ModelRetryOptions resolvedRetryOptions(
+            ModelProviderConfig provider,
+            ModelDefinition model
+    ) {
+        return ModelRetryOptions.fromOverrides(
+                firstNonNull(model.requestMaxRetries(), provider.requestMaxRetries()),
+                firstNonNull(model.streamMaxRetries(), provider.streamMaxRetries()),
+                firstNonNull(model.retryInitialDelayMillis(), provider.retryInitialDelayMillis()),
+                firstNonNull(model.retryMaxDelayMillis(), provider.retryMaxDelayMillis()),
+                firstNonNull(model.retryJitterRatio(), provider.retryJitterRatio())
+        );
+    }
+
     private static ReasoningOptions reasoningFrom(String value) {
         String normalized = blankToNull(value);
         if (normalized == null) {
@@ -349,6 +374,10 @@ public record AetherConfig(
             }
         }
         return null;
+    }
+
+    private static <T> T firstNonNull(T first, T second) {
+        return first != null ? first : second;
     }
 
     private static String blankToNull(String value) {

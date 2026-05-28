@@ -3,6 +3,7 @@ package io.github.lingjiuu;
 import io.github.lingjiuu.model.ModelInfo;
 import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.model.ReasoningOptions;
+import io.github.lingjiuu.model.client.ModelRetryOptions;
 import io.github.lingjiuu.provider.ProviderAuth;
 import io.github.lingjiuu.provider.ProviderEndpoint;
 
@@ -25,7 +26,7 @@ public final class TestModelSelections {
                         .input(List.of("text"))
                         .contextWindowTokens(100_000L)
                         .build(),
-                new ProviderEndpoint("fake", "fake", "http://fake.test/v1", Map.of()),
+                new ProviderEndpoint("fake", "fake", "http://fake.test/v1", Map.of(), ModelRetryOptions.defaults()),
                 ProviderAuth.ok("test", Map.of()),
                 reasoning
         );

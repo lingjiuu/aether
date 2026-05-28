@@ -5,7 +5,9 @@ import io.github.lingjiuu.session.turn.TurnContext;
 import io.github.lingjiuu.protocol.UiItemKind;
 import io.github.lingjiuu.input.ProcessedTurnInput;
 import io.github.lingjiuu.model.client.AssistantStreamEvent;
+import io.github.lingjiuu.model.client.ModelErrorInfo;
 import io.github.lingjiuu.model.client.ModelRequest;
+import io.github.lingjiuu.model.client.ModelRetryOptions;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
@@ -26,7 +28,6 @@ public class RegularTask implements SessionTask {
 
     private static final long MIN_EFFECTIVE_COMPACT_TOKEN_DROP = 512;
     private static final int MAX_CONTEXT_WINDOW_RECOVERIES = 2;
-    private static final int MAX_STREAM_RECOVERIES = 2;
 
     @Override
     public TaskKind kind() {
@@ -54,6 +55,9 @@ public class RegularTask implements SessionTask {
 
         session.recordInitialContextIfChanged(turnContext);
         SessionConfig turnConfig = context.sessionConfig();
+        ModelRetryOptions retryOptions = turnConfig.endpoint() == null
+                ? ModelRetryOptions.defaults()
+                : turnConfig.endpoint().retryOptions();
         recordProcessedInput(session, context, turnContext);
 
         int streamRecoveries = 0;
@@ -102,13 +106,16 @@ public class RegularTask implements SessionTask {
                         }
                     }
                     if (assistantMessage.isRetryableStreamFailure()
-                            && streamRecoveries < MAX_STREAM_RECOVERIES) {
+                            && streamRecoveries < retryOptions.streamMaxRetries()) {
                         streamRecoveries++;
                         session.events().emit(UiEvents.streamRetry(
                                 turnContext,
                                 streamRecoveries,
-                                MAX_STREAM_RECOVERIES + 1
+                                retryOptions.streamMaxRetries()
                         ));
+                        if (!sleepForRetry(context, retryDelayMillis(retryOptions, streamRecoveries, assistantMessage.getErrorInfo()))) {
+                            return;
+                        }
                         continue;
                     }
                     TranscriptRecord record = session.recordConversationMessage(assistantMessage, turnContext);
@@ -122,6 +129,7 @@ public class RegularTask implements SessionTask {
                     return;
                 }
 
+                streamRecoveries = 0;
                 if (toolScope.size() == 0) {
                     return;
                 }
@@ -142,6 +150,37 @@ public class RegularTask implements SessionTask {
                     blockedAutoCompactAtOrBelow
             );
         }
+    }
+
+    private long retryDelayMillis(
+            ModelRetryOptions retryOptions,
+            int attempt,
+            ModelErrorInfo errorInfo
+    ) {
+        if (errorInfo != null && errorInfo.retryAfterMillis() != null) {
+            return Math.min(errorInfo.retryAfterMillis(), retryOptions.maxDelayMillis());
+        }
+        return retryOptions.delayMillis(attempt);
+    }
+
+    private boolean sleepForRetry(TaskContext context, long delayMillis) {
+        long remainingMillis = Math.max(1L, delayMillis);
+        while (remainingMillis > 0L) {
+            if (context.isCancelled()) {
+                return false;
+            }
+            long chunk = Math.min(remainingMillis, 100L);
+            long before = System.nanoTime();
+            try {
+                Thread.sleep(chunk);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+            long elapsed = Math.max(1L, (System.nanoTime() - before) / 1_000_000L);
+            remainingMillis -= elapsed;
+        }
+        return !context.isCancelled();
     }
 
     private void handleStreamItem(

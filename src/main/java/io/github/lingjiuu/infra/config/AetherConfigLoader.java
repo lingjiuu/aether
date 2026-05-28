@@ -75,6 +75,11 @@ public class AetherConfigLoader {
                     blankToNull(providerTable.getString("api_key")),
                     providerTable.getBoolean("auth_header"),
                     readStringMap(providerTable.getTable("headers")),
+                    nonNegativeInt(providerTable, "request_max_retries"),
+                    nonNegativeInt(providerTable, "stream_max_retries"),
+                    positiveLong(providerTable, "retry_initial_delay_ms"),
+                    positiveLong(providerTable, "retry_max_delay_ms"),
+                    nonNegativeDouble(providerTable, "retry_jitter_ratio"),
                     readModels(providerTable.getArray("models"))
             ));
         }
@@ -100,6 +105,11 @@ public class AetherConfigLoader {
                     positiveLong(modelTable, "context_window"),
                     positiveLong(modelTable, "auto_compact_token_limit"),
                     readStringMap(modelTable.getTable("headers")),
+                    nonNegativeInt(modelTable, "request_max_retries"),
+                    nonNegativeInt(modelTable, "stream_max_retries"),
+                    positiveLong(modelTable, "retry_initial_delay_ms"),
+                    positiveLong(modelTable, "retry_max_delay_ms"),
+                    nonNegativeDouble(modelTable, "retry_jitter_ratio"),
                     readStringList(modelTable.getArray("input"))
             ));
         }
@@ -142,6 +152,25 @@ public class AetherConfigLoader {
         }
         Long value = table.getLong(key);
         return value == null || value <= 0 ? null : value;
+    }
+
+    private Integer nonNegativeInt(TomlTable table, String key) {
+        if (table == null || key == null) {
+            return null;
+        }
+        Long value = table.getLong(key);
+        if (value == null || value < 0 || value > Integer.MAX_VALUE) {
+            return null;
+        }
+        return value.intValue();
+    }
+
+    private Double nonNegativeDouble(TomlTable table, String key) {
+        if (table == null || key == null) {
+            return null;
+        }
+        Double value = table.getDouble(key);
+        return value == null || value < 0d ? null : value;
     }
 
     private void validate(

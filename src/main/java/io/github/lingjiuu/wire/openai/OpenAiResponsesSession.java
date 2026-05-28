@@ -2,10 +2,13 @@ package io.github.lingjiuu.wire.openai;
 
 import com.openai.client.OpenAIClient;
 import com.openai.core.http.StreamResponse;
+import com.openai.errors.OpenAIException;
 import com.openai.models.responses.ResponseCreateParams;
 import com.openai.models.responses.ResponseStreamEvent;
 import io.github.lingjiuu.model.client.AssistantStream;
 import io.github.lingjiuu.model.ModelInfo;
+import io.github.lingjiuu.model.client.ModelErrorInfo;
+import io.github.lingjiuu.model.client.ModelInvocationException;
 import io.github.lingjiuu.model.client.ModelRequest;
 import io.github.lingjiuu.provider.ProviderEndpoint;
 import io.github.lingjiuu.wire.WireSession;
@@ -51,12 +54,12 @@ public class OpenAiResponsesSession implements WireSession {
                 throw new CancellationException("Model request was cancelled.");
             }
             return new OpenAiResponsesStream(streamResponse, model.getId(), endpoint.providerId());
-        } catch (RuntimeException e) {
+        } catch (OpenAIException e) {
             if (token.isCancellationRequested()) {
                 closeQuietly(streamResponse);
                 throw new CancellationException("Model request was cancelled.");
             }
-            throw e;
+            throw new ModelInvocationException(ModelErrorInfo.fromOpenAiException(e), e);
         }
     }
 

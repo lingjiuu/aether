@@ -46,6 +46,8 @@ public final class TracePayloads {
         payload.put("responseId", message.getResponseId());
         payload.put("stopReason", message.getStopReason() == null ? null : message.getStopReason().name());
         payload.put("error", message.getErrorMessage());
+        payload.put("errorCode", message.getErrorInfo() == null ? null : message.getErrorInfo().code().name());
+        payload.put("httpStatusCode", message.getErrorInfo() == null ? null : message.getErrorInfo().httpStatusCode());
         payload.put("contentCount", message.messageContents() == null ? 0 : message.messageContents().size());
         payload.put("usage", message.getUsage());
         payload.put("text", textPayload(MessageContents.text(message)));

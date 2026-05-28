@@ -3,9 +3,11 @@ package io.github.lingjiuu.wire.openai;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openai.errors.OpenAIException;
 import com.openai.models.responses.Response;
 import com.openai.models.responses.ResponseOutputMessage;
 import com.openai.models.responses.ResponseReasoningItem;
+import com.openai.models.responses.ResponseError;
 import com.openai.models.responses.ResponseStreamEvent;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.content.MessageContent;
@@ -13,6 +15,8 @@ import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.model.client.AssistantStreamEvent;
+import io.github.lingjiuu.model.client.ModelErrorCode;
+import io.github.lingjiuu.model.client.ModelErrorInfo;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -276,7 +280,15 @@ final class OpenAiStreamEventMapper {
         if (event.incomplete().isPresent()) {
             Response response = event.incomplete().get().response();
             AssistantMessage.StopReason stopReason = resolveIncompleteStopReason(response);
-            AssistantMessage finalMessage = finalizeMessage(stopReason, toUsage(response), "Response incomplete");
+            String reason = incompleteReason(response);
+            AssistantMessage finalMessage = finalizeMessage(
+                    stopReason,
+                    toUsage(response),
+                    "Response incomplete" + (reason == null ? "" : ": " + reason),
+                    stopReason == AssistantMessage.StopReason.ERROR
+                            ? ModelErrorInfo.of(ModelErrorCode.fromIncompleteReason(reason), "Response incomplete")
+                            : null
+            );
             if (stopReason == AssistantMessage.StopReason.LENGTH) {
                 return AssistantStreamEvent.builder()
                         .type(AssistantStreamEvent.Type.DONE)
@@ -293,10 +305,14 @@ final class OpenAiStreamEventMapper {
 
         if (event.failed().isPresent()) {
             Response response = event.failed().get().response();
+            ModelErrorInfo errorInfo = response.error()
+                    .map(this::responseErrorInfo)
+                    .orElseGet(() -> ModelErrorInfo.of(ModelErrorCode.INVALID_REQUEST, "Response failed"));
             AssistantMessage finalMessage = finalizeMessage(
                     AssistantMessage.StopReason.ERROR,
                     toUsage(response),
-                    response.error().map(Object::toString).orElse("Response failed")
+                    errorInfo.message(),
+                    errorInfo
             );
             return AssistantStreamEvent.builder()
                     .type(AssistantStreamEvent.Type.ERROR)
@@ -307,10 +323,15 @@ final class OpenAiStreamEventMapper {
 
         if (event.error().isPresent()) {
             var error = event.error().get();
+            ModelErrorInfo errorInfo = ModelErrorInfo.of(
+                    ModelErrorCode.fromResponseError(null, error.message()),
+                    error.message()
+            );
             AssistantMessage errorMessage = finalizeMessage(
                     AssistantMessage.StopReason.ERROR,
                     null,
-                    error.message()
+                    error.message(),
+                    errorInfo
             );
             return AssistantStreamEvent.builder()
                     .type(AssistantStreamEvent.Type.ERROR)
@@ -323,10 +344,12 @@ final class OpenAiStreamEventMapper {
     }
 
     AssistantStreamEvent unexpectedEnd() {
+        String message = streamDisconnectedMessage("OpenAI stream ended unexpectedly");
         AssistantMessage errorMessage = finalizeMessage(
                 AssistantMessage.StopReason.ERROR,
                 null,
-                streamDisconnectedMessage("OpenAI stream ended unexpectedly")
+                message,
+                ModelErrorInfo.of(ModelErrorCode.STREAM_DISCONNECTED, message)
         );
         return AssistantStreamEvent.builder()
                 .type(AssistantStreamEvent.Type.ERROR)
@@ -336,10 +359,13 @@ final class OpenAiStreamEventMapper {
     }
 
     AssistantStreamEvent error(RuntimeException error) {
+        ModelErrorInfo errorInfo = streamErrorInfo(error);
+        String message = errorInfo.message();
         AssistantMessage errorMessage = finalizeMessage(
                 AssistantMessage.StopReason.ERROR,
                 null,
-                streamDisconnectedMessage(errorMessage(error))
+                message,
+                errorInfo
         );
         return AssistantStreamEvent.builder()
                 .type(AssistantStreamEvent.Type.ERROR)
@@ -360,6 +386,17 @@ final class OpenAiStreamEventMapper {
         return message == null || message.isBlank() ? error.getClass().getSimpleName() : message;
     }
 
+    private ModelErrorInfo streamErrorInfo(RuntimeException error) {
+        if (error instanceof OpenAIException) {
+            ModelErrorInfo sdkError = ModelErrorInfo.fromOpenAiException(error);
+            if (sdkError.code() == ModelErrorCode.RATE_LIMIT) {
+                return sdkError;
+            }
+        }
+        String message = streamDisconnectedMessage(errorMessage(error));
+        return ModelErrorInfo.of(ModelErrorCode.STREAM_DISCONNECTED, message);
+    }
+
     private int appendContent(MessageContent content) {
         partial.getContents().add(content);
         return partial.getContents().size() - 1;
@@ -370,6 +407,15 @@ final class OpenAiStreamEventMapper {
             Map<String, Object> usage,
             String errorMessage
     ) {
+        return finalizeMessage(stopReason, usage, errorMessage, null);
+    }
+
+    private AssistantMessage finalizeMessage(
+            AssistantMessage.StopReason stopReason,
+            Map<String, Object> usage,
+            String errorMessage,
+            ModelErrorInfo errorInfo
+    ) {
         return AssistantMessage.builder()
                 .timestamp(partial.getTimestamp())
                 .responseId(partial.getResponseId())
@@ -379,6 +425,7 @@ final class OpenAiStreamEventMapper {
                 .stopReason(stopReason)
                 .usage(usage == null ? partial.getUsage() : usage)
                 .errorMessage(errorMessage)
+                .errorInfo(errorInfo)
                 .providerState(replayCodec.providerState(partial.getResponseId(), replayItems))
                 .build();
     }
@@ -393,6 +440,7 @@ final class OpenAiStreamEventMapper {
                 .stopReason(message.getStopReason())
                 .usage(message.getUsage() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(message.getUsage()))
                 .errorMessage(message.getErrorMessage())
+                .errorInfo(message.getErrorInfo())
                 .providerState(message.getProviderState())
                 .build();
     }
@@ -450,6 +498,18 @@ final class OpenAiStreamEventMapper {
                     default -> AssistantMessage.StopReason.ERROR;
                 }))
                 .orElse(AssistantMessage.StopReason.ERROR);
+    }
+
+    private String incompleteReason(Response response) {
+        return response.incompleteDetails()
+                .flatMap(details -> details.reason().map(reason -> reason.asString()))
+                .orElse(null);
+    }
+
+    private ModelErrorInfo responseErrorInfo(ResponseError error) {
+        String message = error.message();
+        String code = error.code().asString();
+        return ModelErrorInfo.of(ModelErrorCode.fromResponseError(code, message), message);
     }
 
     private String toReasonString(AssistantMessage.StopReason stopReason) {

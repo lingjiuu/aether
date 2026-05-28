@@ -3,6 +3,8 @@ package io.github.lingjiuu.message;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
+import io.github.lingjiuu.model.client.ModelErrorCode;
+import io.github.lingjiuu.model.client.ModelErrorInfo;
 import io.github.lingjiuu.wire.WireReplayData;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -54,6 +56,8 @@ public class AssistantMessage implements Message{
 
     private String errorMessage;
 
+    private ModelErrorInfo errorInfo;
+
     private WireReplayData providerState;
 
 
@@ -89,28 +93,32 @@ public class AssistantMessage implements Message{
 
     @JsonIgnore
     public boolean isContextWindowExceeded() {
+        if (errorInfo != null && errorInfo.contextWindowExceeded()) {
+            return true;
+        }
         if (!isError() || errorMessage == null || errorMessage.isBlank()) {
             return false;
         }
 
-        String normalized = errorMessage.toLowerCase();
-        return normalized.contains("context_window_exceeded")
-                || normalized.contains("context window")
-                || normalized.contains("maximum context")
-                || normalized.contains("context length")
-                || normalized.contains("too many tokens")
-                || normalized.contains("token limit");
+        return ModelErrorCode.fromMessage(errorMessage, null) == ModelErrorCode.CONTEXT_WINDOW_EXCEEDED;
     }
 
     @JsonIgnore
     public boolean isRetryableStreamFailure() {
+        if (errorInfo != null) {
+            return errorInfo.retryableAsStreamFailure();
+        }
         if (!isError() || errorMessage == null || errorMessage.isBlank()) {
             return false;
         }
 
-        String normalized = errorMessage.toLowerCase();
-        return normalized.startsWith("stream disconnected before completion:")
-                || normalized.contains("openai stream ended unexpectedly");
+        ModelErrorCode code = ModelErrorCode.fromMessage(errorMessage, null);
+        return code != null && code.retryableAsStreamFailure(null);
+    }
+
+    @JsonIgnore
+    public boolean isRetryableRequestFailure() {
+        return errorInfo != null && errorInfo.retryableAsRequestFailure();
     }
 
     public enum StopReason{

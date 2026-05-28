@@ -57,6 +57,56 @@ public class SessionFactoryTest extends TestCase {
         }
     }
 
+    public void testRetryOptionsLoadFromProviderAndModelOverride() throws Exception {
+        Path root = Files.createTempDirectory("aether-session-retry-config");
+        Path cwd = root.resolve("workspace");
+        Path agentDir = root.resolve("agent");
+        Path configPath = root.resolve("config.toml");
+        Files.createDirectories(cwd);
+        Files.createDirectories(agentDir);
+        Files.writeString(configPath, """
+                default_provider = "fake"
+                default_model = "fake-model"
+
+                [model_providers.fake]
+                name = "Fake"
+                api = "fake"
+                base_url = "http://localhost"
+                api_key = "test-key"
+                request_max_retries = 7
+                stream_max_retries = 8
+                retry_initial_delay_ms = 300
+                retry_max_delay_ms = 9000
+                retry_jitter_ratio = 0.25
+
+                [[model_providers.fake.models]]
+                id = "fake-model"
+                api = "fake"
+                base_url = "http://localhost"
+                context_window = 100000
+                stream_max_retries = 2
+                retry_initial_delay_ms = 50
+                input = ["text"]
+                """, StandardCharsets.UTF_8);
+
+        SessionFactory factory = SessionFactory.createDefault(
+                null,
+                null,
+                configPath,
+                agentDir,
+                new TranscriptStore(root.resolve("transcripts"))
+        );
+
+        try (Session session = factory.openSession(SessionOptions.cwd(cwd))) {
+            var retry = session.config().endpoint().retryOptions();
+            assertEquals(7, retry.requestMaxRetries());
+            assertEquals(2, retry.streamMaxRetries());
+            assertEquals(50L, retry.initialDelayMillis());
+            assertEquals(9000L, retry.maxDelayMillis());
+            assertEquals(0.25d, retry.jitterRatio(), 0.0001d);
+        }
+    }
+
     public void testResumeUsesCwdRecordedInTranscriptMetadata() throws Exception {
         Path root = Files.createTempDirectory("aether-session-resume");
         Path cwd = root.resolve("workspace");

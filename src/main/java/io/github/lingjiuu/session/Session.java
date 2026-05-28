@@ -20,12 +20,16 @@ import io.github.lingjiuu.input.TurnInputProcessor;
 import io.github.lingjiuu.model.client.AssistantStream;
 import io.github.lingjiuu.model.client.AssistantStreamEvent;
 import io.github.lingjiuu.model.client.ModelClientSession;
+import io.github.lingjiuu.model.client.ModelErrorInfo;
+import io.github.lingjiuu.model.client.ModelInvocationException;
 import io.github.lingjiuu.model.client.ModelRequest;
+import io.github.lingjiuu.model.client.ModelRetryOptions;
 import io.github.lingjiuu.model.TokenUsage;
 import io.github.lingjiuu.model.TokenUsageInfo;
 import io.github.lingjiuu.message.AssistantMessage;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.model.ModelSelection;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.skill.Skill;
@@ -590,35 +594,64 @@ public class Session implements AutoCloseable {
 
         TraceSpan span = config.traceRecorder().startModelSpan(traceContext, request);
         AssistantMessage assistantMessage;
-        try (AssistantStream stream = modelSession.stream(request, token)) {
-            AutoCloseable cancelRegistration = token.onCancel(() -> closeQuietly(stream));
-            try {
-                assistantMessage = stream.consume(event -> {
-                    if (!token.isCancellationRequested()) {
-                        if (itemConsumer != null) {
-                            itemConsumer.accept(event);
+        ModelRetryOptions retryOptions = retryOptions();
+        int requestRetries = 0;
+        while (true) {
+            try (AssistantStream stream = modelSession.stream(request, token)) {
+                AutoCloseable cancelRegistration = token.onCancel(() -> closeQuietly(stream));
+                try {
+                    assistantMessage = stream.consume(event -> {
+                        if (!token.isCancellationRequested()) {
+                            if (itemConsumer != null) {
+                                itemConsumer.accept(event);
+                            }
                         }
+                    });
+                } finally {
+                    closeQuietly(cancelRegistration);
+                }
+                break;
+            } catch (ModelInvocationException e) {
+                if (token.isCancellationRequested()) {
+                    assistantMessage = AssistantMessage.aborted();
+                    span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
+                    return assistantMessage;
+                }
+                ModelErrorInfo errorInfo = e.errorInfo();
+                if (errorInfo.retryableAsRequestFailure()
+                        && requestRetries < retryOptions.requestMaxRetries()) {
+                    requestRetries++;
+                    eventManager.emit(UiEvents.streamRetry(
+                            turnContext,
+                            requestRetries,
+                            retryOptions.requestMaxRetries()
+                    ));
+                    if (!sleepForRetry(token, retryDelayMillis(retryOptions, requestRetries, errorInfo))) {
+                        assistantMessage = AssistantMessage.aborted();
+                        span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
+                        return assistantMessage;
                     }
-                });
-            } finally {
-                closeQuietly(cancelRegistration);
+                    continue;
+                }
+                assistantMessage = modelErrorMessage(errorInfo);
+                break;
+            } catch (IOException e) {
+                if (token.isCancellationRequested()) {
+                    assistantMessage = AssistantMessage.aborted();
+                    span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
+                    return assistantMessage;
+                }
+                span.fail(e);
+                throw new RuntimeException("Failed to close assistant stream.", e);
+            } catch (RuntimeException e) {
+                if (token.isCancellationRequested()) {
+                    assistantMessage = AssistantMessage.aborted();
+                    span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
+                    return assistantMessage;
+                }
+                span.fail(e);
+                throw e;
             }
-        } catch (IOException e) {
-            if (token.isCancellationRequested()) {
-                assistantMessage = AssistantMessage.aborted();
-                span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
-                return assistantMessage;
-            }
-            span.fail(e);
-            throw new RuntimeException("Failed to close assistant stream.", e);
-        } catch (RuntimeException e) {
-            if (token.isCancellationRequested()) {
-                assistantMessage = AssistantMessage.aborted();
-                span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
-                return assistantMessage;
-            }
-            span.fail(e);
-            throw e;
         }
 
         if (token.isCancellationRequested()) {
@@ -629,6 +662,56 @@ public class Session implements AutoCloseable {
         recordTokenUsage(assistantMessage, turnContext);
         span.finish(modelTraceStatus(assistantMessage), TracePayloads.modelOutput(assistantMessage));
         return assistantMessage;
+    }
+
+    private ModelRetryOptions retryOptions() {
+        ModelSelection selection = activeModelSelection();
+        return selection == null || selection.endpoint() == null
+                ? ModelRetryOptions.defaults()
+                : selection.endpoint().retryOptions();
+    }
+
+    private long retryDelayMillis(
+            ModelRetryOptions retryOptions,
+            int attempt,
+            ModelErrorInfo errorInfo
+    ) {
+        if (errorInfo != null && errorInfo.retryAfterMillis() != null) {
+            return Math.min(errorInfo.retryAfterMillis(), retryOptions.maxDelayMillis());
+        }
+        return retryOptions.delayMillis(attempt);
+    }
+
+    private boolean sleepForRetry(ToolCancellationToken token, long delayMillis) {
+        long remainingMillis = Math.max(1L, delayMillis);
+        while (remainingMillis > 0L) {
+            if (token.isCancellationRequested()) {
+                return false;
+            }
+            long chunk = Math.min(remainingMillis, 100L);
+            long before = System.nanoTime();
+            try {
+                Thread.sleep(chunk);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+            long elapsed = Math.max(1L, (System.nanoTime() - before) / 1_000_000L);
+            remainingMillis -= elapsed;
+        }
+        return !token.isCancellationRequested();
+    }
+
+    private AssistantMessage modelErrorMessage(ModelErrorInfo errorInfo) {
+        ModelSelection selection = activeModelSelection();
+        return AssistantMessage.builder()
+                .provider(selection == null || selection.endpoint() == null ? null : selection.endpoint().providerId())
+                .model(selection == null || selection.model() == null ? null : selection.model().getId())
+                .contents(List.of(TextContent.builder().text("").build()))
+                .stopReason(AssistantMessage.StopReason.ERROR)
+                .errorMessage(errorInfo == null ? "Model request failed." : errorInfo.message())
+                .errorInfo(errorInfo)
+                .build();
     }
 
     public String sessionId() {
