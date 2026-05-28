@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    ca-certificates \
+    curl \
+    git \
+    nodejs \
+    npm \
+    openjdk-21-jdk \
+    maven
+fi
+
+if [[ -n "${AETHER_REPO_URL:-}" && ! -d /opt/aether/.git ]]; then
+  rm -rf /opt/aether
+  git clone --depth 1 "${AETHER_REPO_URL}" /opt/aether
+fi
+
+mkdir -p /logs/artifacts /tmp/aether-home
