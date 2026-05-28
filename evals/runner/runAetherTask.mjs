@@ -252,11 +252,26 @@ async function copyAetherArtifacts(home, artifactDir) {
     return;
   }
   await mkdir(artifactDir, { recursive: true });
-  await cp(aetherDir, resolve(artifactDir, 'aether-home'), {
+  const outputDir = resolve(artifactDir, 'aether-home');
+  await cp(aetherDir, outputDir, {
     recursive: true,
     force: true,
     errorOnExist: false,
   });
+  await redactCopiedConfig(outputDir);
+}
+
+async function redactCopiedConfig(outputDir) {
+  const copiedConfig = resolve(outputDir, 'config.toml');
+  if (!existsSync(copiedConfig)) {
+    return;
+  }
+  const original = await readFile(copiedConfig, 'utf8');
+  const redacted = original.replace(
+    /^(\s*api_key\s*=\s*)("([^"\\]|\\.)*"|'([^'\\]|\\.)*')/gm,
+    '$1"<redacted>"'
+  );
+  await writeFile(copiedConfig, redacted);
 }
 
 async function ensureAetherConfig(home) {
