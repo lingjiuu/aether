@@ -98,6 +98,16 @@ public class AssistantMessage implements Message{
                 || normalized.contains("token limit");
     }
 
+    public boolean isRetryableStreamFailure() {
+        if (!isError() || errorMessage == null || errorMessage.isBlank()) {
+            return false;
+        }
+
+        String normalized = errorMessage.toLowerCase();
+        return normalized.startsWith("stream disconnected before completion:")
+                || normalized.contains("openai stream ended unexpectedly");
+    }
+
     public enum StopReason{
         STOP,
         LENGTH,

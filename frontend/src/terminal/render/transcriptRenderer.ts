@@ -154,7 +154,8 @@ function toolCallLines(item: TimelineItem, width: number, cwd?: string | null): 
 
 function turnStatusLines(turn: TimelineTurn, width: number): RenderedLine[] {
   if (turn.status === 'RUNNING') {
-    return [blankLine(), line(dim('✻ Working...'), '✻ Working...', width)];
+    const text = turn.activityText || 'Working...';
+    return [blankLine(), line(dim(`✻ ${text}`), `✻ ${text}`, width)];
   }
   if (turn.status !== 'COMPLETED' && turn.status !== 'ABORTED') {
     return [];

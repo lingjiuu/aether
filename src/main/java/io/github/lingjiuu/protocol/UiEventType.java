@@ -27,5 +27,6 @@ public enum UiEventType {
     SESSION_RESET,
     MODEL_CHANGED,
     SKILLS_CHANGED,
+    STREAM_RETRY,
     ERROR
 }

@@ -18,6 +18,7 @@ export type TimelineTurn = {
   commandId?: string | null;
   turn?: number | null;
   status: TimelineStatus | string;
+  activityText?: string;
   startedAtMs?: number | null;
   endedAtMs?: number | null;
   items: TimelineItem[];

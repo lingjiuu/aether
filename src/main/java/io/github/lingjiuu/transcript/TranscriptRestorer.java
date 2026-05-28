@@ -1,6 +1,9 @@
 package io.github.lingjiuu.transcript;
 
+import io.github.lingjiuu.context.ContextBuilder;
 import io.github.lingjiuu.context.EnvironmentContext;
+import io.github.lingjiuu.message.ContextMessage;
+import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.Message;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiEventPayloads;
@@ -48,17 +51,31 @@ public class TranscriptRestorer {
         }
 
         ReconstructionState state = reconstructFromLatestCheckpoint(records);
-        List<UiEvent> timelineEvents = timelineEvents(records);
+        List<UiEvent> timelineEvents = new ArrayList<>(timelineEvents(records));
+        List<Message> messages = new ArrayList<>(state.messages());
+        long lastEventSequence = lastEventSequence(timelineEvents);
+
+        InterruptedTurnBoundary interruptedBoundary = interruptedTurnBoundary(timelineEvents);
+        if (interruptedBoundary != null) {
+            if (!hasInterruptedTurnMessage(messages)) {
+                messages.add(new ContextBuilder().interruptedTurnMessage());
+            }
+            UiEvent interruptedEvent = interruptedBoundary.toEvent(sessionId, lastEventSequence + 1);
+            timelineEvents.add(interruptedEvent);
+            lastEventSequence = interruptedEvent.getSequence() == null
+                    ? lastEventSequence
+                    : interruptedEvent.getSequence();
+        }
         String lastRecordId = records.isEmpty() ? null : records.getLast().getId();
         return new TranscriptReconstruction(
                 sessionId,
                 sessionMeta,
                 latestModelSelection(records, sessionMeta),
                 sessionName == null ? null : sessionName.getName(),
-                state.messages(),
+                List.copyOf(messages),
                 state.initialContextBaseline(),
-                timelineEvents,
-                lastEventSequence(timelineEvents),
+                List.copyOf(timelineEvents),
+                lastEventSequence,
                 lastRecordId
         );
     }
@@ -183,9 +200,62 @@ public class TranscriptRestorer {
         return event.getSequence();
     }
 
+    private boolean hasInterruptedTurnMessage(List<Message> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return false;
+        }
+        Message lastMessage = messages.getLast();
+        if (!(lastMessage instanceof ContextMessage contextMessage)
+                || contextMessage.getKind() != ContextMessage.ContextKind.INFORMATIONAL) {
+            return false;
+        }
+        String text = MessageContents.text(lastMessage);
+        return text.startsWith("<turn_aborted>") && text.endsWith("</turn_aborted>");
+    }
+
+    private InterruptedTurnBoundary interruptedTurnBoundary(List<UiEvent> timelineEvents) {
+        UiEvent activeTurnStart = null;
+        boolean turnOpen = false;
+        for (UiEvent event : timelineEvents) {
+            if (event == null || event.getType() == null) {
+                continue;
+            }
+            switch (event.getType()) {
+                case TURN_STARTED -> {
+                    activeTurnStart = event;
+                    turnOpen = true;
+                }
+                case TURN_COMPLETED, TURN_ABORTED -> {
+                    activeTurnStart = null;
+                    turnOpen = false;
+                }
+                default -> {
+                }
+            }
+        }
+        if (!turnOpen || activeTurnStart == null) {
+            return null;
+        }
+        return new InterruptedTurnBoundary(activeTurnStart);
+    }
+
     private record ReconstructionState(
             List<Message> messages,
             EnvironmentContext initialContextBaseline
     ) {
+    }
+
+    private record InterruptedTurnBoundary(UiEvent startedEvent) {
+        private UiEvent toEvent(String sessionId, long sequence) {
+            return UiEvent.builder()
+                    .type(UiEventType.TURN_ABORTED)
+                    .sessionId(sessionId)
+                    .commandId(startedEvent.getCommandId())
+                    .turnId(startedEvent.getTurnId())
+                    .turn(startedEvent.getTurn())
+                    .sequence(sequence)
+                    .timestampMs(System.currentTimeMillis())
+                    .build();
+        }
     }
 }

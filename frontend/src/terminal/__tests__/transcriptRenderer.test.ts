@@ -97,6 +97,55 @@ describe('transcript renderer', () => {
     expect(text).not.toContain('``');
   });
 
+  it('renders stream retry as the active turn status', () => {
+    const runningState = reducer(initialState, {
+      type: 'event',
+      event: {
+        type: 'TURN_STARTED',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        turn: 1,
+        sequence: 1,
+      },
+    });
+    const retryState = reducer(runningState, {
+      type: 'event',
+      event: {
+        type: 'STREAM_RETRY',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        turn: 1,
+        sequence: 2,
+        payload: { payloadType: 'text', text: 'Reconnecting... 1/3' },
+      },
+    });
+    const retryView = renderView(retryState);
+    const retryText = activeLines(retryView).map(stripAnsi).join('\n');
+
+    expect(retryText).toContain('✻ Reconnecting... 1/3');
+
+    const resumedState = reducer(retryState, {
+      type: 'event',
+      event: {
+        type: 'ITEM_STARTED',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        turn: 1,
+        sequence: 3,
+        payload: {
+          payloadType: 'itemStarted',
+          itemKind: 'ASSISTANT_TEXT',
+          itemId: 'assistant-1',
+          contentIndex: 0,
+        },
+      },
+    });
+    const resumedText = activeLines(renderView(resumedState)).map(stripAnsi).join('\n');
+
+    expect(resumedText).toContain('✻ Working...');
+    expect(resumedText).not.toContain('Reconnecting... 1/3');
+  });
+
   it('does not render interrupted-turn context guidance', () => {
     const state = reducer(initialState, {
       type: 'history',

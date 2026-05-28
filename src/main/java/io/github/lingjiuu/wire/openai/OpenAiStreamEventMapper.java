@@ -326,7 +326,7 @@ final class OpenAiStreamEventMapper {
         AssistantMessage errorMessage = finalizeMessage(
                 AssistantMessage.StopReason.ERROR,
                 null,
-                "OpenAI stream ended unexpectedly"
+                streamDisconnectedMessage("OpenAI stream ended unexpectedly")
         );
         return AssistantStreamEvent.builder()
                 .type(AssistantStreamEvent.Type.ERROR)
@@ -339,13 +339,25 @@ final class OpenAiStreamEventMapper {
         AssistantMessage errorMessage = finalizeMessage(
                 AssistantMessage.StopReason.ERROR,
                 null,
-                error.getMessage()
+                streamDisconnectedMessage(errorMessage(error))
         );
         return AssistantStreamEvent.builder()
                 .type(AssistantStreamEvent.Type.ERROR)
                 .reason("error")
                 .error(errorMessage)
                 .build();
+    }
+
+    private String streamDisconnectedMessage(String detail) {
+        return "stream disconnected before completion: " + detail;
+    }
+
+    private String errorMessage(RuntimeException error) {
+        if (error == null) {
+            return "unknown stream failure";
+        }
+        String message = error.getMessage();
+        return message == null || message.isBlank() ? error.getClass().getSimpleName() : message;
     }
 
     private int appendContent(MessageContent content) {

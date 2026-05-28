@@ -1,6 +1,7 @@
 package io.github.lingjiuu.transcript;
 
 import io.github.lingjiuu.context.EnvironmentContext;
+import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
@@ -73,6 +74,31 @@ public class TranscriptRestorerTest extends TestCase {
         assertEquals(11, reconstruction.lastEventSequence());
     }
 
+    public void testRestoreSynthesizesInterruptedBoundaryForDanglingTurn() throws Exception {
+        String sessionId = UUID.randomUUID().toString();
+        TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-transcript-test"));
+
+        append(store, sessionId, eventItem(UiEventType.TURN_STARTED, 11, "turn-1", 1), 1);
+        append(store, sessionId, messageItem("partial message"), 1);
+
+        TranscriptReconstruction reconstruction = new TranscriptRestorer(store).restore(sessionId);
+
+        assertEquals(2, reconstruction.messages().size());
+        assertTrue(reconstruction.messages().getLast() instanceof ContextMessage);
+        ContextMessage interrupted = (ContextMessage) reconstruction.messages().getLast();
+        assertEquals(ContextMessage.ContextKind.INFORMATIONAL, interrupted.getKind());
+        String text = MessageContents.text(interrupted);
+        assertTrue(text.startsWith("<turn_aborted>"));
+        assertTrue(text.endsWith("</turn_aborted>"));
+
+        assertEquals(2, reconstruction.timelineEvents().size());
+        assertEquals(UiEventType.TURN_STARTED, reconstruction.timelineEvents().getFirst().getType());
+        assertEquals(UiEventType.TURN_ABORTED, reconstruction.timelineEvents().getLast().getType());
+        assertEquals("turn-1", reconstruction.timelineEvents().getLast().getTurnId());
+        assertEquals(1, reconstruction.timelineEvents().getLast().getTurn().intValue());
+        assertEquals(12, reconstruction.lastEventSequence());
+    }
+
     private MessageTranscriptItem messageItem(String text) {
         return MessageTranscriptItem.builder()
                 .message(userMessage(text))
@@ -110,9 +136,15 @@ public class TranscriptRestorerTest extends TestCase {
     }
 
     private EventTranscriptItem eventItem(UiEventType type, long sequence) {
+        return eventItem(type, sequence, null, null);
+    }
+
+    private EventTranscriptItem eventItem(UiEventType type, long sequence, String turnId, Integer turn) {
         return EventTranscriptItem.builder()
                 .event(UiEvent.builder()
                         .type(type)
+                        .turnId(turnId)
+                        .turn(turn)
                         .sequence(sequence)
                         .timestampMs(System.currentTimeMillis())
                         .build())

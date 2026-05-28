@@ -67,6 +67,12 @@ public final class UiEvents {
                 .build();
     }
 
+    public static UiEvent streamRetry(TurnContext turnContext, int attempt, int totalAttempts) {
+        return event(UiEventType.STREAM_RETRY, turnContext)
+                .payload(new UiEventPayloads.Text("Reconnecting... " + attempt + "/" + totalAttempts))
+                .build();
+    }
+
     public static UiEvent modelChanged(String sessionId, ModelSelection selection) {
         return event(UiEventType.MODEL_CHANGED, sessionId, null)
                 .payload(new UiEventPayloads.ModelSelection(uiModelSelection(selection)))

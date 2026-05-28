@@ -21,6 +21,7 @@ public class RegularTask implements SessionTask {
 
     private static final long MIN_EFFECTIVE_COMPACT_TOKEN_DROP = 512;
     private static final int MAX_CONTEXT_WINDOW_RECOVERIES = 2;
+    private static final int MAX_STREAM_RECOVERIES = 2;
 
     @Override
     public TaskKind kind() {
@@ -50,6 +51,7 @@ public class RegularTask implements SessionTask {
         SessionConfig turnConfig = context.sessionConfig();
         recordProcessedInput(session, context.processedInput(), turnContext);
 
+        int streamRecoveries = 0;
         while (!context.isCancelled()) {
             blockedAutoCompactAtOrBelow = runAutoCompactIfNeeded(
                     session,
@@ -83,7 +85,7 @@ public class RegularTask implements SessionTask {
                     return;
                 }
                 if (assistantMessage.isError()) {
-                    recordToolOutcomes(session, turnContext, toolScope.abortAndDrain());
+                    recordToolOutcomes(session, turnContext, toolScope.drain());
                     if (assistantMessage.isContextWindowExceeded()
                             && contextWindowRecoveries < MAX_CONTEXT_WINDOW_RECOVERIES) {
                         contextWindowRecoveries++;
@@ -92,6 +94,16 @@ public class RegularTask implements SessionTask {
                             blockedAutoCompactAtOrBelow = -1;
                             continue;
                         }
+                    }
+                    if (assistantMessage.isRetryableStreamFailure()
+                            && streamRecoveries < MAX_STREAM_RECOVERIES) {
+                        streamRecoveries++;
+                        session.events().emit(UiEvents.streamRetry(
+                                turnContext,
+                                streamRecoveries,
+                                MAX_STREAM_RECOVERIES + 1
+                        ));
+                        continue;
                     }
                     session.recordConversationMessage(assistantMessage, turnContext);
                     session.events().emit(UiEvents.error(turnContext, assistantMessage.getErrorMessage()));

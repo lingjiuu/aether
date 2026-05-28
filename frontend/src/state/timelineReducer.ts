@@ -100,6 +100,7 @@ function applyTimelineEvent(state: AppState, event: UiEvent): AppState {
       return updateTurn(withSessionStatus(state, 'RUNNING'), event, turn => ({
         ...turn,
         status: 'RUNNING',
+        activityText: undefined,
         startedAtMs: turn.startedAtMs ?? event.timestampMs,
         endedAtMs: undefined,
       }));
@@ -107,14 +108,24 @@ function applyTimelineEvent(state: AppState, event: UiEvent): AppState {
       return updateTurn(withSessionStatus(state, 'IDLE'), event, turn => ({
         ...turn,
         status: 'COMPLETED',
+        activityText: undefined,
         endedAtMs: event.timestampMs ?? turn.endedAtMs,
       }));
     case 'TURN_ABORTED':
       return updateTurn(withSessionStatus(state, 'IDLE'), event, turn => ({
         ...turn,
         status: 'ABORTED',
+        activityText: undefined,
         endedAtMs: event.timestampMs ?? turn.endedAtMs,
       }));
+    case 'STREAM_RETRY': {
+      const text = payload(event, 'text')?.text;
+      return updateTurn(state, event, turn => ({
+        ...turn,
+        status: 'RUNNING',
+        activityText: text?.trim() || undefined,
+      }));
+    }
     case 'USER_MESSAGE': {
       const item = payload(event, 'userMessage')?.item;
       return item ? upsertItem(state, event, itemToTimelineItem(item, 'COMPLETED')) : state;
@@ -303,7 +314,7 @@ function upsertPartialItem(
   const items = turn.items.some(item => item.id === itemId)
     ? turn.items.map(item => (item.id === itemId ? updated : item))
     : [...turn.items, updated];
-  next.turns[turn.turnId] = { ...turn, items };
+  next.turns[turn.turnId] = { ...turn, activityText: undefined, items };
   return next;
 }
 
