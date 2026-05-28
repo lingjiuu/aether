@@ -12,7 +12,7 @@ instruction, waits for the session to become idle, and writes a JSON summary.
 Default backend command:
 
 ```sh
-mvn -q exec:java -Dexec.mainClass=io.github.lingjiuu.App -Dexec.args=--stdio
+mvn -q compile exec:java -Dexec.mainClass=io.github.lingjiuu.App -Dexec.args=--stdio
 ```
 
 For a future GraalVM binary, set:

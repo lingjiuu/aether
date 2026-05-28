@@ -218,7 +218,7 @@ function backendCommand(args, repoRoot) {
   }
   return {
     command: 'mvn',
-    args: ['-q', 'exec:java', '-Dexec.mainClass=io.github.lingjiuu.App', '-Dexec.args=--stdio'],
+    args: ['-q', 'compile', 'exec:java', '-Dexec.mainClass=io.github.lingjiuu.App', '-Dexec.args=--stdio'],
     cwd: args.backendCwd || repoRoot,
   };
 }
