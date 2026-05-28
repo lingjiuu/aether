@@ -67,7 +67,8 @@ class AetherAgent(BaseInstalledAgent):
             raise RuntimeError("This Harbor version does not expose exec_as_agent.")
         await self.exec_as_agent(
             environment,
-            command=self._env_prefix() + self._run_command(instruction),
+            command=self._run_command(instruction),
+            env=self._run_env(),
         )
 
     def populate_context_post_run(self, context) -> None:
