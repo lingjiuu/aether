@@ -3,6 +3,7 @@ package io.github.lingjiuu.transcript;
 import io.github.lingjiuu.context.EnvironmentContext;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.MessageContents;
+import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.transcript.item.CompactedTranscriptItem;
@@ -54,6 +55,33 @@ public class TranscriptRestorerTest extends TestCase {
         assertEquals(1, reconstruction.messages().size());
         assertEquals("summary message", MessageContents.text(reconstruction.messages().getFirst()));
         assertNull(reconstruction.initialContextBaseline());
+    }
+
+    public void testRestoreReplaysPersistedOutputPreviewWithoutRetrimming() throws Exception {
+        String sessionId = UUID.randomUUID().toString();
+        TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-transcript-test"));
+        String preview = """
+                <persisted-output>
+                Output too large (60.0KB). Full output saved to: /missing/tool-results/call-1.txt
+
+                Preview (first 2.0KB):
+                hello
+                ...
+                </persisted-output>""";
+
+        append(store, sessionId, MessageTranscriptItem.builder()
+                .message(ToolResultMessage.builder()
+                        .toolCallId("call-1")
+                        .toolName("bash")
+                        .contents(List.of(TextContent.builder().text(preview).build()))
+                        .build())
+                .build(), 1);
+
+        TranscriptReconstruction reconstruction = new TranscriptRestorer(store).restore(sessionId);
+
+        assertEquals(1, reconstruction.messages().size());
+        assertTrue(reconstruction.messages().getFirst() instanceof ToolResultMessage);
+        assertEquals(preview, MessageContents.text(reconstruction.messages().getFirst()));
     }
 
     public void testRestoreReturnsTimelineEventsWithoutAffectingMessages() throws Exception {

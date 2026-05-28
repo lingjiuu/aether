@@ -4,6 +4,7 @@ import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
 import java.io.BufferedReader;
@@ -43,10 +44,8 @@ public class GlobTool implements Tool {
     @Override
     public String description() {
         return "Fast file pattern matching tool. Supports glob patterns like '**/*.java' or 'src/**/*.ts'. "
-                + "Returns matching file paths sorted by modification time. Output is truncated to "
-                + ToolOutputLimits.GLOB_DEFAULT_LIMIT + " files or "
-                + TextOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES)
-                + " (whichever is hit first).";
+                + "Returns matching file paths sorted by modification time. Output is limited to "
+                + ToolOutputLimits.GLOB_DEFAULT_LIMIT + " files by default.";
     }
 
     @Override
@@ -71,6 +70,11 @@ public class GlobTool implements Tool {
     @Override
     public ToolRiskLevel riskLevel() {
         return ToolRiskLevel.READ_ONLY;
+    }
+
+    @Override
+    public ToolResultPolicy resultPolicy() {
+        return ToolResultPolicy.withMaxResultSizeChars(100_000);
     }
 
     @Override
@@ -158,14 +162,10 @@ public class GlobTool implements Tool {
                     ? filenames
                     : filenames.subList(0, ToolOutputLimits.GLOB_DEFAULT_LIMIT);
             String rawOutput = returned.isEmpty() ? "No files found" : String.join("\n", returned);
-            TextOutputTruncator.TruncationResult truncation = TextOutputTruncator.truncateHead(rawOutput, ToolOutputLimits.DEFAULT_MAX_BYTES);
-            String output = truncation.content();
+            String output = rawOutput;
             List<String> notices = new ArrayList<>();
             if (resultLimitReached) {
                 notices.add("Results are truncated. Consider using a more specific path or pattern");
-            }
-            if (truncation.truncated()) {
-                notices.add(TextOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES) + " limit reached");
             }
             if (!notices.isEmpty()) {
                 output += "\n\n[" + String.join(". ", notices) + "]";
@@ -178,7 +178,7 @@ public class GlobTool implements Tool {
             details.put("resolvedPath", resolvedPath.toString());
             details.put("numFiles", returned.size());
             details.put("filenames", List.copyOf(returned));
-            details.put("truncated", resultLimitReached || truncation.truncated());
+            details.put("truncated", resultLimitReached);
 
             return ToolExecutionResult.builder()
                     .contents(ToolExecutionResult.text(output).getContents())

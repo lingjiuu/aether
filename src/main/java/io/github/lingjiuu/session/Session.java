@@ -43,6 +43,7 @@ import io.github.lingjiuu.tool.permission.ApprovalResponse;
 import io.github.lingjiuu.tool.permission.DenyAllApprovalHandler;
 import io.github.lingjiuu.tool.permission.PermissionManager;
 import io.github.lingjiuu.tool.permission.PermissionPreset;
+import io.github.lingjiuu.tool.result.ToolArtifactStore;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import io.github.lingjiuu.transcript.TranscriptRecorder;
 import io.github.lingjiuu.transcript.TranscriptReconstruction;
@@ -66,6 +67,7 @@ public class Session implements AutoCloseable {
     private final EventManager eventManager;
     private final ToolRegistry toolRegistry;
     private final ToolRouter toolRouter;
+    private final ToolArtifactStore toolArtifactStore;
     private final ReadFileState readFileState = new ReadFileState();
     private final SkillsManager skillsManager;
     private final SkillsWatcher skillsWatcher;
@@ -152,6 +154,7 @@ public class Session implements AutoCloseable {
         this.transcriptRecorder = config.transcriptStore() == null
                 ? null
                 : new TranscriptRecorder(config.transcriptStore(), sessionId, lastTranscriptRecordId);
+        this.toolArtifactStore = ToolArtifactStore.forSession(config.transcriptStore(), sessionId);
         this.eventManager = new EventManager(transcriptRecorder, initialTimelineEvents, initialEventSequence);
         if (recordSessionMeta && this.transcriptRecorder != null) {
             this.transcriptRecorder.recordSessionMeta(sessionMeta);
@@ -359,6 +362,10 @@ public class Session implements AutoCloseable {
 
     public ToolRouter toolRouter() {
         return toolRouter;
+    }
+
+    public ToolArtifactStore toolArtifactStore() {
+        return toolArtifactStore;
     }
 
     public ReadFileState readFileState() {

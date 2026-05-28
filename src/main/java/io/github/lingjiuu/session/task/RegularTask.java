@@ -14,7 +14,10 @@ import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.tool.Tool;
+import io.github.lingjiuu.tool.result.ToolResultInput;
+import io.github.lingjiuu.tool.result.ToolResultProcessor;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class RegularTask implements SessionTask {
@@ -278,21 +281,35 @@ public class RegularTask implements SessionTask {
             TurnContext turnContext,
             List<ToolOutcome> outcomes
     ) {
+        List<ToolOutcome> validOutcomes = new ArrayList<>();
+        List<Tool> tools = new ArrayList<>();
+        List<ToolResultInput> inputs = new ArrayList<>();
         for (ToolOutcome outcome : outcomes) {
             if (outcome == null) {
                 continue;
             }
             ToolCallRef toolCallRef = outcome.toolCallRef();
-            ToolResultMessage toolResult = session.contextBuilder().toolResultMessage(
-                    toolCallRef.toolCall(),
-                    outcome.executionResult()
-            );
-            if (toolResult == null) {
+            if (toolCallRef == null || toolCallRef.toolCall() == null) {
                 continue;
             }
             Tool tool = session.toolRegistry().findTool(
-                    toolCallRef.toolCall() == null ? null : toolCallRef.toolCall().getToolName()
+                    toolCallRef.toolCall().getToolName()
             );
+            validOutcomes.add(outcome);
+            tools.add(tool);
+            inputs.add(new ToolResultInput(toolCallRef.toolCall(), tool, outcome.executionResult()));
+        }
+
+        List<ToolResultMessage> toolResults = new ToolResultProcessor(
+                session.contextBuilder(),
+                session.toolArtifactStore()
+        ).processBatch(inputs);
+
+        for (int i = 0; i < validOutcomes.size(); i++) {
+            ToolOutcome outcome = validOutcomes.get(i);
+            ToolCallRef toolCallRef = outcome.toolCallRef();
+            Tool tool = tools.get(i);
+            ToolResultMessage toolResult = toolResults.get(i);
             session.recordConversationMessage(toolResult, turnContext);
             session.events().emit(UiEvents.toolExecutionEnd(
                     toolCallRef.itemId(),

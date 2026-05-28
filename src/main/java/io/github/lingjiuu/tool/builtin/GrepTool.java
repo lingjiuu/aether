@@ -4,6 +4,7 @@ import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
 import java.io.BufferedReader;
@@ -99,6 +100,11 @@ public class GrepTool implements Tool {
     @Override
     public ToolRiskLevel riskLevel() {
         return ToolRiskLevel.READ_ONLY;
+    }
+
+    @Override
+    public ToolResultPolicy resultPolicy() {
+        return ToolResultPolicy.withMaxResultSizeChars(20_000);
     }
 
     @Override
@@ -281,21 +287,14 @@ public class GrepTool implements Tool {
                 .toList();
         Page<String> page = page(lines, options);
         String rawOutput = page.items().isEmpty() ? "No matches found" : String.join("\n", page.items());
-        TextOutputTruncator.TruncationResult truncation = TextOutputTruncator.truncateHead(
-                rawOutput,
-                ToolOutputLimits.DEFAULT_MAX_BYTES
-        );
-        String output = appendPagination(truncation.content(), page);
-        if (truncation.truncated()) {
-            output += "\n\n[" + TextOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES) + " limit reached]";
-        }
+        String output = appendPagination(rawOutput, page);
 
         Map<String, Object> details = baseDetails(pattern, requestedPath, resolvedPath, options);
         details.put("mode", MODE_CONTENT);
         details.put("numLines", page.items().size());
         details.put("totalLines", lines.size());
         details.put("content", List.copyOf(page.items()));
-        details.put("truncated", page.truncated() || truncation.truncated());
+        details.put("truncated", page.truncated());
         return result(output, details);
     }
 

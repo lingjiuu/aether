@@ -140,4 +140,19 @@ public class ContextManagerTest extends TestCase {
         assertSame(user, normalized.get(0));
         assertTrue(normalized.get(0).messageContents().get(1) instanceof ImageContent);
     }
+
+    public void testRecordDoesNotTrimToolResults() {
+        ContextManager contextManager = new ContextManager();
+        String large = "tool-output".repeat(3_000);
+        ToolResultMessage toolResult = ToolResultMessage.builder()
+                .toolCallId("call-1")
+                .toolName("bash")
+                .contents(List.of(TextContent.builder().text(large).build()))
+                .build();
+
+        contextManager.record(toolResult);
+
+        assertSame(toolResult, contextManager.snapshot().getFirst());
+        assertEquals(large, io.github.lingjiuu.message.MessageContents.text(contextManager.snapshot().getFirst()));
+    }
 }

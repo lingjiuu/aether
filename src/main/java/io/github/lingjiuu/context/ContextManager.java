@@ -23,7 +23,6 @@ import java.util.Set;
 public class ContextManager {
 
     private static final String MISSING_TOOL_RESULT_TEXT = "aborted";
-    private static final int MAX_TOOL_RESULT_CHARS = 16_000;
     private static final String IMAGE_CONTENT_OMITTED_PLACEHOLDER =
             "image content omitted because you do not support image input";
 
@@ -41,7 +40,7 @@ public class ContextManager {
         if (message == null) {
             throw new IllegalArgumentException("message must not be null");
         }
-        messages.add(normalizeForHistory(message));
+        messages.add(message);
     }
 
     public synchronized void recordAll(Collection<? extends Message> newMessages) {
@@ -119,32 +118,6 @@ public class ContextManager {
             chars += visibleChars(messages.get(index));
         }
         return approxTokens(chars);
-    }
-
-    private Message normalizeForHistory(Message message) {
-        if (!(message instanceof ToolResultMessage toolResultMessage)) {
-            return message;
-        }
-
-        String text = MessageContents.text(toolResultMessage);
-        if (text == null || text.length() <= MAX_TOOL_RESULT_CHARS) {
-            return message;
-        }
-
-        String truncatedText = text.substring(0, MAX_TOOL_RESULT_CHARS)
-                + "\n\n[tool result truncated by context policy]";
-        List<MessageContent> contents = List.of(TextContent.builder()
-                .text(truncatedText)
-                .build());
-        return ToolResultMessage.builder()
-                .id(toolResultMessage.getId())
-                .timestamp(toolResultMessage.getTimestamp())
-                .toolCallId(toolResultMessage.getToolCallId())
-                .toolName(toolResultMessage.getToolName())
-                .details(toolResultMessage.getDetails())
-                .isError(toolResultMessage.isError())
-                .contents(contents)
-                .build();
     }
 
     private List<Message> ensureToolResultsPresent(Collection<? extends Message> sourceMessages) {

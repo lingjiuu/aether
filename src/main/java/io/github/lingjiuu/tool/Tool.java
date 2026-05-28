@@ -1,5 +1,7 @@
 package io.github.lingjiuu.tool;
 
+import io.github.lingjiuu.tool.result.ToolResultPolicy;
+
 import java.util.Map;
 
 public interface Tool {
@@ -32,6 +34,10 @@ public interface Tool {
 
     default boolean supportsParallelToolCalls() {
         return riskLevel() == ToolRiskLevel.READ_ONLY;
+    }
+
+    default ToolResultPolicy resultPolicy() {
+        return ToolResultPolicy.defaultPolicy();
     }
 
     default Map<String, Object> validateArguments(String argumentsJson) {
