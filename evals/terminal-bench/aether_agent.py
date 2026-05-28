@@ -49,20 +49,16 @@ class AetherAgent(BaseInstalledAgent):
         if hasattr(self, "exec_as_root"):
             await self.exec_as_root(
                 environment,
-                command=(
-                    "apt-get update && "
-                    "DEBIAN_FRONTEND=noninteractive apt-get install -y "
-                    "ca-certificates curl git nodejs npm openjdk-21-jdk maven"
-                ),
+                command=self._install_dependencies_command(),
+                timeout_sec=900,
             )
         repo_url = self._env_value("AETHER_REPO_URL")
-        if repo_url and hasattr(self, "exec_as_agent"):
-            await self.exec_as_agent(
+        if repo_url:
+            executor = self.exec_as_root if hasattr(self, "exec_as_root") else self.exec_as_agent
+            await executor(
                 environment,
-                command=(
-                    "rm -rf /opt/aether && "
-                    f"git clone --depth 1 {shlex.quote(repo_url)} /opt/aether"
-                ),
+                command=self._clone_repo_command(repo_url),
+                timeout_sec=600,
             )
 
     @with_prompt_template
@@ -161,6 +157,52 @@ class AetherAgent(BaseInstalledAgent):
             if candidate.exists():
                 return candidate
         return candidates[0]
+
+    def _install_dependencies_command(self) -> str:
+        return r"""
+set -eu
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    ca-certificates \
+    curl \
+    git \
+    gzip \
+    maven \
+    nodejs \
+    npm \
+    tar
+  DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-21-jdk || true
+fi
+
+java_major="$(java -XshowSettings:properties -version 2>&1 | awk -F= '/java.specification.version/ {gsub(/ /, "", $2); print $2; exit}' || true)"
+if [ -z "${java_major}" ] || [ "${java_major}" -lt 21 ]; then
+  arch="$(uname -m)"
+  case "${arch}" in
+    x86_64|amd64) adoptium_arch="x64" ;;
+    aarch64|arm64) adoptium_arch="aarch64" ;;
+    *) echo "Unsupported architecture for JDK 21: ${arch}" >&2; exit 1 ;;
+  esac
+  curl -fsSL "https://api.adoptium.net/v3/binary/latest/21/ga/linux/${adoptium_arch}/jdk/hotspot/normal/eclipse" -o /tmp/jdk21.tar.gz
+  rm -rf /opt/jdk-21
+  mkdir -p /opt/jdk-21
+  tar -xzf /tmp/jdk21.tar.gz -C /opt/jdk-21 --strip-components=1
+  ln -sf /opt/jdk-21/bin/java /usr/local/bin/java
+  ln -sf /opt/jdk-21/bin/javac /usr/local/bin/javac
+  ln -sf /opt/jdk-21/bin/jar /usr/local/bin/jar
+fi
+
+command -v node >/dev/null
+command -v mvn >/dev/null
+java -version
+""".strip()
+
+    def _clone_repo_command(self, repo_url: str) -> str:
+        return (
+            "rm -rf /opt/aether && "
+            f"git clone --depth 1 {shlex.quote(repo_url)} /opt/aether && "
+            "chmod -R a+rwX /opt/aether"
+        )
 
     def _env_value(self, name: str, default: str | None = None) -> str | None:
         if hasattr(self, "_get_env"):
