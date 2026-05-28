@@ -28,7 +28,7 @@ class AetherAgent(BaseInstalledAgent):
         return "aether"
 
     def version(self) -> str | None:
-        return os.environ.get("AETHER_EVAL_VERSION")
+        return self._env_value("AETHER_EVAL_VERSION")
 
     @property
     def _install_agent_template_path(self) -> Path:
@@ -55,7 +55,7 @@ class AetherAgent(BaseInstalledAgent):
                     "ca-certificates curl git nodejs npm openjdk-21-jdk maven"
                 ),
             )
-        repo_url = os.environ.get("AETHER_REPO_URL")
+        repo_url = self._env_value("AETHER_REPO_URL")
         if repo_url and hasattr(self, "exec_as_agent"):
             await self.exec_as_agent(
                 environment,
@@ -93,9 +93,9 @@ class AetherAgent(BaseInstalledAgent):
                 context.trajectory_path = trajectory
 
     def _run_command(self, instruction: str) -> str:
-        runner = os.environ.get("AETHER_EVAL_RUNNER", "/opt/aether/evals/runner/runAetherTask.mjs")
+        runner = self._env_value("AETHER_EVAL_RUNNER", "/opt/aether/evals/runner/runAetherTask.mjs")
         instruction_file = "/tmp/aether-eval/instruction.txt"
-        timeout = os.environ.get("AETHER_EVAL_TIMEOUT_SECONDS", "900")
+        timeout = self._env_value("AETHER_EVAL_TIMEOUT_SECONDS", "900")
         quoted_instruction = shlex.quote(instruction)
         return " && ".join([
             "mkdir -p /tmp/aether-eval /logs/artifacts",
@@ -112,8 +112,8 @@ class AetherAgent(BaseInstalledAgent):
     def _run_env(self) -> dict[str, str]:
         env = {
             "AETHER_EVAL_ARTIFACT_DIR": "/logs/artifacts",
-            "AETHER_EVAL_PERMISSION_MODE": os.environ.get("AETHER_EVAL_PERMISSION_MODE", "FULL_ACCESS"),
-            "AETHER_EVAL_HOME": os.environ.get("AETHER_EVAL_HOME", "/tmp/aether-home"),
+            "AETHER_EVAL_PERMISSION_MODE": self._env_value("AETHER_EVAL_PERMISSION_MODE", "FULL_ACCESS"),
+            "AETHER_EVAL_HOME": self._env_value("AETHER_EVAL_HOME", "/tmp/aether-home"),
         }
         for name in (
             "AETHER_BIN",
@@ -135,7 +135,7 @@ class AetherAgent(BaseInstalledAgent):
             "ANTHROPIC_API_KEY",
             "JAVA_TOOL_OPTIONS",
         ):
-            value = os.environ.get(name)
+            value = self._env_value(name)
             if value:
                 env[name] = value
         return env
@@ -161,3 +161,10 @@ class AetherAgent(BaseInstalledAgent):
             if candidate.exists():
                 return candidate
         return candidates[0]
+
+    def _env_value(self, name: str, default: str | None = None) -> str | None:
+        if hasattr(self, "_get_env"):
+            value = self._get_env(name)
+        else:
+            value = os.environ.get(name)
+        return value if value else default
