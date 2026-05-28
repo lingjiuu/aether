@@ -1,5 +1,6 @@
 package io.github.lingjiuu.message;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.wire.WireReplayData;
@@ -76,14 +77,17 @@ public class AssistantMessage implements Message{
         return timestamp;
     }
 
+    @JsonIgnore
     public boolean isAborted() {
         return stopReason == StopReason.ABORTED;
     }
 
+    @JsonIgnore
     public boolean isError() {
         return stopReason == StopReason.ERROR;
     }
 
+    @JsonIgnore
     public boolean isContextWindowExceeded() {
         if (!isError() || errorMessage == null || errorMessage.isBlank()) {
             return false;
@@ -98,6 +102,7 @@ public class AssistantMessage implements Message{
                 || normalized.contains("token limit");
     }
 
+    @JsonIgnore
     public boolean isRetryableStreamFailure() {
         if (!isError() || errorMessage == null || errorMessage.isBlank()) {
             return false;

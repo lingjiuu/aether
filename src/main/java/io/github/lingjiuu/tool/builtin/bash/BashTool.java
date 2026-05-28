@@ -8,6 +8,7 @@ import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.builtin.ExecutableFinder;
 import io.github.lingjiuu.tool.builtin.TextOutputTruncator;
 import io.github.lingjiuu.tool.builtin.ToolOutputLimits;
+import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
 import java.io.IOException;
@@ -57,7 +58,7 @@ public class BashTool implements Tool {
         return "Execute a bash command in the workspace. Returns stdout and stderr. Output is truncated to the last "
                 + ToolOutputLimits.BASH_MAX_LINES + " lines or "
                 + TextOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES)
-                + ", whichever is hit first. If truncated, full output is saved to a temp file. "
+                + ", whichever is hit first during execution. Large final output is saved as a tool result artifact. "
                 + "Optionally provide timeout in seconds.";
     }
 
@@ -77,6 +78,11 @@ public class BashTool implements Tool {
     @Override
     public ToolRiskLevel riskLevel() {
         return ToolRiskLevel.EXEC;
+    }
+
+    @Override
+    public ToolResultPolicy resultPolicy() {
+        return ToolResultPolicy.withMaxResultSizeChars(30_000);
     }
 
     @Override
@@ -250,6 +256,9 @@ public class BashTool implements Tool {
         }
         if (snapshot.stderr().fullOutputPath() != null) {
             details.put("stderrFullOutputPath", snapshot.stderr().fullOutputPath().toString());
+        }
+        if (snapshot.aggregate().fullOutputPath() != null) {
+            details.put("aggregateFullOutputPath", snapshot.aggregate().fullOutputPath().toString());
         }
         return ToolExecutionResult.builder()
                 .contents(ToolExecutionResult.text(text).getContents())

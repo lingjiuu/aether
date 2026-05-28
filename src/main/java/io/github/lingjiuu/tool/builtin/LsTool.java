@@ -4,6 +4,7 @@ import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
 import java.io.IOException;
@@ -38,9 +39,8 @@ public class LsTool implements Tool {
     @Override
     public String description() {
         return "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. "
-                + "Includes dotfiles. Output is truncated to " + ToolOutputLimits.LS_DEFAULT_LIMIT
-                + " entries or " + TextOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES)
-                + " (whichever is hit first).";
+                + "Includes dotfiles. Output is limited to " + ToolOutputLimits.LS_DEFAULT_LIMIT
+                + " entries by default.";
     }
 
     @Override
@@ -66,6 +66,11 @@ public class LsTool implements Tool {
     @Override
     public ToolRiskLevel riskLevel() {
         return ToolRiskLevel.READ_ONLY;
+    }
+
+    @Override
+    public ToolResultPolicy resultPolicy() {
+        return ToolResultPolicy.defaultPolicy();
     }
 
     @Override
@@ -114,14 +119,10 @@ public class LsTool implements Tool {
         }
 
         String rawOutput = renderedEntries.isEmpty() ? "(empty directory)" : String.join("\n", renderedEntries);
-        TextOutputTruncator.TruncationResult truncation = TextOutputTruncator.truncateHead(rawOutput, ToolOutputLimits.DEFAULT_MAX_BYTES);
-        String output = truncation.content();
+        String output = rawOutput;
         List<String> notices = new ArrayList<>();
         if (entryLimitReached) {
             notices.add(limit + " entries limit reached. Use limit=" + (limit * 2) + " for more");
-        }
-        if (truncation.truncated()) {
-            notices.add(TextOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES) + " limit reached");
         }
         if (!notices.isEmpty()) {
             output += "\n\n[" + String.join(". ", notices) + "]";
@@ -138,7 +139,7 @@ public class LsTool implements Tool {
                         "resolvedPath", resolvedPath.toString(),
                         "entryCount", renderedEntries.size(),
                         "limitReached", entryLimitReached,
-                        "truncated", truncation.truncated(),
+                        "truncated", entryLimitReached,
                         "entriesPreview", preview
                 ))
                 .error(false)

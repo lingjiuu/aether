@@ -5,6 +5,7 @@ import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.file.ReadFileState;
+import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
 import java.io.IOException;
@@ -60,6 +61,11 @@ public class EditTool implements Tool {
     @Override
     public ToolRiskLevel riskLevel() {
         return ToolRiskLevel.WRITE;
+    }
+
+    @Override
+    public ToolResultPolicy resultPolicy() {
+        return ToolResultPolicy.withMaxResultSizeChars(100_000);
     }
 
     @Override
