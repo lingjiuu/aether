@@ -77,6 +77,9 @@ public class SqliteTraceStoreTest extends TestCase {
             assertEquals("ui.TURN_STARTED", detail.events().getFirst().type());
             assertEquals(1, detail.artifacts().size());
             assertEquals("/tmp/full-output.txt", detail.artifacts().getFirst().path());
+            var runs = store.listRuns(10);
+            assertEquals(1, runs.size());
+            assertEquals("run-1", runs.getFirst().runId());
             assertTrue(Files.exists(dbPath));
         } finally {
             store.close();
