@@ -147,6 +147,7 @@ public class EventManager implements AutoCloseable {
                     TOOL_RESULT,
                     TOKEN_USAGE,
                     MODEL_CHANGED,
+                    PERMISSION_CHANGED,
                     COMPACT_FINISHED,
                     COMPACT_SKIPPED,
                     SESSION_RESET,

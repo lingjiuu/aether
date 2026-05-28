@@ -73,6 +73,17 @@ export function applyEvent(state: AppState, event: UiEvent): AppState {
         lastSequence,
       };
     }
+    case 'PERMISSION_CHANGED': {
+      const permissionMode = payload(event, 'permissionMode')?.permissionMode;
+      return {
+        ...state,
+        session: {
+          ...state.session,
+          permissionMode: permissionMode?.id ?? state.session.permissionMode,
+        },
+        lastSequence,
+      };
+    }
     case 'APPROVAL_REQUESTED': {
       const data = payload(event, 'approval');
       return {

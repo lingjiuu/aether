@@ -148,6 +148,8 @@ public class StdioAetherServer implements AutoCloseable {
             case "compact/run" -> submitSimple(id, UiCommandType.COMPACT);
             case "model/list" -> uiRuntime.modelCatalog();
             case "model/set" -> submitSetModel(id, params);
+            case "permission/list" -> uiRuntime.permissionCatalog();
+            case "permission/set" -> submitSetPermissionMode(id, params);
             case "skills/list" -> skillsList(params);
             case "approval/respond" -> submitApprovalResponse(id, params);
             case "initialized" -> Map.of("ok", true);
@@ -170,7 +172,8 @@ public class StdioAetherServer implements AutoCloseable {
                         "sessionName", true,
                         "sessionState", true,
                         "eventPaging", true,
-                        "modelSelection", true
+                        "modelSelection", true,
+                        "permissionSelection", true
                 )
         );
     }
@@ -248,6 +251,18 @@ public class StdioAetherServer implements AutoCloseable {
                         modelId,
                         textParam(params, "reasoningEffort")
                 ))
+                .build());
+    }
+
+    private UiCommandAck submitSetPermissionMode(JsonNode id, JsonNode params) {
+        String permissionMode = firstNonBlank(textParam(params, "permissionMode"), textParam(params, "mode"));
+        if (permissionMode == null) {
+            throw new ProtocolException(INVALID_PARAMS, "permission/set requires params.permissionMode.");
+        }
+        return uiRuntime.submit(UiCommand.builder()
+                .commandId(commandId(id))
+                .type(UiCommandType.SET_PERMISSION_MODE)
+                .payload(new UiCommandPayloads.SetPermissionMode(permissionMode))
                 .build());
     }
 

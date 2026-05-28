@@ -143,6 +143,24 @@ export async function handleInput(
       });
       break;
     }
+    case 'permissions': {
+      if (selectIsRunning(state) || state.session.status === 'RUNNING') {
+        recordLocalCommand(input, "'/permissions' is disabled while a task is in progress.", dispatch);
+        break;
+      }
+      const catalog = await client.listPermissions();
+      dispatch({
+        type: 'commandPanelOpened',
+        panel: {
+          kind: 'permissions',
+          id: localCommandId('permissions'),
+          command: '/permissions',
+          catalog,
+          selectedIndex: selectedPermissionIndex(catalog),
+        },
+      });
+      break;
+    }
     case 'name': {
       if (!command.name.trim()) {
         recordLocalCommand(input, 'Session name is required. Usage: /rename [name]', dispatch);
@@ -176,6 +194,7 @@ export async function handleInput(
 }
 
 type ModelCatalog = Awaited<ReturnType<AetherClient['listModels']>>;
+type PermissionCatalog = Awaited<ReturnType<AetherClient['listPermissions']>>;
 
 function selectedModelIndex(catalog: ModelCatalog): number {
   const models = catalog.models ?? [];
@@ -191,6 +210,13 @@ function selectedReasoningIndex(catalog: ModelCatalog): number {
   const efforts = selectableReasoningEfforts(catalog.reasoningEfforts);
   const current = catalog.current?.reasoningEffort;
   const index = efforts.findIndex(effort => effort.toLowerCase() === current?.toLowerCase());
+  return Math.max(0, index);
+}
+
+function selectedPermissionIndex(catalog: PermissionCatalog): number {
+  const modes = catalog.modes ?? [];
+  const current = catalog.current;
+  const index = modes.findIndex(mode => mode.current || mode.id === current?.id);
   return Math.max(0, index);
 }
 

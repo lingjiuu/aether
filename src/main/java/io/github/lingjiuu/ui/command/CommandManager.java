@@ -14,12 +14,15 @@ import io.github.lingjiuu.protocol.UiCommandType;
 import io.github.lingjiuu.protocol.UiModelCatalog;
 import io.github.lingjiuu.protocol.UiModelInfo;
 import io.github.lingjiuu.protocol.UiModelSelection;
+import io.github.lingjiuu.protocol.UiPermissionCatalog;
+import io.github.lingjiuu.protocol.UiPermissionMode;
 import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.session.SessionOptions;
 import io.github.lingjiuu.session.SessionStatus;
 import io.github.lingjiuu.tool.permission.ApprovalHandler;
+import io.github.lingjiuu.tool.permission.PermissionPreset;
 import io.github.lingjiuu.transcript.TranscriptRecord;
 import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
@@ -145,6 +148,7 @@ public class CommandManager implements AutoCloseable {
                 case CONTINUE -> continueSession(commandId);
                 case CANCEL_TURN -> cancelTurn(commandId);
                 case SET_MODEL -> setModel(command, commandId);
+                case SET_PERMISSION_MODE -> setPermissionMode(command, commandId);
                 case APPROVAL_RESPONSE -> approvalResponse(command, commandId);
             };
         } catch (RuntimeException e) {
@@ -260,6 +264,24 @@ public class CommandManager implements AutoCloseable {
         return UiCommandAck.accepted(commandId, sessionId(), "Set model to " + label);
     }
 
+    private UiCommandAck setPermissionMode(UiCommand command, String commandId) {
+        if (!(command.getPayload() instanceof UiCommandPayloads.SetPermissionMode input)
+                || input.permissionMode() == null
+                || input.permissionMode().isBlank()) {
+            return UiCommandAck.rejected(commandId, sessionId(), "permission/set requires permissionMode.");
+        }
+        if (session.status() == SessionStatus.RUNNING) {
+            return UiCommandAck.rejected(commandId, sessionId(), "'/permissions' is disabled while a task is in progress.");
+        }
+        PermissionPreset preset = permissionPreset(input.permissionMode());
+        boolean changed = session.setPermissionPreset(preset);
+        String label = permissionName(preset);
+        if (!changed) {
+            return UiCommandAck.accepted(commandId, sessionId(), "Kept permissions as " + label);
+        }
+        return UiCommandAck.accepted(commandId, sessionId(), "Set permissions to " + label);
+    }
+
     public synchronized UiModelCatalog modelCatalog() {
         ModelSelection current = session == null ? null : session.activeModelSelection();
         return new UiModelCatalog(
@@ -270,6 +292,14 @@ public class CommandManager implements AutoCloseable {
                         .toList(),
                 sessionFactory.reasoningEfforts()
         );
+    }
+
+    public synchronized UiPermissionCatalog permissionCatalog() {
+        PermissionPreset current = session == null ? PermissionPreset.DEFAULT : session.activePermissionPreset();
+        java.util.List<UiPermissionMode> modes = java.util.Arrays.stream(PermissionPreset.values())
+                .map(preset -> uiPermissionMode(preset, current))
+                .toList();
+        return new UiPermissionCatalog(uiPermissionMode(current, current), modes);
     }
 
     private SessionOptions newSessionOptions(UiCommand command) {
@@ -425,5 +455,44 @@ public class CommandManager implements AutoCloseable {
         String effort = selection == null ? null : selection.reasoningEffortName();
         String label = (provider == null || provider.isBlank() ? "" : provider + "/") + (id == null ? "" : id);
         return effort == null ? label : label + " " + effort.toLowerCase();
+    }
+
+    private PermissionPreset permissionPreset(String value) {
+        String normalized = value == null ? "" : value.trim()
+                .replace('-', '_')
+                .replace(' ', '_')
+                .toUpperCase(java.util.Locale.ROOT);
+        if ("FULLACCESS".equals(normalized)) {
+            normalized = "FULL_ACCESS";
+        }
+        try {
+            return PermissionPreset.valueOf(normalized);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Unknown permission mode: " + value);
+        }
+    }
+
+    private UiPermissionMode uiPermissionMode(PermissionPreset preset, PermissionPreset current) {
+        PermissionPreset normalized = preset == null ? PermissionPreset.DEFAULT : preset;
+        return new UiPermissionMode(
+                normalized.name(),
+                permissionName(normalized),
+                permissionDescription(normalized),
+                normalized == (current == null ? PermissionPreset.DEFAULT : current)
+        );
+    }
+
+    private String permissionName(PermissionPreset preset) {
+        return switch (preset) {
+            case DEFAULT -> "Default";
+            case FULL_ACCESS -> "Full Access";
+        };
+    }
+
+    private String permissionDescription(PermissionPreset preset) {
+        return switch (preset) {
+            case DEFAULT -> "Workspace writes are allowed; shell commands and outside-workspace writes ask first.";
+            case FULL_ACCESS -> "Allow tools without approval, including shell commands and outside-workspace edits.";
+        };
     }
 }

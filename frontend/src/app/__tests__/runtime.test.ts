@@ -83,4 +83,56 @@ describe('runtime boot', () => {
       { type: 'localImage', path: '/tmp/pixel.png' },
     ]);
   });
+
+  it('opens the permissions panel from a slash command', async () => {
+    const dispatch = vi.fn<(action: AppAction) => void>();
+    const client = {
+      listPermissions: vi.fn().mockResolvedValue({
+        current: { id: 'DEFAULT', name: 'Default', current: true },
+        modes: [
+          { id: 'DEFAULT', name: 'Default', current: true },
+          { id: 'FULL_ACCESS', name: 'Full Access' },
+        ],
+      }),
+    } as unknown as AetherClient;
+
+    await handleInput(
+      { text: '/permissions', items: [{ type: 'text', text: '/permissions' }] },
+      initialState,
+      client,
+      dispatch,
+      vi.fn(),
+    );
+
+    expect(client.listPermissions).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'commandPanelOpened',
+      panel: expect.objectContaining({
+        kind: 'permissions',
+        selectedIndex: 0,
+      }),
+    }));
+  });
+
+  it('records permissions command as disabled while a turn is running', async () => {
+    const dispatch = vi.fn<(action: AppAction) => void>();
+    const client = {
+      listPermissions: vi.fn(),
+    } as unknown as AetherClient;
+
+    await handleInput(
+      { text: '/permissions', items: [{ type: 'text', text: '/permissions' }] },
+      { ...initialState, session: { ...initialState.session, status: 'RUNNING' } },
+      client,
+      dispatch,
+      vi.fn(),
+    );
+
+    expect(client.listPermissions).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'localCommandCompleted',
+      command: '/permissions',
+      output: "'/permissions' is disabled while a task is in progress.",
+    }));
+  });
 });

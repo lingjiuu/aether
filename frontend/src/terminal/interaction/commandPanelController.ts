@@ -9,6 +9,7 @@ type CommandPanelCallbacks = {
   dispatch: (action: AppAction) => void;
   resumeSession: (sessionId: string) => Promise<void>;
   setModel: (providerId: string | undefined, modelId: string, reasoningEffort?: string) => Promise<void>;
+  setPermissionMode: (permissionMode: string) => Promise<void>;
 };
 
 export class CommandPanelController {
@@ -32,6 +33,10 @@ export class CommandPanelController {
 
     if (panel.kind === 'skills') {
       return this.handleSkillsKey(key, panel, callbacks);
+    }
+
+    if (panel.kind === 'permissions') {
+      return this.handlePermissionsKey(key, panel, callbacks);
     }
 
     if (panel.kind !== 'resume') {
@@ -121,6 +126,31 @@ export class CommandPanelController {
         return true;
     }
   }
+
+  private async handlePermissionsKey(
+    key: Key,
+    panel: Extract<CommandPanel, { kind: 'permissions' }>,
+    callbacks: CommandPanelCallbacks,
+  ): Promise<boolean> {
+    const modes = panel.catalog.modes ?? [];
+    switch (key.kind) {
+      case 'up':
+        callbacks.dispatch({ type: 'commandPanelSelectionMoved', delta: -1, count: modes.length });
+        return true;
+      case 'down':
+        callbacks.dispatch({ type: 'commandPanelSelectionMoved', delta: 1, count: modes.length });
+        return true;
+      case 'return': {
+        const selected = modes[clampIndex(panel.selectedIndex, modes.length)];
+        if (selected?.id) {
+          await callbacks.setPermissionMode(selected.id);
+        }
+        return true;
+      }
+      default:
+        return true;
+    }
+  }
 }
 
 function commandPanelCancelOutput(panel: CommandPanel): string {
@@ -131,6 +161,8 @@ function commandPanelCancelOutput(panel: CommandPanel): string {
       return 'Resume cancelled';
     case 'model':
       return `Kept model as ${modelSelectionLabel(panel.catalog.current)}`;
+    case 'permissions':
+      return `Kept permissions as ${permissionModeLabel(panel.catalog.current)}`;
     case 'skills':
       return 'Skills dialog dismissed';
   }
@@ -140,4 +172,8 @@ function modelSelectionLabel(selection: Extract<CommandPanel, { kind: 'model' }>
   const provider = selection?.providerId?.trim();
   const model = selection?.modelId?.trim();
   return [provider, model].filter(Boolean).join('/') || model || 'current model';
+}
+
+function permissionModeLabel(mode: Extract<CommandPanel, { kind: 'permissions' }>['catalog']['current']): string {
+  return mode?.name?.trim() || mode?.id?.trim() || 'current mode';
 }

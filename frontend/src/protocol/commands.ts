@@ -5,6 +5,7 @@ export type SlashCommand =
   | { kind: 'compact' }
   | { kind: 'skills' }
   | { kind: 'model' }
+  | { kind: 'permissions' }
   | { kind: 'name'; name: string }
   | { kind: 'approve' }
   | { kind: 'deny' }
@@ -35,6 +36,9 @@ export function parseCommand(input: string): SlashCommand {
       return { kind: 'skills' };
     case 'model':
       return { kind: 'model' };
+    case 'permissions':
+    case 'permission':
+      return { kind: 'permissions' };
     case 'name':
     case 'rename':
       return { kind: 'name', name: arg };

@@ -22,6 +22,7 @@ import io.github.lingjiuu.protocol.UiItem;
 import io.github.lingjiuu.protocol.UiItemBodies;
 import io.github.lingjiuu.protocol.UiItemKind;
 import io.github.lingjiuu.protocol.UiModelSelection;
+import io.github.lingjiuu.protocol.UiPermissionMode;
 import io.github.lingjiuu.protocol.UiTokenCount;
 import io.github.lingjiuu.protocol.UiTokenUsage;
 import io.github.lingjiuu.protocol.UiToolCall;
@@ -31,6 +32,7 @@ import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.permission.ApprovalRequest;
 import io.github.lingjiuu.tool.permission.ApprovalResponse;
+import io.github.lingjiuu.tool.permission.PermissionPreset;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -76,6 +78,12 @@ public final class UiEvents {
     public static UiEvent modelChanged(String sessionId, ModelSelection selection) {
         return event(UiEventType.MODEL_CHANGED, sessionId, null)
                 .payload(new UiEventPayloads.ModelSelection(uiModelSelection(selection)))
+                .build();
+    }
+
+    public static UiEvent permissionChanged(String sessionId, PermissionPreset preset) {
+        return event(UiEventType.PERMISSION_CHANGED, sessionId, null)
+                .payload(new UiEventPayloads.PermissionMode(uiPermissionMode(preset, preset)))
                 .build();
     }
 
@@ -715,6 +723,30 @@ public final class UiEvents {
                         ? null
                         : selection.reasoning().getReasoningEffort().name()
         );
+    }
+
+    private static UiPermissionMode uiPermissionMode(PermissionPreset preset, PermissionPreset current) {
+        PermissionPreset normalized = preset == null ? PermissionPreset.DEFAULT : preset;
+        return new UiPermissionMode(
+                normalized.name(),
+                permissionName(normalized),
+                permissionDescription(normalized),
+                normalized == (current == null ? PermissionPreset.DEFAULT : current)
+        );
+    }
+
+    private static String permissionName(PermissionPreset preset) {
+        return switch (preset) {
+            case DEFAULT -> "Default";
+            case FULL_ACCESS -> "Full Access";
+        };
+    }
+
+    private static String permissionDescription(PermissionPreset preset) {
+        return switch (preset) {
+            case DEFAULT -> "Workspace writes are allowed; shell commands and outside-workspace writes ask first.";
+            case FULL_ACCESS -> "Allow tools without approval, including shell commands and outside-workspace edits.";
+        };
     }
 
     private static UiTokenCount uiTokenCount(TokenUsage usage) {

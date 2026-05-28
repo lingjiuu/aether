@@ -32,6 +32,7 @@ export type UiEventType =
   | 'COMPACT_SKIPPED'
   | 'SESSION_RESET'
   | 'MODEL_CHANGED'
+  | 'PERMISSION_CHANGED'
   | 'SKILLS_CHANGED'
   | 'STREAM_RETRY'
   | 'ERROR';
@@ -150,6 +151,18 @@ export type UiModelCatalog = {
   reasoningEfforts?: string[] | null;
 };
 
+export type UiPermissionMode = {
+  id?: string | null;
+  name?: string | null;
+  description?: string | null;
+  current?: boolean;
+};
+
+export type UiPermissionCatalog = {
+  current?: UiPermissionMode | null;
+  modes?: UiPermissionMode[] | null;
+};
+
 export type UiEventPayload =
   | { payloadType: 'text'; text?: string | null }
   | { payloadType: 'sessionName'; sessionId?: string | null; name?: string | null }
@@ -189,6 +202,7 @@ export type UiEventPayload =
   | { payloadType: 'approval'; request?: UiApprovalRequest | null; response?: UiApprovalResponse | null }
   | { payloadType: 'tokenUsage'; tokenUsage?: UiTokenUsage | null }
   | { payloadType: 'modelSelection'; modelSelection?: UiModelSelection | null }
+  | { payloadType: 'permissionMode'; permissionMode?: UiPermissionMode | null }
   | {
       payloadType: 'compact';
       text?: string | null;
@@ -253,6 +267,7 @@ export type UiSessionState = {
   activeToolNames?: string[] | null;
   summary?: UiSessionSummary | null;
   reasoningEffort?: string | null;
+  permissionMode?: string | null;
   tokenUsage?: UiTokenUsage | null;
 };
 

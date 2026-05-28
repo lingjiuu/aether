@@ -91,6 +91,23 @@ public class PermissionManagerTest extends TestCase {
         assertEquals(PermissionDecision.Action.ALLOW, unknown.action());
     }
 
+    public void testPresetCanChangeAtRuntime() throws Exception {
+        Path workspace = Files.createTempDirectory("aether-permission-workspace");
+        PermissionManager manager = defaultManager(workspace);
+
+        PermissionDecision before = manager.decide(invocation(tool("bash", ToolRiskLevel.EXEC), Map.of(
+                "command", "ls"
+        )));
+        manager.setPreset(PermissionPreset.FULL_ACCESS);
+        PermissionDecision after = manager.decide(invocation(tool("bash", ToolRiskLevel.EXEC), Map.of(
+                "command", "ls"
+        )));
+
+        assertEquals(PermissionPreset.FULL_ACCESS, manager.preset());
+        assertEquals(PermissionDecision.Action.ASK, before.action());
+        assertEquals(PermissionDecision.Action.ALLOW, after.action());
+    }
+
     private PermissionManager defaultManager(Path workspace) {
         return new PermissionManager(PermissionPreset.DEFAULT, WorkspaceAccessPolicy.rootedAt(workspace));
     }

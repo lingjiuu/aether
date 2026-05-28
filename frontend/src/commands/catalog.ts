@@ -10,6 +10,7 @@ const slashCommands: SlashCommandInfo[] = [
   { usage: '/resume', description: 'Browse previous sessions; add an id to resume directly' },
   { usage: '/compact', description: 'Compact the current conversation context' },
   { usage: '/model', description: 'Choose what model and reasoning effort to use' },
+  { usage: '/permissions', description: 'Choose the tool permission mode for this session' },
   { usage: '/skills', description: 'List loaded skills' },
   { usage: '/rename', description: 'Rename the current session', placeholder: 'name', aliases: ['/name'] },
   { usage: '/help', description: 'Open command help' },

@@ -9,7 +9,7 @@ import java.util.Map;
 
 public class PermissionManager {
 
-    private final PermissionPreset preset;
+    private volatile PermissionPreset preset;
     private final WorkspaceAccessPolicy workspaceAccessPolicy;
 
     public PermissionManager() {
@@ -26,13 +26,22 @@ public class PermissionManager {
                 : workspaceAccessPolicy;
     }
 
+    public PermissionPreset preset() {
+        return preset;
+    }
+
+    public void setPreset(PermissionPreset preset) {
+        this.preset = preset == null ? PermissionPreset.DEFAULT : preset;
+    }
+
     public PermissionDecision decide(ToolInvocation invocation) {
         if (invocation == null || invocation.getTool() == null) {
             return PermissionDecision.deny("Tool is not available.");
         }
 
-        if (preset.permissionProfile() == PermissionProfile.FULL_ACCESS
-                || preset.approvalPolicy() == ApprovalPolicy.NEVER) {
+        PermissionPreset activePreset = preset;
+        if (activePreset.permissionProfile() == PermissionProfile.FULL_ACCESS
+                || activePreset.approvalPolicy() == ApprovalPolicy.NEVER) {
             return PermissionDecision.allow();
         }
 

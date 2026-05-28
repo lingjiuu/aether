@@ -80,6 +80,7 @@ export class TerminalApp {
         dispatch: action => this.dispatch(action),
         resumeSession: sessionId => this.resumeSession(sessionId),
         setModel: (providerId, modelId, reasoningEffort) => this.setModel(providerId, modelId, reasoningEffort),
+        setPermissionMode: permissionMode => this.setPermissionMode(permissionMode),
       });
       return;
     }
@@ -139,6 +140,16 @@ export class TerminalApp {
     try {
       const ack = await this.client.setModel(providerId, modelId, reasoningEffort);
       this.dispatch({ type: 'commandPanelClosed', output: ack.message ?? `Set model to ${modelId}` });
+      this.dispatch({ type: 'sessionState', session: await this.client.currentSession() });
+    } catch (error) {
+      this.dispatch({ type: 'notice', message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private async setPermissionMode(permissionMode: string): Promise<void> {
+    try {
+      const ack = await this.client.setPermissionMode(permissionMode);
+      this.dispatch({ type: 'commandPanelClosed', output: ack.message ?? `Set permissions to ${permissionMode}` });
       this.dispatch({ type: 'sessionState', session: await this.client.currentSession() });
     } catch (error) {
       this.dispatch({ type: 'notice', message: error instanceof Error ? error.message : String(error) });

@@ -5,6 +5,7 @@ import type {
   UiEvent,
   UiHistory,
   UiModelCatalog,
+  UiPermissionCatalog,
   UiSessionState,
   UiSessionSummary,
   UiTokenUsage,
@@ -75,6 +76,13 @@ export type CommandPanel =
       catalog: UiModelCatalog;
       selectedIndex: number;
       reasoningIndex: number;
+    }
+  | {
+      kind: 'permissions';
+      id: string;
+      command: '/permissions';
+      catalog: UiPermissionCatalog;
+      selectedIndex: number;
     }
   | {
       kind: 'skills';

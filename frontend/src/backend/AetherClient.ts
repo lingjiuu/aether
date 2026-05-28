@@ -7,6 +7,7 @@ import type {
   UiEventPage,
   UiHistory,
   UiModelCatalog,
+  UiPermissionCatalog,
   UiSessionState,
   UiSessionSummary,
 } from '../protocol/wire.js';
@@ -81,6 +82,14 @@ export class AetherClient {
 
   setModel(providerId: string | undefined, modelId: string, reasoningEffort?: string): Promise<UiCommandAck> {
     return this.transport.request('model/set', { providerId, modelId, reasoningEffort });
+  }
+
+  listPermissions(): Promise<UiPermissionCatalog> {
+    return this.transport.request('permission/list');
+  }
+
+  setPermissionMode(permissionMode: string): Promise<UiCommandAck> {
+    return this.transport.request('permission/set', { permissionMode });
   }
 
   newSession(cwd: string): Promise<UiCommandAck> {

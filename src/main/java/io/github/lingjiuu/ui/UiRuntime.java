@@ -9,6 +9,7 @@ import io.github.lingjiuu.protocol.UiEventPage;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiHistory;
 import io.github.lingjiuu.protocol.UiModelCatalog;
+import io.github.lingjiuu.protocol.UiPermissionCatalog;
 import io.github.lingjiuu.protocol.UiSessionState;
 import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.session.SessionFactory;
@@ -69,6 +70,10 @@ public class UiRuntime implements AutoCloseable {
 
     public UiModelCatalog modelCatalog() {
         return aether.modelCatalog();
+    }
+
+    public UiPermissionCatalog permissionCatalog() {
+        return aether.permissionCatalog();
     }
 
     public void waitForIdle() {

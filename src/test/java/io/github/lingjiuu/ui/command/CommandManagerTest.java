@@ -15,6 +15,7 @@ import io.github.lingjiuu.protocol.UiCommandAck;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiEventType;
 import io.github.lingjiuu.protocol.UiModelCatalog;
+import io.github.lingjiuu.protocol.UiPermissionCatalog;
 import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.wire.WireAdapter;
 import io.github.lingjiuu.wire.WireAdapterRegistry;
@@ -22,6 +23,7 @@ import io.github.lingjiuu.wire.WireSession;
 import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.session.SessionFactory;
+import io.github.lingjiuu.tool.permission.PermissionPreset;
 import io.github.lingjiuu.transcript.TranscriptStore;
 import junit.framework.TestCase;
 
@@ -111,6 +113,35 @@ public class CommandManagerTest extends TestCase {
         }
     }
 
+    public void testSetPermissionModeUpdatesActivePreset() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-command-permission-test");
+        try (CommandManager commandManager = new CommandManager(new SessionFactory(sessionConfig(tempDir)), null, null)) {
+            UiCommandAck result = commandManager.handle(UiCommand.setPermissionMode("FULL_ACCESS"));
+
+            assertTrue(result.accepted());
+            assertTrue(result.message().contains("Set permissions to Full Access"));
+            assertEquals(PermissionPreset.FULL_ACCESS, commandManager.currentSession().activePermissionPreset());
+
+            commandManager.currentSession().waitForIdle();
+            assertTrue(commandManager.currentSession()
+                    .eventsAfter(0)
+                    .stream()
+                    .anyMatch(event -> event.getType() == UiEventType.PERMISSION_CHANGED));
+        }
+    }
+
+    public void testPermissionCatalogMarksCurrentMode() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-command-permission-catalog-test");
+        try (CommandManager commandManager = new CommandManager(new SessionFactory(sessionConfig(tempDir)), null, null)) {
+            UiPermissionCatalog catalog = commandManager.permissionCatalog();
+
+            assertEquals("DEFAULT", catalog.current().id());
+            assertEquals(2, catalog.modes().size());
+            assertTrue(catalog.modes().stream().anyMatch(mode -> "DEFAULT".equals(mode.id()) && mode.current()));
+            assertTrue(catalog.modes().stream().anyMatch(mode -> "FULL_ACCESS".equals(mode.id())));
+        }
+    }
+
     public void testSetModelAffectsNextTurnRequest() throws Exception {
         Path tempDir = Files.createTempDirectory("aether-command-set-model-turn-test");
         CapturingProvider provider = new CapturingProvider();
@@ -168,6 +199,25 @@ public class CommandManagerTest extends TestCase {
 
             assertFalse(result.accepted());
             assertTrue(result.message().contains("disabled while a task is in progress"));
+        } finally {
+            provider.release.countDown();
+            commandManager.close();
+        }
+    }
+
+    public void testSetPermissionModeIsDisabledWhileTurnRuns() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-command-set-permission-running-test");
+        BlockingProvider provider = new BlockingProvider();
+        CommandManager commandManager = new CommandManager(new SessionFactory(sessionConfig(tempDir, provider)), null, null);
+        try {
+            commandManager.handle(UiCommand.submitUserInput("hello"));
+            assertTrue(provider.started.await(2, TimeUnit.SECONDS));
+
+            UiCommandAck result = commandManager.handle(UiCommand.setPermissionMode("FULL_ACCESS"));
+
+            assertFalse(result.accepted());
+            assertTrue(result.message().contains("disabled while a task is in progress"));
+            assertEquals(PermissionPreset.DEFAULT, commandManager.currentSession().activePermissionPreset());
         } finally {
             provider.release.countDown();
             commandManager.close();

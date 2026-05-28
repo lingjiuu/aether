@@ -45,6 +45,7 @@ public class StdioAetherServerTest extends TestCase {
         assertTrue(initialize.get("result").hasNonNull("sessionId"));
         assertEquals("IDLE", initialize.get("result").get("session").get("status").asText());
         assertTrue(initialize.get("result").get("capabilities").get("sessionState").asBoolean());
+        assertTrue(initialize.get("result").get("capabilities").get("permissionSelection").asBoolean());
         assertEquals(0, initialize.get("result").get("history").get("turns").size());
 
         JsonNode history = objectMapper.readTree(lines.get(1));
@@ -64,6 +65,7 @@ public class StdioAetherServerTest extends TestCase {
         assertEquals("fake-model", currentSession.get("result").get("summary").get("modelId").asText());
         assertTrue(currentSession.get("result").has("reasoningEffort"));
         assertTrue(currentSession.get("result").get("reasoningEffort").isNull());
+        assertEquals("DEFAULT", currentSession.get("result").get("permissionMode").asText());
         assertEquals(100000L, currentSession.get("result").get("tokenUsage").get("modelContextWindow").asLong());
     }
 
@@ -159,6 +161,38 @@ public class StdioAetherServerTest extends TestCase {
         JsonNode currentSession = responseById(output, "2");
         assertEquals("2", currentSession.get("id").asText());
         assertEquals("HIGH", currentSession.get("result").get("reasoningEffort").asText());
+    }
+
+    public void testPermissionListAndSetUpdateCurrentSession() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-stdio-permission-test");
+        String output = runServer(tempDir, """
+                {"id":"1","method":"permission/list"}
+                {"id":"2","method":"permission/set","params":{"permissionMode":"FULL_ACCESS"}}
+                {"id":"3","method":"session/current"}
+                """);
+
+        JsonNode list = responseById(output, "1");
+        assertEquals("DEFAULT", list.get("result").get("current").get("id").asText());
+        assertEquals(2, list.get("result").get("modes").size());
+
+        JsonNode set = responseById(output, "2");
+        assertTrue(set.get("result").get("accepted").asBoolean());
+        assertTrue(set.get("result").get("message").asText().contains("Full Access"));
+
+        JsonNode currentSession = responseById(output, "3");
+        assertEquals("FULL_ACCESS", currentSession.get("result").get("permissionMode").asText());
+    }
+
+    public void testPermissionSetRequiresMode() throws Exception {
+        Path tempDir = Files.createTempDirectory("aether-stdio-permission-set-test");
+        String output = runServer(tempDir, """
+                {"id":"1","method":"permission/set","params":{}}
+                """);
+
+        JsonNode response = objectMapper.readTree(output);
+        assertEquals("1", response.get("id").asText());
+        assertEquals(-32602, response.get("error").get("code").asInt());
+        assertTrue(response.get("error").get("message").asText().contains("permissionMode"));
     }
 
     public void testTurnSubmitRequiresStructuredItems() throws Exception {

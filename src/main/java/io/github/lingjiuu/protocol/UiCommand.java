@@ -65,6 +65,14 @@ public class UiCommand {
                 .build();
     }
 
+    public static UiCommand setPermissionMode(String permissionMode) {
+        return UiCommand.builder()
+                .commandId(newCommandId())
+                .type(UiCommandType.SET_PERMISSION_MODE)
+                .payload(new UiCommandPayloads.SetPermissionMode(permissionMode))
+                .build();
+    }
+
     public static UiCommand simple(UiCommandType type) {
         return UiCommand.builder()
                 .commandId(newCommandId())

@@ -45,6 +45,22 @@ describe('reducer command panels', () => {
     expect(nextState.notices).toEqual([]);
   });
 
+  it('tracks permission mode changes from events', () => {
+    const nextState = reducer(initialState, {
+      type: 'event',
+      event: {
+        type: 'PERMISSION_CHANGED',
+        sequence: 1,
+        payload: {
+          payloadType: 'permissionMode',
+          permissionMode: { id: 'FULL_ACCESS', name: 'Full Access', current: true },
+        },
+      },
+    });
+
+    expect(nextState.session.permissionMode).toBe('FULL_ACCESS');
+  });
+
   it('tracks session running status from turn lifecycle events', () => {
     const runningState = reducer(initialState, {
       type: 'event',

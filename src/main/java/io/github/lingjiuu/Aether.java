@@ -12,6 +12,7 @@ import io.github.lingjiuu.protocol.UiEventPage;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiHistory;
 import io.github.lingjiuu.protocol.UiModelCatalog;
+import io.github.lingjiuu.protocol.UiPermissionCatalog;
 import io.github.lingjiuu.protocol.UiSessionState;
 import io.github.lingjiuu.protocol.UiSessionSummary;
 import io.github.lingjiuu.protocol.UiTokenCount;
@@ -128,6 +129,7 @@ public class Aether implements AutoCloseable {
                 session.activeToolNames(),
                 summary,
                 selection == null ? null : selection.reasoningEffortName(),
+                session.activePermissionPreset().name(),
                 tokenUsage(session)
         );
     }
@@ -154,6 +156,10 @@ public class Aether implements AutoCloseable {
 
     public UiModelCatalog modelCatalog() {
         return commands.modelCatalog();
+    }
+
+    public UiPermissionCatalog permissionCatalog() {
+        return commands.permissionCatalog();
     }
 
     public void waitForIdle() {

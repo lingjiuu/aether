@@ -72,6 +72,9 @@ public final class UiEventPayloads {
     public record ModelSelection(UiModelSelection modelSelection) implements UiEventPayload {
     }
 
+    public record PermissionMode(UiPermissionMode permissionMode) implements UiEventPayload {
+    }
+
     public record Compact(
             String text,
             Integer originalMessageCount,

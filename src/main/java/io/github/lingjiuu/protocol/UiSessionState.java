@@ -11,6 +11,7 @@ public record UiSessionState(
         List<String> activeToolNames,
         UiSessionSummary summary,
         String reasoningEffort,
+        String permissionMode,
         UiTokenUsage tokenUsage
 ) {
 

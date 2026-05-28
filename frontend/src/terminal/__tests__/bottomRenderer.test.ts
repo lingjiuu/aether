@@ -202,6 +202,43 @@ describe('bottom renderer', () => {
     expect(text).toContain('Enter to confirm · Esc to cancel');
   });
 
+  it('renders the permissions panel in the Claude-style command area', () => {
+    const state = reducer(initialState, {
+      type: 'commandPanelOpened',
+      panel: {
+        kind: 'permissions',
+        id: 'permissions-1',
+        command: '/permissions',
+        catalog: {
+          current: { id: 'DEFAULT', name: 'Default', current: true },
+          modes: [
+            {
+              id: 'DEFAULT',
+              name: 'Default',
+              description: 'Workspace writes are allowed; shell commands and outside-workspace writes ask first.',
+              current: true,
+            },
+            {
+              id: 'FULL_ACCESS',
+              name: 'Full Access',
+              description: 'Allow tools without approval, including shell commands and outside-workspace edits.',
+            },
+          ],
+        },
+        selectedIndex: 1,
+      },
+    });
+
+    const view = renderView(state, { columns: 110, rows: 30 });
+    const text = activeLines(view).map(stripAnsi).join('\n');
+
+    expect(text).toContain('❯ /permissions');
+    expect(text).toContain('Permissions');
+    expect(text).toContain('1. Default ✓');
+    expect(text).toContain('❯ 2. Full Access');
+    expect(text).toContain('Enter to confirm · Esc to cancel');
+  });
+
   it('renders the skills panel in the Claude-style command area', () => {
     const state = reducer({ ...initialState, session: { ...initialState.session, cwd: '/Users/Apple/code/MyProjects/test0' } }, {
       type: 'commandPanelOpened',

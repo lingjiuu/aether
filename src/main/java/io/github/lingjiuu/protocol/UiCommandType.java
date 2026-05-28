@@ -10,5 +10,6 @@ public enum UiCommandType {
     CONTINUE,
     CANCEL_TURN,
     SET_MODEL,
+    SET_PERMISSION_MODE,
     APPROVAL_RESPONSE
 }

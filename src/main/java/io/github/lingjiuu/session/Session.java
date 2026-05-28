@@ -42,6 +42,7 @@ import io.github.lingjiuu.tool.permission.ApprovalRequest;
 import io.github.lingjiuu.tool.permission.ApprovalResponse;
 import io.github.lingjiuu.tool.permission.DenyAllApprovalHandler;
 import io.github.lingjiuu.tool.permission.PermissionManager;
+import io.github.lingjiuu.tool.permission.PermissionPreset;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import io.github.lingjiuu.transcript.TranscriptRecorder;
 import io.github.lingjiuu.transcript.TranscriptReconstruction;
@@ -308,6 +309,10 @@ public class Session implements AutoCloseable {
         return activeModelSelection;
     }
 
+    public PermissionPreset activePermissionPreset() {
+        return permissionManager.preset();
+    }
+
     public synchronized boolean setActiveModelSelection(ModelSelection selection) {
         ensureIdle();
         if (selection == null) {
@@ -324,6 +329,19 @@ public class Session implements AutoCloseable {
         recomputeTokenUsageFromHistory();
         state.touch();
         eventManager.emit(UiEvents.modelChanged(sessionId(), selection));
+        return true;
+    }
+
+    public synchronized boolean setPermissionPreset(PermissionPreset preset) {
+        ensureIdle();
+        PermissionPreset normalized = preset == null ? PermissionPreset.DEFAULT : preset;
+        PermissionPreset previous = permissionManager.preset();
+        if (previous == normalized) {
+            return false;
+        }
+        permissionManager.setPreset(normalized);
+        state.touch();
+        eventManager.emit(UiEvents.permissionChanged(sessionId(), normalized));
         return true;
     }
 

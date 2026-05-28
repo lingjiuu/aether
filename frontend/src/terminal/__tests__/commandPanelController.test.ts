@@ -14,6 +14,7 @@ describe('CommandPanelController', () => {
       dispatch: action => actions.push(action),
       resumeSession: vi.fn(),
       setModel: vi.fn(),
+      setPermissionMode: vi.fn(),
     });
 
     expect(actions).toEqual([{ type: 'commandPanelClosed', output: 'Help dialog dismissed' }]);
@@ -40,6 +41,7 @@ describe('CommandPanelController', () => {
       dispatch: vi.fn(),
       resumeSession,
       setModel: vi.fn(),
+      setPermissionMode: vi.fn(),
     });
 
     expect(resumeSession).toHaveBeenCalledWith('two');
@@ -70,6 +72,7 @@ describe('CommandPanelController', () => {
       dispatch: vi.fn(),
       resumeSession: vi.fn(),
       setModel,
+      setPermissionMode: vi.fn(),
     });
 
     expect(setModel).toHaveBeenCalledWith('fake', 'second', 'LOW');
@@ -97,6 +100,7 @@ describe('CommandPanelController', () => {
       dispatch: action => actions.push(action),
       resumeSession: vi.fn(),
       setModel: vi.fn(),
+      setPermissionMode: vi.fn(),
     });
 
     expect(actions).toEqual([{ type: 'commandPanelReasoningMoved', delta: 1, count: 3 }]);
@@ -124,9 +128,65 @@ describe('CommandPanelController', () => {
       dispatch: action => actions.push(action),
       resumeSession: vi.fn(),
       setModel: vi.fn(),
+      setPermissionMode: vi.fn(),
     });
 
     expect(actions).toEqual([{ type: 'commandPanelClosed', output: 'Kept model as fake/first' }]);
+  });
+
+  it('submits the selected permission mode', async () => {
+    const state = reducer(initialState, {
+      type: 'commandPanelOpened',
+      panel: {
+        kind: 'permissions',
+        id: 'permissions-1',
+        command: '/permissions',
+        catalog: {
+          current: { id: 'DEFAULT', name: 'Default', current: true },
+          modes: [
+            { id: 'DEFAULT', name: 'Default', current: true },
+            { id: 'FULL_ACCESS', name: 'Full Access' },
+          ],
+        },
+        selectedIndex: 1,
+      },
+    });
+    const setPermissionMode = vi.fn<(_: string) => Promise<void>>().mockResolvedValue(undefined);
+
+    await new CommandPanelController().handleKey({ kind: 'return' }, state, {
+      dispatch: vi.fn(),
+      resumeSession: vi.fn(),
+      setModel: vi.fn(),
+      setPermissionMode,
+    });
+
+    expect(setPermissionMode).toHaveBeenCalledWith('FULL_ACCESS');
+  });
+
+  it('cancels permission panels with the current mode output', async () => {
+    const state = reducer(initialState, {
+      type: 'commandPanelOpened',
+      panel: {
+        kind: 'permissions',
+        id: 'permissions-1',
+        command: '/permissions',
+        catalog: {
+          current: { id: 'DEFAULT', name: 'Default', current: true },
+          modes: [{ id: 'DEFAULT', name: 'Default', current: true }],
+        },
+        selectedIndex: 0,
+      },
+    });
+    const actions: AppAction[] = [];
+
+    await new CommandPanelController().handleKey({ kind: 'escape' }, state, {
+      dispatch: action => actions.push(action),
+      resumeSession: vi.fn(),
+      setModel: vi.fn(),
+      setPermissionMode: vi.fn(),
+    });
+
+    expect(actions).toEqual([{ type: 'commandPanelClosed', output: 'Kept permissions as Default' }]);
   });
 
   it('closes skills panels with Claude-style command outputs', async () => {
@@ -147,6 +207,7 @@ describe('CommandPanelController', () => {
       dispatch: action => actions.push(action),
       resumeSession: vi.fn(),
       setModel: vi.fn(),
+      setPermissionMode: vi.fn(),
     });
 
     expect(actions).toEqual([{ type: 'commandPanelClosed', output: 'No changes' }]);
@@ -171,11 +232,13 @@ describe('CommandPanelController', () => {
       dispatch: action => actions.push(action),
       resumeSession: vi.fn(),
       setModel: vi.fn(),
+      setPermissionMode: vi.fn(),
     });
     await controller.handleKey({ kind: 'text', value: 'd' }, state, {
       dispatch: action => actions.push(action),
       resumeSession: vi.fn(),
       setModel: vi.fn(),
+      setPermissionMode: vi.fn(),
     });
 
     expect(actions).toEqual([{ type: 'commandPanelQueryChanged', query: 'd' }]);

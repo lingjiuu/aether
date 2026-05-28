@@ -20,6 +20,8 @@ describe('parseCommand', () => {
     expect(parseCommand('/approve')).toEqual({ kind: 'approve' });
     expect(parseCommand('/deny')).toEqual({ kind: 'deny' });
     expect(parseCommand('/model')).toEqual({ kind: 'model' });
+    expect(parseCommand('/permissions')).toEqual({ kind: 'permissions' });
+    expect(parseCommand('/permission')).toEqual({ kind: 'permissions' });
   });
 
   it('does not expose continue as a user command', () => {
@@ -75,6 +77,7 @@ describe('parseCommand', () => {
     const usages = getSlashCommandSuggestions('/').map(command => command.usage);
     expect(usages).toContain('/help');
     expect(usages).toContain('/model');
+    expect(usages).toContain('/permissions');
     expect(usages).toContain('/rename');
     expect(usages).not.toContain('/cancel');
     expect(usages).not.toContain('/sessions');

@@ -37,6 +37,11 @@ public final class UiCommandPayloads {
     ) implements UiCommandPayload {
     }
 
+    public record SetPermissionMode(
+            String permissionMode
+    ) implements UiCommandPayload {
+    }
+
     public record ApprovalResponse(
             String approvalId,
             boolean approved,

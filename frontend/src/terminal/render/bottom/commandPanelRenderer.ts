@@ -1,5 +1,6 @@
 import { renderHelpPanel } from './helpPanelRenderer.js';
 import { renderModelPanel } from './modelPanelRenderer.js';
+import { renderPermissionsPanel } from './permissionsPanelRenderer.js';
 import { renderResumePanel } from './resumePanelRenderer.js';
 import { renderSkillsPanel } from './skillsPanelRenderer.js';
 import type { TerminalPresentation } from '../presentationModel.js';
@@ -19,7 +20,9 @@ export function renderCommandPanel(presentation: TerminalPresentation, width: nu
       ? renderResumePanel(presentation, width, maxRows)
       : panel.kind === 'skills'
         ? renderSkillsPanel(presentation, width, maxRows)
-        : renderModelPanel(presentation, width, maxRows);
+        : panel.kind === 'permissions'
+          ? renderPermissionsPanel(presentation, width)
+          : renderModelPanel(presentation, width, maxRows);
   return block(
     `command-panel:${panel.kind}`,
     [...header, content],
