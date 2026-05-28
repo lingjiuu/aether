@@ -3,14 +3,13 @@ set -euo pipefail
 
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     git \
     gzip \
     maven \
     nodejs \
-    npm \
     tar
   DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-21-jdk || true
 fi
