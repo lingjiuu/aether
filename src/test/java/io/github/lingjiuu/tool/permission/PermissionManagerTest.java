@@ -70,6 +70,17 @@ public class PermissionManagerTest extends TestCase {
         assertEquals(PermissionDecision.Action.ASK, decision.action());
     }
 
+    public void testDefaultAsksForPowerShell() throws Exception {
+        Path workspace = Files.createTempDirectory("aether-permission-workspace");
+        PermissionManager manager = defaultManager(workspace);
+
+        PermissionDecision decision = manager.decide(invocation(tool("powershell", ToolRiskLevel.EXEC), Map.of(
+                "command", "Get-ChildItem"
+        )));
+
+        assertEquals(PermissionDecision.Action.ASK, decision.action());
+    }
+
     public void testFullAccessAllowsEverything() throws Exception {
         Path workspace = Files.createTempDirectory("aether-permission-workspace");
         Path outside = Files.createTempDirectory("aether-permission-outside").resolve("todo.md");

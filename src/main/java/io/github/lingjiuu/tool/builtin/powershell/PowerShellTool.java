@@ -1,11 +1,10 @@
-package io.github.lingjiuu.tool.builtin.bash;
+package io.github.lingjiuu.tool.builtin.powershell;
 
-import io.github.lingjiuu.tool.ToolCancelledException;
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolInvocation;
+import io.github.lingjiuu.tool.ToolCancelledException;
 import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolRiskLevel;
-import io.github.lingjiuu.tool.builtin.ExecutableFinder;
 import io.github.lingjiuu.tool.builtin.TextOutputTruncator;
 import io.github.lingjiuu.tool.builtin.ToolOutputLimits;
 import io.github.lingjiuu.tool.builtin.shell.ShellOutputCapture;
@@ -14,31 +13,29 @@ import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class BashTool implements Tool {
+public class PowerShellTool implements Tool {
 
     private static final int DEFAULT_TIMEOUT_SECONDS = 120;
 
     private final Path workspaceRoot;
 
-    public BashTool(WorkspaceAccessPolicy accessPolicy) {
+    public PowerShellTool(WorkspaceAccessPolicy accessPolicy) {
         this(accessPolicy == null ? null : accessPolicy.root());
     }
 
-    public BashTool(Path workspaceRoot) {
+    public PowerShellTool(Path workspaceRoot) {
         if (workspaceRoot == null) {
             throw new IllegalArgumentException("workspaceRoot must not be null");
         }
@@ -47,17 +44,17 @@ public class BashTool implements Tool {
 
     @Override
     public String name() {
-        return "bash";
+        return "powershell";
     }
 
     @Override
     public String label() {
-        return "bash";
+        return "powershell";
     }
 
     @Override
     public String description() {
-        return "Execute a bash command in the workspace. Returns stdout and stderr. Output is truncated to the last "
+        return "Execute a PowerShell command in the workspace. Returns stdout and stderr. Output is truncated to the last "
                 + ToolOutputLimits.BASH_MAX_LINES + " lines or "
                 + TextOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES)
                 + ", whichever is hit first during execution. Large final output is saved as a tool result artifact. "
@@ -69,7 +66,7 @@ public class BashTool implements Tool {
         return Map.of(
                 "type", "object",
                 "properties", Map.of(
-                        "command", Map.of("type", "string", "description", "Bash command to execute."),
+                        "command", Map.of("type", "string", "description", "PowerShell command to execute."),
                         "timeout", Map.of("type", "number", "minimum", 1, "description", "Timeout in seconds.")
                 ),
                 "required", List.of("command"),
@@ -97,11 +94,11 @@ public class BashTool implements Tool {
             context.throwIfCancellationRequested();
             String command = requiredString(context.getArguments(), "command");
             int timeoutSeconds = optionalPositiveNumber(context.getArguments(), "timeout", DEFAULT_TIMEOUT_SECONDS);
-            Optional<List<String>> shellCommand = shellCommand(command);
+            Optional<List<String>> shellCommand = PowerShell.commandLine(command);
             if (shellCommand.isEmpty()) {
-                return ToolExecutionResult.errorText("bash failed: Git Bash is required on Windows. Install Git for Windows or set AETHER_GIT_BASH_PATH to bash.exe.");
+                return ToolExecutionResult.errorText("powershell failed: PowerShell is not available on Windows.");
             }
-            ShellOutputCapture output = new ShellOutputCapture("aether-bash");
+            ShellOutputCapture output = new ShellOutputCapture("aether-powershell");
             ProcessBuilder builder = new ProcessBuilder(shellCommand.get())
                     .directory(workspaceRoot.toFile())
                     .redirectErrorStream(false);
@@ -118,7 +115,7 @@ public class BashTool implements Tool {
                             readerDone,
                             readerError
                     ),
-                    "aether-bash-stdout"
+                    "aether-powershell-stdout"
             );
             stderrReaderThread = new Thread(
                     () -> readOutput(
@@ -129,7 +126,7 @@ public class BashTool implements Tool {
                             readerDone,
                             readerError
                     ),
-                    "aether-bash-stderr"
+                    "aether-powershell-stderr"
             );
             stdoutReaderThread.setDaemon(true);
             stderrReaderThread.setDaemon(true);
@@ -161,7 +158,7 @@ public class BashTool implements Tool {
         } catch (ToolCancelledException e) {
             throw e;
         } catch (Exception e) {
-            return ToolExecutionResult.errorText("bash failed: " + e.getMessage());
+            return ToolExecutionResult.errorText("powershell failed: " + e.getMessage());
         } finally {
             if (process != null && process.isAlive()) {
                 destroyProcessTree(process);
@@ -235,7 +232,7 @@ public class BashTool implements Tool {
         }
 
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("kind", "bash");
+        details.put("kind", "powershell");
         details.put("command", command);
         if (exitCode != null) {
             details.put("exitCode", exitCode);
@@ -277,7 +274,7 @@ public class BashTool implements Tool {
             ShellOutputCapture.Snapshot snapshot
     ) {
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("kind", "bash");
+        details.put("kind", "powershell");
         details.put("command", command);
         details.put("partial", true);
         details.put("stdout", snapshot.stdout().content());
@@ -354,64 +351,6 @@ public class BashTool implements Tool {
             throw new IllegalArgumentException(name + " must be a non-blank string");
         }
         return stringValue;
-    }
-
-    public static boolean isAvailable() {
-        return shellCommand("true").isPresent();
-    }
-
-    static Optional<String> gitBashPath() {
-        String explicitPath = System.getenv("AETHER_GIT_BASH_PATH");
-        if (explicitPath != null && !explicitPath.isBlank() && isUsableWindowsExecutable(Path.of(explicitPath))) {
-            return Optional.of(explicitPath);
-        }
-
-        for (String candidate : List.of(
-                "C:\\Program Files\\Git\\bin\\bash.exe",
-                "C:\\Program Files (x86)\\Git\\bin\\bash.exe"
-        )) {
-            Path path = Path.of(candidate);
-            if (isUsableWindowsExecutable(path)) {
-                return Optional.of(path.toString());
-            }
-        }
-
-        Optional<String> git = ExecutableFinder.findOnPath("git.exe");
-        if (git.isEmpty()) {
-            git = ExecutableFinder.findOnPath("git");
-        }
-        if (git.isPresent()) {
-            Path gitPath = Path.of(git.get());
-            Path gitRoot = gitPath.getParent() == null ? null : gitPath.getParent().getParent();
-            if (gitRoot != null) {
-                Path bash = gitRoot.resolve("bin").resolve("bash.exe");
-                if (isUsableWindowsExecutable(bash)) {
-                    return Optional.of(bash.toString());
-                }
-            }
-        }
-
-        Optional<String> bash = ExecutableFinder.findOnPath("bash.exe");
-        return bash.filter(path -> isUsableWindowsExecutable(Path.of(path)));
-    }
-
-    private static Optional<List<String>> shellCommand(String command) {
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        if (os.contains("win")) {
-            return gitBashPath().map(path -> List.of(path, "-c", command));
-        }
-        if (Files.isExecutable(Path.of("/bin/bash"))) {
-            return Optional.of(List.of("/bin/bash", "-c", command));
-        }
-        Optional<String> bash = ExecutableFinder.findOnPath("bash");
-        if (bash.isPresent()) {
-            return Optional.of(List.of(bash.get(), "-c", command));
-        }
-        return Optional.of(List.of("sh", "-c", command));
-    }
-
-    private static boolean isUsableWindowsExecutable(Path path) {
-        return path != null && Files.isRegularFile(path);
     }
 
     @FunctionalInterface

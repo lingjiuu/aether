@@ -15,7 +15,7 @@ import java.util.Map;
 public class GrepToolTest extends TestCase {
 
     public void testGrepDefaultsToFilesWithMatches() throws Exception {
-        if (ExecutableFinder.findOnPath("rg").isEmpty()) {
+        if (Ripgrep.command().isEmpty()) {
             return;
         }
         Path root = fixtureRoot();
@@ -35,7 +35,7 @@ public class GrepToolTest extends TestCase {
     }
 
     public void testGrepContentModeReturnsMatchingLines() throws Exception {
-        if (ExecutableFinder.findOnPath("rg").isEmpty()) {
+        if (Ripgrep.command().isEmpty()) {
             return;
         }
         Path root = fixtureRoot();
@@ -56,7 +56,7 @@ public class GrepToolTest extends TestCase {
     }
 
     public void testGrepCountModeSummarizesOccurrences() throws Exception {
-        if (ExecutableFinder.findOnPath("rg").isEmpty()) {
+        if (Ripgrep.command().isEmpty()) {
             return;
         }
         Path root = fixtureRoot();

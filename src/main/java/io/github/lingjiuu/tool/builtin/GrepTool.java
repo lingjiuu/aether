@@ -118,9 +118,9 @@ public class GrepTool implements Tool {
                 throw new IOException("Path not found: " + requestedPath);
             }
 
-            var rgPath = ExecutableFinder.findOnPath("rg");
+            var rgPath = Ripgrep.command();
             if (rgPath.isEmpty()) {
-                return ToolExecutionResult.errorText("grep failed: ripgrep (rg) is not available on PATH");
+                return ToolExecutionResult.errorText("grep failed: ripgrep (rg) is unavailable");
             }
 
             SearchOptions options = SearchOptions.from(context.getArguments());

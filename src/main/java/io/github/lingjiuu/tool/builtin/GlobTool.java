@@ -84,9 +84,9 @@ public class GlobTool implements Tool {
             String pattern = ToolArguments.requiredString(context.getArguments(), "pattern");
             String requestedPath = ToolArguments.optionalString(context.getArguments(), "path", ".");
             Path resolvedPath = accessPolicy.resolveReadablePath(requestedPath);
-            var rgPath = ExecutableFinder.findOnPath("rg");
+            var rgPath = Ripgrep.command();
             if (rgPath.isEmpty()) {
-                return ToolExecutionResult.errorText("glob failed: ripgrep (rg) is not available on PATH");
+                return ToolExecutionResult.errorText("glob failed: ripgrep (rg) is unavailable");
             }
             return glob(context, rgPath.get(), pattern, requestedPath, resolvedPath);
         } catch (Exception e) {

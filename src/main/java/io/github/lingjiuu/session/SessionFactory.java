@@ -22,6 +22,8 @@ import io.github.lingjiuu.tool.builtin.LsTool;
 import io.github.lingjiuu.tool.builtin.ReadTool;
 import io.github.lingjiuu.tool.builtin.WriteTool;
 import io.github.lingjiuu.tool.permission.PermissionPreset;
+import io.github.lingjiuu.tool.builtin.powershell.PowerShell;
+import io.github.lingjiuu.tool.builtin.powershell.PowerShellTool;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import io.github.lingjiuu.trace.AgentTraceRecorder;
 import io.github.lingjiuu.trace.sqlite.SqliteTraceStore;
@@ -287,18 +289,40 @@ public class SessionFactory {
         );
     }
 
-    private static List<Tool> buildDefaultTools(Path cwd) {
+    static List<Tool> buildDefaultTools(Path cwd) {
+        return buildDefaultTools(cwd, isWindows(), BashTool.isAvailable(), PowerShell.isAvailable());
+    }
+
+    static List<Tool> buildDefaultTools(
+            Path cwd,
+            boolean windows,
+            boolean bashAvailable,
+            boolean powershellAvailable
+    ) {
         Path root = cwd == null ? Path.of(System.getProperty("user.dir")) : cwd;
         WorkspaceAccessPolicy accessPolicy = WorkspaceAccessPolicy.rootedAt(root);
-        return List.of(
-                new LsTool(accessPolicy),
-                new GlobTool(accessPolicy),
-                new GrepTool(accessPolicy),
-                new ReadTool(accessPolicy),
-                new WriteTool(accessPolicy),
-                new EditTool(accessPolicy),
-                new BashTool(accessPolicy)
-        );
+        List<Tool> tools = new ArrayList<>();
+        tools.add(new LsTool(accessPolicy));
+        tools.add(new GlobTool(accessPolicy));
+        tools.add(new GrepTool(accessPolicy));
+        tools.add(new ReadTool(accessPolicy));
+        tools.add(new WriteTool(accessPolicy));
+        tools.add(new EditTool(accessPolicy));
+        if (windows) {
+            if (powershellAvailable) {
+                tools.add(new PowerShellTool(accessPolicy));
+            }
+            if (bashAvailable) {
+                tools.add(new BashTool(accessPolicy));
+            }
+        } else {
+            tools.add(new BashTool(accessPolicy));
+        }
+        return List.copyOf(tools);
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
     }
 
     private ModelSelection configOnlyModelSelection(

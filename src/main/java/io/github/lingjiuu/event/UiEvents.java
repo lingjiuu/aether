@@ -560,7 +560,7 @@ public final class UiEvents {
         String toolName = toolCall.getToolName();
         if (arguments instanceof JsonNode node && node.isObject()) {
             return switch (toolName == null ? "" : toolName) {
-                case "bash" -> jsonText(node, "command");
+                case "bash", "powershell" -> jsonText(node, "command");
                 case "read", "write", "edit" -> jsonText(node, "file_path");
                 case "ls" -> jsonText(node, "path");
                 case "glob" -> joinSummary(
@@ -579,7 +579,7 @@ public final class UiEvents {
             return null;
         }
         return switch (toolName == null ? "" : toolName) {
-            case "bash" -> stringValue(map.get("command"));
+            case "bash", "powershell" -> stringValue(map.get("command"));
             case "read", "write", "edit" -> stringValue(map.get("file_path"));
             case "ls" -> stringValue(map.get("path"));
             case "glob" -> joinSummary(
