@@ -1,11 +1,13 @@
 package io.github.lingjiuu.session;
 
 import io.github.lingjiuu.transcript.TranscriptStore;
+import io.github.lingjiuu.tool.Tool;
 import junit.framework.TestCase;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 public class SessionFactoryTest extends TestCase {
 
@@ -239,6 +241,30 @@ public class SessionFactoryTest extends TestCase {
             assertEquals("other-model", resumed.activeModelSelection().model().getId());
             assertEquals("HIGH", resumed.activeModelSelection().reasoning().getReasoningEffort().name());
         }
+    }
+
+    public void testDefaultToolsAreSelectedForHostShellEnvironment() throws Exception {
+        Path cwd = Files.createTempDirectory("aether-session-tools");
+
+        List<String> unixTools = toolNames(SessionFactory.buildDefaultTools(cwd, false, false, true));
+        assertTrue(unixTools.contains("bash"));
+        assertFalse(unixTools.contains("powershell"));
+
+        List<String> windowsPowerShellOnly = toolNames(SessionFactory.buildDefaultTools(cwd, true, false, true));
+        assertTrue(windowsPowerShellOnly.contains("powershell"));
+        assertFalse(windowsPowerShellOnly.contains("bash"));
+
+        List<String> windowsBothShells = toolNames(SessionFactory.buildDefaultTools(cwd, true, true, true));
+        assertTrue(windowsBothShells.contains("powershell"));
+        assertTrue(windowsBothShells.contains("bash"));
+
+        List<String> windowsNoShells = toolNames(SessionFactory.buildDefaultTools(cwd, true, false, false));
+        assertFalse(windowsNoShells.contains("powershell"));
+        assertFalse(windowsNoShells.contains("bash"));
+    }
+
+    private List<String> toolNames(List<Tool> tools) {
+        return tools.stream().map(Tool::name).toList();
     }
 
     private void writeConfig(Path configPath) throws Exception {

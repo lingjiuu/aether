@@ -4,6 +4,7 @@ import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.builtin.shell.ShellOutputCapture;
 import junit.framework.TestCase;
 
 import java.nio.file.Files;
@@ -68,13 +69,13 @@ public class BashToolTest extends TestCase {
         assertFalse(details.containsKey("outputPreview"));
     }
 
-    public void testBashOutputCaptureKeepsTailAndPersistsFullOutput() throws Exception {
-        BashOutputCapture output = new BashOutputCapture(2, 100);
+    public void testShellOutputCaptureKeepsTailAndPersistsFullOutput() throws Exception {
+        ShellOutputCapture output = new ShellOutputCapture("aether-test", 2, 100);
         String fullOutput = "line-1\nline-2\nline-3\nline-4";
 
         output.appendStdout(fullOutput.getBytes(StandardCharsets.UTF_8), fullOutput.getBytes(StandardCharsets.UTF_8).length);
 
-        BashOutputCapture.Snapshot snapshot = output.snapshot(true);
+        ShellOutputCapture.Snapshot snapshot = output.snapshot(true);
         assertTrue(snapshot.stdout().truncated());
         assertEquals("line-3\nline-4", snapshot.stdout().content());
         assertNotNull(snapshot.stdout().fullOutputPath());

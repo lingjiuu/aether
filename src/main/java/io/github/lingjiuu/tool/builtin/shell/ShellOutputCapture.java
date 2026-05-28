@@ -1,4 +1,6 @@
-package io.github.lingjiuu.tool.builtin.bash;
+package io.github.lingjiuu.tool.builtin.shell;
+
+import io.github.lingjiuu.tool.builtin.ToolOutputLimits;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -10,42 +12,42 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-final class BashOutputCapture {
+public final class ShellOutputCapture {
 
     private final StreamBuffer stdout;
     private final StreamBuffer stderr;
     private final StreamBuffer aggregate;
 
-    BashOutputCapture() {
-        this(
-                io.github.lingjiuu.tool.builtin.ToolOutputLimits.BASH_MAX_LINES,
-                io.github.lingjiuu.tool.builtin.ToolOutputLimits.DEFAULT_MAX_BYTES
-        );
+    public ShellOutputCapture(String tempFilePrefix) {
+        this(tempFilePrefix, ToolOutputLimits.BASH_MAX_LINES, ToolOutputLimits.DEFAULT_MAX_BYTES);
     }
 
-    BashOutputCapture(int maxLines, int maxBytes) {
+    public ShellOutputCapture(String tempFilePrefix, int maxLines, int maxBytes) {
+        if (tempFilePrefix == null || tempFilePrefix.isBlank()) {
+            throw new IllegalArgumentException("tempFilePrefix must not be blank");
+        }
         if (maxLines <= 0) {
             throw new IllegalArgumentException("maxLines must be positive");
         }
         if (maxBytes <= 0) {
             throw new IllegalArgumentException("maxBytes must be positive");
         }
-        this.stdout = new StreamBuffer("stdout", maxLines, maxBytes);
-        this.stderr = new StreamBuffer("stderr", maxLines, maxBytes);
-        this.aggregate = new StreamBuffer("combined", maxLines, maxBytes);
+        this.stdout = new StreamBuffer(tempFilePrefix, "stdout", maxLines, maxBytes);
+        this.stderr = new StreamBuffer(tempFilePrefix, "stderr", maxLines, maxBytes);
+        this.aggregate = new StreamBuffer(tempFilePrefix, "combined", maxLines, maxBytes);
     }
 
-    synchronized void appendStdout(byte[] bytes, int length) {
+    public synchronized void appendStdout(byte[] bytes, int length) {
         stdout.append(bytes, length);
         aggregate.append(bytes, length);
     }
 
-    synchronized void appendStderr(byte[] bytes, int length) {
+    public synchronized void appendStderr(byte[] bytes, int length) {
         stderr.append(bytes, length);
         aggregate.append(bytes, length);
     }
 
-    synchronized Snapshot snapshot(boolean persistIfTruncated) throws IOException {
+    public synchronized Snapshot snapshot(boolean persistIfTruncated) throws IOException {
         StreamSnapshot stdoutSnapshot = stdout.snapshot(persistIfTruncated);
         StreamSnapshot stderrSnapshot = stderr.snapshot(persistIfTruncated);
         StreamSnapshot aggregateSnapshot = aggregate.snapshot(persistIfTruncated);
@@ -56,20 +58,20 @@ final class BashOutputCapture {
         );
     }
 
-    record Snapshot(
+    public record Snapshot(
             StreamSnapshot stdout,
             StreamSnapshot stderr,
             StreamSnapshot aggregate
     ) {
-        String content() {
+        public String content() {
             return aggregate.content();
         }
 
-        boolean truncated() {
+        public boolean truncated() {
             return stdout.truncated() || stderr.truncated() || aggregate.truncated();
         }
 
-        Map<String, Object> truncationDetails() {
+        public Map<String, Object> truncationDetails() {
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("truncated", truncated());
             details.put("aggregate", aggregate.truncationDetails());
@@ -79,16 +81,16 @@ final class BashOutputCapture {
         }
     }
 
-    record StreamSnapshot(
+    public record StreamSnapshot(
             String content,
             StreamTruncation truncation,
             Path fullOutputPath
     ) {
-        boolean truncated() {
+        public boolean truncated() {
             return truncation != null && truncation.truncated();
         }
 
-        Map<String, Object> truncationDetails() {
+        public Map<String, Object> truncationDetails() {
             if (truncation == null) {
                 return Map.of();
             }
@@ -107,7 +109,7 @@ final class BashOutputCapture {
         }
     }
 
-    record StreamTruncation(
+    public record StreamTruncation(
             String content,
             boolean truncated,
             String truncatedBy,
@@ -123,6 +125,7 @@ final class BashOutputCapture {
     }
 
     private static final class StreamBuffer {
+        private final String tempFilePrefix;
         private final String streamName;
         private final StringBuilder retained = new StringBuilder();
         private final int maxLines;
@@ -131,7 +134,8 @@ final class BashOutputCapture {
         private int totalLines = 1;
         private Path fullOutputPath;
 
-        private StreamBuffer(String streamName, int maxLines, int maxBytes) {
+        private StreamBuffer(String tempFilePrefix, String streamName, int maxLines, int maxBytes) {
+            this.tempFilePrefix = tempFilePrefix;
             this.streamName = streamName;
             this.maxLines = maxLines;
             this.maxBytes = maxBytes;
@@ -222,7 +226,7 @@ final class BashOutputCapture {
             if (fullOutputPath != null) {
                 return;
             }
-            fullOutputPath = Files.createTempFile("aether-bash-" + streamName + "-", ".log");
+            fullOutputPath = Files.createTempFile(tempFilePrefix + "-" + streamName + "-", ".log");
             Files.writeString(
                     fullOutputPath,
                     retained.toString(),
@@ -280,15 +284,18 @@ final class BashOutputCapture {
     }
 
     private static String tailByBytes(String text, int maxBytes) {
-        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
-        if (bytes.length <= maxBytes) {
+        if (byteLength(text) <= maxBytes) {
             return text;
         }
-        int start = bytes.length - maxBytes;
-        while (start < bytes.length && (bytes[start] & 0xc0) == 0x80) {
-            start++;
+        StringBuilder builder = new StringBuilder();
+        for (int i = text.length() - 1; i >= 0; i--) {
+            builder.insert(0, text.charAt(i));
+            if (byteLength(builder.toString()) > maxBytes) {
+                builder.deleteCharAt(0);
+                break;
+            }
         }
-        return new String(bytes, start, bytes.length - start, StandardCharsets.UTF_8);
+        return builder.toString();
     }
 
     private record TailPreview(

@@ -15,7 +15,7 @@ import java.util.Map;
 public class GlobToolTest extends TestCase {
 
     public void testGlobReturnsMatchingFiles() throws Exception {
-        if (ExecutableFinder.findOnPath("rg").isEmpty()) {
+        if (Ripgrep.command().isEmpty()) {
             return;
         }
         Path root = Files.createTempDirectory("aether-glob-tool-test");
