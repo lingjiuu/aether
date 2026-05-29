@@ -1,4 +1,4 @@
-package io.github.lingjiuu.tool.builtin;
+package io.github.lingjiuu.tool.builtin.search;
 
 import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolExecutionResult;
@@ -21,6 +21,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public class GlobTool implements Tool {
+
+    private static final int DEFAULT_RESULT_LIMIT = 100;
 
     private final WorkspaceAccessPolicy accessPolicy;
 
@@ -84,14 +86,13 @@ public class GlobTool implements Tool {
     public ToolExecutionResult execute(ToolInvocation context) {
         try {
             context.throwIfCancellationRequested();
-            String pattern = ToolArguments.requiredString(context.getArguments(), "pattern");
-            String requestedPath = ToolArguments.optionalString(context.getArguments(), "path", ".");
-            Path resolvedPath = accessPolicy.resolveReadablePath(requestedPath);
+            Args args = Args.from(context.getArguments());
+            Path resolvedPath = accessPolicy.resolveReadablePath(args.path());
             var rgPath = Ripgrep.command();
             if (rgPath.isEmpty()) {
                 return ToolExecutionResult.errorText("glob failed: ripgrep (rg) is unavailable");
             }
-            return glob(context, rgPath.get(), pattern, requestedPath, resolvedPath);
+            return glob(context, rgPath.get(), args.pattern(), args.path(), resolvedPath);
         } catch (Exception e) {
             return ToolExecutionResult.errorText("glob failed: " + e.getMessage());
         }
@@ -160,10 +161,10 @@ public class GlobTool implements Tool {
                 }
             }
 
-            boolean resultLimitReached = filenames.size() > ToolOutputLimits.GLOB_DEFAULT_LIMIT;
-            List<String> returned = filenames.size() <= ToolOutputLimits.GLOB_DEFAULT_LIMIT
+            boolean resultLimitReached = filenames.size() > DEFAULT_RESULT_LIMIT;
+            List<String> returned = filenames.size() <= DEFAULT_RESULT_LIMIT
                     ? filenames
-                    : filenames.subList(0, ToolOutputLimits.GLOB_DEFAULT_LIMIT);
+                    : filenames.subList(0, DEFAULT_RESULT_LIMIT);
             String rawOutput = returned.isEmpty() ? "No files found" : String.join("\n", returned);
             String output = rawOutput;
             List<String> notices = new ArrayList<>();
@@ -240,5 +241,33 @@ public class GlobTool implements Tool {
 
     private static String toPosix(Path path) {
         return path.toString().replace('\\', '/');
+    }
+
+    private static String requiredString(Map<String, Object> arguments, String name) {
+        Object value = arguments.get(name);
+        if (!(value instanceof String stringValue) || stringValue.isBlank()) {
+            throw new IllegalArgumentException(name + " must be a non-blank string");
+        }
+        return stringValue;
+    }
+
+    private static String optionalString(Map<String, Object> arguments, String name, String defaultValue) {
+        Object value = arguments.get(name);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (!(value instanceof String stringValue)) {
+            throw new IllegalArgumentException(name + " must be a string");
+        }
+        return stringValue.isBlank() ? defaultValue : stringValue;
+    }
+
+    private record Args(String pattern, String path) {
+        static Args from(Map<String, Object> arguments) {
+            return new Args(
+                    requiredString(arguments, "pattern"),
+                    optionalString(arguments, "path", ".")
+            );
+        }
     }
 }

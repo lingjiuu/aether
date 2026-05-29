@@ -1,4 +1,4 @@
-package io.github.lingjiuu.tool.builtin;
+package io.github.lingjiuu.tool.builtin.read;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -8,9 +8,7 @@ import java.nio.file.Path;
 final class ImageMimeDetector {
 
     private static final int IMAGE_TYPE_SNIFF_BYTES = 4100;
-    private static final byte[] PNG_SIGNATURE = new byte[]{
-            (byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a
-    };
+    private static final byte[] PNG_SIGNATURE = {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a};
 
     private ImageMimeDetector() {
     }
@@ -23,7 +21,7 @@ final class ImageMimeDetector {
 
     static String detect(byte[] buffer) {
         byte[] safeBuffer = buffer == null ? new byte[0] : buffer;
-        if (startsWith(safeBuffer, new int[]{0xff, 0xd8, 0xff})) {
+        if (startsWith(safeBuffer, (byte) 0xff, (byte) 0xd8, (byte) 0xff)) {
             return safeBuffer.length > 3 && unsigned(safeBuffer[3]) == 0xf7 ? null : "image/jpeg";
         }
         if (startsWith(safeBuffer, PNG_SIGNATURE)) {
@@ -66,30 +64,18 @@ final class ImageMimeDetector {
     }
 
     private static int readUint32BE(byte[] buffer, int offset) {
-        return (unsignedAt(buffer, offset) * 0x1000000)
-                + (unsignedAt(buffer, offset + 1) << 16)
-                + (unsignedAt(buffer, offset + 2) << 8)
-                + unsignedAt(buffer, offset + 3);
+        return (unsigned(buffer[offset]) * 0x1000000)
+                + (unsigned(buffer[offset + 1]) << 16)
+                + (unsigned(buffer[offset + 2]) << 8)
+                + unsigned(buffer[offset + 3]);
     }
 
-    private static boolean startsWith(byte[] buffer, int[] bytes) {
-        if (buffer.length < bytes.length) {
+    private static boolean startsWith(byte[] buffer, byte... prefix) {
+        if (buffer.length < prefix.length) {
             return false;
         }
-        for (int i = 0; i < bytes.length; i++) {
-            if (unsigned(buffer[i]) != bytes[i]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean startsWith(byte[] buffer, byte[] bytes) {
-        if (buffer.length < bytes.length) {
-            return false;
-        }
-        for (int i = 0; i < bytes.length; i++) {
-            if (buffer[i] != bytes[i]) {
+        for (int i = 0; i < prefix.length; i++) {
+            if (buffer[i] != prefix[i]) {
                 return false;
             }
         }
@@ -106,10 +92,6 @@ final class ImageMimeDetector {
             }
         }
         return true;
-    }
-
-    private static int unsignedAt(byte[] buffer, int offset) {
-        return offset < buffer.length ? unsigned(buffer[offset]) : 0;
     }
 
     private static int unsigned(byte value) {

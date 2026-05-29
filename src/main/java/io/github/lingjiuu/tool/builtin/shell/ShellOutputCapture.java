@@ -1,7 +1,5 @@
 package io.github.lingjiuu.tool.builtin.shell;
 
-import io.github.lingjiuu.tool.builtin.ToolOutputLimits;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -14,12 +12,15 @@ import java.util.Map;
 
 public final class ShellOutputCapture {
 
+    public static final int DEFAULT_MAX_LINES = 2000;
+    public static final int DEFAULT_MAX_BYTES = 50 * 1024;
+
     private final StreamBuffer stdout;
     private final StreamBuffer stderr;
     private final StreamBuffer aggregate;
 
     public ShellOutputCapture(String tempFilePrefix) {
-        this(tempFilePrefix, ToolOutputLimits.BASH_MAX_LINES, ToolOutputLimits.DEFAULT_MAX_BYTES);
+        this(tempFilePrefix, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
     }
 
     public ShellOutputCapture(String tempFilePrefix, int maxLines, int maxBytes) {
@@ -110,7 +111,6 @@ public final class ShellOutputCapture {
     }
 
     public record StreamTruncation(
-            String content,
             boolean truncated,
             String truncatedBy,
             int totalLines,
@@ -184,7 +184,6 @@ public final class ShellOutputCapture {
                 ensureFullOutputFile();
             }
             StreamTruncation truncation = new StreamTruncation(
-                    tail.content(),
                     truncated,
                     truncatedBy(truncated),
                     totalLines,
@@ -284,18 +283,15 @@ public final class ShellOutputCapture {
     }
 
     private static String tailByBytes(String text, int maxBytes) {
-        if (byteLength(text) <= maxBytes) {
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length <= maxBytes) {
             return text;
         }
-        StringBuilder builder = new StringBuilder();
-        for (int i = text.length() - 1; i >= 0; i--) {
-            builder.insert(0, text.charAt(i));
-            if (byteLength(builder.toString()) > maxBytes) {
-                builder.deleteCharAt(0);
-                break;
-            }
+        int start = bytes.length - maxBytes;
+        while (start < bytes.length && (bytes[start] & 0xc0) == 0x80) {
+            start++;
         }
-        return builder.toString();
+        return new String(bytes, start, bytes.length - start, StandardCharsets.UTF_8);
     }
 
     private record TailPreview(

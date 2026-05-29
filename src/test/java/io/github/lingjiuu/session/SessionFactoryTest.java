@@ -247,6 +247,7 @@ public class SessionFactoryTest extends TestCase {
         Path cwd = Files.createTempDirectory("aether-session-tools");
 
         List<String> unixTools = toolNames(SessionFactory.buildDefaultTools(cwd, false, false, true));
+        assertFalse(unixTools.contains("ls"));
         assertTrue(unixTools.contains("bash"));
         assertFalse(unixTools.contains("powershell"));
 

@@ -1,4 +1,4 @@
-package io.github.lingjiuu.tool.builtin;
+package io.github.lingjiuu.tool.builtin.write;
 
 import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolInvocation;
@@ -78,37 +78,36 @@ public class WriteTool implements Tool {
     public ToolExecutionResult execute(ToolInvocation context) {
         try {
             context.throwIfCancellationRequested();
-            String requestedPath = ToolArguments.requiredString(context.getArguments(), "file_path");
-            String content = requiredContent(context.getArguments());
-            Path resolvedPath = accessPolicy.resolveWritablePath(requestedPath);
+            Args args = Args.from(context.getArguments());
+            Path resolvedPath = accessPolicy.resolveWritablePath(args.filePath());
 
             boolean existedBefore = Files.exists(resolvedPath);
             if (existedBefore) {
-                ensureExistingFileCanBeWritten(context.readFileState(), requestedPath, resolvedPath);
+                ensureExistingFileCanBeWritten(context.readFileState(), args.filePath(), resolvedPath);
             }
             Path parent = resolvedPath.getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
             }
             context.throwIfCancellationRequested();
-            Files.writeString(resolvedPath, content, StandardCharsets.UTF_8);
-            recordWrite(context.readFileState(), resolvedPath, content);
+            Files.writeString(resolvedPath, args.content(), StandardCharsets.UTF_8);
+            recordWrite(context.readFileState(), resolvedPath, args.content());
             context.throwIfCancellationRequested();
 
-            int bytes = content.getBytes(StandardCharsets.UTF_8).length;
+            int bytes = args.content().getBytes(StandardCharsets.UTF_8).length;
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("kind", "write");
-            details.put("path", requestedPath);
+            details.put("path", args.filePath());
             details.put("resolvedPath", resolvedPath.toString());
             details.put("operation", existedBefore ? "update" : "create");
-            details.put("chars", content.length());
+            details.put("chars", args.content().length());
             details.put("bytes", bytes);
-            details.put("lineCount", lineCount(content));
+            details.put("lineCount", lineCount(args.content()));
             details.put("existedBefore", existedBefore);
-            details.put("firstLine", firstLine(content));
+            details.put("firstLine", firstLine(args.content()));
             return ToolExecutionResult.builder()
                     .contents(ToolExecutionResult.text(
-                            "Successfully wrote " + content.length() + " chars to " + requestedPath
+                            "Successfully wrote " + args.content().length() + " chars to " + args.filePath()
                     ).getContents())
                     .details(details)
                     .error(false)
@@ -118,10 +117,18 @@ public class WriteTool implements Tool {
         }
     }
 
-    private String requiredContent(Map<String, Object> arguments) {
-        Object value = arguments.get("content");
+    private static String requiredNonBlankString(Map<String, Object> arguments, String name) {
+        String value = requiredString(arguments, name);
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(name + " must be a non-blank string");
+        }
+        return value;
+    }
+
+    private static String requiredString(Map<String, Object> arguments, String name) {
+        Object value = arguments.get(name);
         if (!(value instanceof String stringValue)) {
-            throw new IllegalArgumentException("content must be a string");
+            throw new IllegalArgumentException(name + " must be a string");
         }
         return stringValue;
     }
@@ -175,5 +182,14 @@ public class WriteTool implements Tool {
             }
         }
         return lines;
+    }
+
+    private record Args(String filePath, String content) {
+        static Args from(Map<String, Object> arguments) {
+            return new Args(
+                    requiredNonBlankString(arguments, "file_path"),
+                    requiredString(arguments, "content")
+            );
+        }
     }
 }

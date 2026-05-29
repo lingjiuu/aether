@@ -274,9 +274,9 @@ public class ToolResultProcessor {
     public static String buildPersistedOutputMessage(PersistedToolOutput output, ToolResultPreviewMode previewMode) {
         String previewLabel = previewMode == ToolResultPreviewMode.TAIL ? "last" : "first";
         return PERSISTED_OUTPUT_TAG
-                + "\nOutput too large (" + formatSize(output.originalSizeBytes()) + "). Full output saved to: "
+                + "\nOutput too large (" + ToolResultLimits.formatSize(output.originalSizeBytes()) + "). Full output saved to: "
                 + output.path()
-                + "\n\nPreview (" + previewLabel + " " + formatSize(ToolResultLimits.PREVIEW_SIZE_BYTES) + "):\n"
+                + "\n\nPreview (" + previewLabel + " " + ToolResultLimits.formatSize(ToolResultLimits.PREVIEW_SIZE_BYTES) + "):\n"
                 + output.preview()
                 + (output.hasMore() ? "\n...\n" : "\n")
                 + PERSISTED_OUTPUT_CLOSING_TAG;
@@ -340,16 +340,6 @@ public class ToolResultProcessor {
 
     private int byteLength(String text) {
         return text == null ? 0 : text.getBytes(StandardCharsets.UTF_8).length;
-    }
-
-    public static String formatSize(long bytes) {
-        if (bytes < 1024L) {
-            return bytes + "B";
-        }
-        if (bytes < 1024L * 1024L) {
-            return String.format(java.util.Locale.ROOT, "%.1fKB", bytes / 1024.0);
-        }
-        return String.format(java.util.Locale.ROOT, "%.1fMB", bytes / (1024.0 * 1024.0));
     }
 
     private record Processed(

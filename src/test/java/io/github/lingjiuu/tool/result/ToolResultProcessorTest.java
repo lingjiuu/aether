@@ -59,7 +59,7 @@ public class ToolResultProcessorTest extends TestCase {
     public void testAggregateBudgetPersistsLargestInlineResults() throws Exception {
         Path root = Files.createTempDirectory("aether-tool-result-processor-test");
         ToolResultProcessor processor = processor(root);
-        Tool tool = tool("ls", ToolResultPolicy.defaultPolicy());
+        Tool tool = tool("glob", ToolResultPolicy.defaultPolicy());
 
         List<ProcessedToolResult> results = processor.processBatch(List.of(
                 input("call-1", tool, ToolExecutionResult.text("a".repeat(45_000))),

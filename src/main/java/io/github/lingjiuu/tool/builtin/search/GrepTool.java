@@ -1,4 +1,4 @@
-package io.github.lingjiuu.tool.builtin;
+package io.github.lingjiuu.tool.builtin.search;
 
 import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolExecutionResult;
@@ -28,6 +28,8 @@ public class GrepTool implements Tool {
     private static final String MODE_FILES_WITH_MATCHES = "files_with_matches";
     private static final String MODE_CONTENT = "content";
     private static final String MODE_COUNT = "count";
+    private static final int DEFAULT_HEAD_LIMIT = 250;
+    private static final int MAX_LINE_LENGTH = 500;
 
     private final WorkspaceAccessPolicy accessPolicy;
 
@@ -122,11 +124,10 @@ public class GrepTool implements Tool {
     public ToolExecutionResult execute(ToolInvocation context) {
         try {
             context.throwIfCancellationRequested();
-            String pattern = ToolArguments.requiredString(context.getArguments(), "pattern");
-            String requestedPath = ToolArguments.optionalString(context.getArguments(), "path", ".");
-            Path resolvedPath = accessPolicy.resolveReadablePath(requestedPath);
+            Args args = Args.from(context.getArguments());
+            Path resolvedPath = accessPolicy.resolveReadablePath(args.path());
             if (!Files.exists(resolvedPath)) {
-                throw new IOException("Path not found: " + requestedPath);
+                throw new IOException("Path not found: " + args.path());
             }
 
             var rgPath = Ripgrep.command();
@@ -134,8 +135,7 @@ public class GrepTool implements Tool {
                 return ToolExecutionResult.errorText("grep failed: ripgrep (rg) is unavailable");
             }
 
-            SearchOptions options = SearchOptions.from(context.getArguments());
-            return grep(context, rgPath.get(), pattern, requestedPath, resolvedPath, options);
+            return grep(context, rgPath.get(), args.pattern(), args.path(), resolvedPath, args.options());
         } catch (Exception e) {
             return ToolExecutionResult.errorText("grep failed: " + e.getMessage());
         }
@@ -199,7 +199,7 @@ public class GrepTool implements Tool {
         args.add("--hidden");
         args.add("--color=never");
         args.add("--max-columns");
-        args.add(String.valueOf(ToolOutputLimits.GREP_MAX_LINE_LENGTH));
+        args.add(String.valueOf(MAX_LINE_LENGTH));
         for (String ignoredVcsDir : List.of("!.git/**", "!.svn/**", "!.hg/**", "!.bzr/**", "!.jj/**", "!.sl/**")) {
             args.add("--glob");
             args.add(ignoredVcsDir);
@@ -518,6 +518,67 @@ public class GrepTool implements Tool {
         return path.toString().replace('\\', '/');
     }
 
+    private static String requiredString(Map<String, Object> arguments, String name) {
+        Object value = arguments.get(name);
+        if (!(value instanceof String stringValue) || stringValue.isBlank()) {
+            throw new IllegalArgumentException(name + " must be a non-blank string");
+        }
+        return stringValue;
+    }
+
+    private static String optionalString(Map<String, Object> arguments, String name, String defaultValue) {
+        Object value = arguments.get(name);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (!(value instanceof String stringValue)) {
+            throw new IllegalArgumentException(name + " must be a string");
+        }
+        return stringValue.isBlank() ? defaultValue : stringValue;
+    }
+
+    private static int optionalNonNegativeInt(Map<String, Object> arguments, String name, int defaultValue) {
+        Object value = arguments.get(name);
+        if (value == null) {
+            return defaultValue;
+        }
+        int parsed;
+        if (value instanceof Number number) {
+            parsed = number.intValue();
+        } else {
+            try {
+                parsed = Integer.parseInt(String.valueOf(value));
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException(name + " must be a non-negative integer");
+            }
+        }
+        if (parsed < 0) {
+            throw new IllegalArgumentException(name + " must be a non-negative integer");
+        }
+        return parsed;
+    }
+
+    private static boolean optionalBoolean(Map<String, Object> arguments, String name, boolean defaultValue) {
+        Object value = arguments.get(name);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Boolean booleanValue) {
+            return booleanValue;
+        }
+        throw new IllegalArgumentException(name + " must be a boolean");
+    }
+
+    private record Args(String pattern, String path, SearchOptions options) {
+        static Args from(Map<String, Object> arguments) {
+            return new Args(
+                    requiredString(arguments, "pattern"),
+                    optionalString(arguments, "path", "."),
+                    SearchOptions.from(arguments)
+            );
+        }
+    }
+
     private record SearchOptions(
             String outputMode,
             String glob,
@@ -532,27 +593,27 @@ public class GrepTool implements Tool {
             boolean multiline
     ) {
         private static SearchOptions from(Map<String, Object> arguments) {
-            String outputMode = ToolArguments.optionalString(arguments, "output_mode", MODE_FILES_WITH_MATCHES);
+            String outputMode = optionalString(arguments, "output_mode", MODE_FILES_WITH_MATCHES);
             return new SearchOptions(
                     outputMode,
-                    ToolArguments.optionalString(arguments, "glob", null),
-                    ToolArguments.optionalNonNegativeInt(arguments, "-B", 0),
-                    ToolArguments.optionalNonNegativeInt(arguments, "-A", 0),
+                    optionalString(arguments, "glob", null),
+                    optionalNonNegativeInt(arguments, "-B", 0),
+                    optionalNonNegativeInt(arguments, "-A", 0),
                     contextLines(arguments),
-                    ToolArguments.optionalBoolean(arguments, "-n", false),
-                    ToolArguments.optionalBoolean(arguments, "-i", false),
-                    ToolArguments.optionalString(arguments, "type", null),
-                    ToolArguments.optionalNonNegativeInt(arguments, "head_limit", ToolOutputLimits.GREP_DEFAULT_HEAD_LIMIT),
-                    ToolArguments.optionalNonNegativeInt(arguments, "offset", 0),
-                    ToolArguments.optionalBoolean(arguments, "multiline", false)
+                    optionalBoolean(arguments, "-n", false),
+                    optionalBoolean(arguments, "-i", false),
+                    optionalString(arguments, "type", null),
+                    optionalNonNegativeInt(arguments, "head_limit", DEFAULT_HEAD_LIMIT),
+                    optionalNonNegativeInt(arguments, "offset", 0),
+                    optionalBoolean(arguments, "multiline", false)
             );
         }
 
         private static int contextLines(Map<String, Object> arguments) {
             if (arguments.containsKey("context")) {
-                return ToolArguments.optionalNonNegativeInt(arguments, "context", 0);
+                return optionalNonNegativeInt(arguments, "context", 0);
             }
-            return ToolArguments.optionalNonNegativeInt(arguments, "-C", 0);
+            return optionalNonNegativeInt(arguments, "-C", 0);
         }
     }
 

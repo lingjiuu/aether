@@ -54,7 +54,7 @@ public class PermissionManager {
         }
 
         return switch (toolName) {
-            case "read", "ls", "glob", "grep" -> PermissionDecision.allow();
+            case "read", "glob", "grep" -> PermissionDecision.allow();
             case "write", "edit" -> decideWorkspaceWrite(invocation);
             case "bash", "powershell" -> PermissionDecision.ask("Tool can execute commands.");
             default -> decideByRiskLevel(invocation);
