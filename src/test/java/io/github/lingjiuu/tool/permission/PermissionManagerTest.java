@@ -64,7 +64,7 @@ public class PermissionManagerTest extends TestCase {
         PermissionManager manager = defaultManager(workspace);
 
         PermissionDecision decision = manager.decide(invocation(tool("bash", ToolRiskLevel.EXEC), Map.of(
-                "command", "ls"
+                "command", "pwd"
         )));
 
         assertEquals(PermissionDecision.Action.ASK, decision.action());
@@ -107,11 +107,11 @@ public class PermissionManagerTest extends TestCase {
         PermissionManager manager = defaultManager(workspace);
 
         PermissionDecision before = manager.decide(invocation(tool("bash", ToolRiskLevel.EXEC), Map.of(
-                "command", "ls"
+                "command", "pwd"
         )));
         manager.setPreset(PermissionPreset.FULL_ACCESS);
         PermissionDecision after = manager.decide(invocation(tool("bash", ToolRiskLevel.EXEC), Map.of(
-                "command", "ls"
+                "command", "pwd"
         )));
 
         assertEquals(PermissionPreset.FULL_ACCESS, manager.preset());

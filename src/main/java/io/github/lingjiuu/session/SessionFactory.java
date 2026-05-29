@@ -18,7 +18,6 @@ import io.github.lingjiuu.tool.builtin.bash.BashTool;
 import io.github.lingjiuu.tool.builtin.EditTool;
 import io.github.lingjiuu.tool.builtin.GlobTool;
 import io.github.lingjiuu.tool.builtin.GrepTool;
-import io.github.lingjiuu.tool.builtin.LsTool;
 import io.github.lingjiuu.tool.builtin.ReadTool;
 import io.github.lingjiuu.tool.builtin.WriteTool;
 import io.github.lingjiuu.tool.permission.PermissionPreset;
@@ -302,7 +301,6 @@ public class SessionFactory {
         Path root = cwd == null ? Path.of(System.getProperty("user.dir")) : cwd;
         WorkspaceAccessPolicy accessPolicy = WorkspaceAccessPolicy.rootedAt(root);
         List<Tool> tools = new ArrayList<>();
-        tools.add(new LsTool(accessPolicy));
         tools.add(new GlobTool(accessPolicy));
         tools.add(new GrepTool(accessPolicy));
         tools.add(new ReadTool(accessPolicy));
