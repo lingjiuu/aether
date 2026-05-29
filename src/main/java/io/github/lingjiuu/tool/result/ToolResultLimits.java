@@ -9,4 +9,14 @@ public final class ToolResultLimits {
 
     private ToolResultLimits() {
     }
+
+    public static String formatSize(long bytes) {
+        if (bytes < 1024L) {
+            return bytes + "B";
+        }
+        if (bytes < 1024L * 1024L) {
+            return String.format(java.util.Locale.ROOT, "%.1fKB", bytes / 1024.0);
+        }
+        return String.format(java.util.Locale.ROOT, "%.1fMB", bytes / (1024.0 * 1024.0));
+    }
 }

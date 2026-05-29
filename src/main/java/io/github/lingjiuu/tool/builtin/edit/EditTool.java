@@ -1,4 +1,4 @@
-package io.github.lingjiuu.tool.builtin;
+package io.github.lingjiuu.tool.builtin.edit;
 
 import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolInvocation;
@@ -72,22 +72,19 @@ public class EditTool implements Tool {
     public ToolExecutionResult execute(ToolInvocation context) {
         try {
             context.throwIfCancellationRequested();
-            String requestedPath = ToolArguments.requiredString(context.getArguments(), "file_path");
-            String oldString = requiredString(context.getArguments(), "old_string");
-            String newString = requiredString(context.getArguments(), "new_string");
-            boolean replaceAll = ToolArguments.optionalBoolean(context.getArguments(), "replace_all", false);
-            if (oldString.equals(newString)) {
+            Args args = Args.from(context.getArguments());
+            if (args.oldString().equals(args.newString())) {
                 throw new IllegalArgumentException("old_string and new_string must be different");
             }
 
-            Path resolvedPath = accessPolicy.resolveWritablePath(requestedPath);
+            Path resolvedPath = accessPolicy.resolveWritablePath(args.filePath());
             ToolExecutionResult result = editFile(
                     context.readFileState(),
-                    requestedPath,
+                    args.filePath(),
                     resolvedPath,
-                    oldString,
-                    newString,
-                    replaceAll
+                    args.oldString(),
+                    args.newString(),
+                    args.replaceAll()
             );
             context.throwIfCancellationRequested();
             return result;
@@ -136,9 +133,11 @@ public class EditTool implements Tool {
         }
 
         ensureFileWasRead(readFileState, resolvedPath, content);
-        EditApplier.AppliedEdits applied = EditApplier.applyEditsToNormalizedContent(
+        EditApplier.AppliedEdit applied = EditApplier.apply(
                 state.normalizedContent(),
-                List.of(new EditApplier.Edit(oldString, newString, replaceAll)),
+                oldString,
+                newString,
+                replaceAll,
                 requestedPath
         );
 
@@ -241,7 +240,15 @@ public class EditTool implements Tool {
         }
     }
 
-    private String requiredString(Map<String, Object> arguments, String name) {
+    private static String requiredNonBlankString(Map<String, Object> arguments, String name) {
+        String value = requiredString(arguments, name);
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(name + " must be a non-blank string");
+        }
+        return value;
+    }
+
+    private static String requiredString(Map<String, Object> arguments, String name) {
         Object value = arguments.get(name);
         if (!(value instanceof String stringValue)) {
             throw new IllegalArgumentException(name + " must be a string");
@@ -249,4 +256,25 @@ public class EditTool implements Tool {
         return stringValue;
     }
 
+    private static boolean optionalBoolean(Map<String, Object> arguments, String name, boolean defaultValue) {
+        Object value = arguments.get(name);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Boolean booleanValue) {
+            return booleanValue;
+        }
+        throw new IllegalArgumentException(name + " must be a boolean");
+    }
+
+    private record Args(String filePath, String oldString, String newString, boolean replaceAll) {
+        static Args from(Map<String, Object> arguments) {
+            return new Args(
+                    requiredNonBlankString(arguments, "file_path"),
+                    requiredString(arguments, "old_string"),
+                    requiredString(arguments, "new_string"),
+                    optionalBoolean(arguments, "replace_all", false)
+            );
+        }
+    }
 }

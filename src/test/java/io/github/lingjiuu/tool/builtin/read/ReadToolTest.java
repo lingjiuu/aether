@@ -1,4 +1,4 @@
-package io.github.lingjiuu.tool.builtin;
+package io.github.lingjiuu.tool.builtin.read;
 
 import io.github.lingjiuu.message.content.ImageContent;
 import io.github.lingjiuu.message.content.TextContent;

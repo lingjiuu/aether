@@ -6,9 +6,8 @@ import io.github.lingjiuu.tool.ToolInvocation;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.builtin.ExecutableFinder;
-import io.github.lingjiuu.tool.builtin.TextOutputTruncator;
-import io.github.lingjiuu.tool.builtin.ToolOutputLimits;
 import io.github.lingjiuu.tool.builtin.shell.ShellOutputCapture;
+import io.github.lingjiuu.tool.result.ToolResultLimits;
 import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
@@ -58,8 +57,8 @@ public class BashTool implements Tool {
     @Override
     public String description() {
         return "Execute a bash command in the workspace. Returns stdout and stderr. Output is truncated to the last "
-                + ToolOutputLimits.BASH_MAX_LINES + " lines or "
-                + TextOutputTruncator.formatSize(ToolOutputLimits.DEFAULT_MAX_BYTES)
+                + ShellOutputCapture.DEFAULT_MAX_LINES + " lines or "
+                + ToolResultLimits.formatSize(ShellOutputCapture.DEFAULT_MAX_BYTES)
                 + ", whichever is hit first during execution. Large final output is saved as a tool result artifact. "
                 + "Optionally provide timeout in seconds.";
     }
@@ -95,8 +94,8 @@ public class BashTool implements Tool {
         Thread stderrReaderThread = null;
         try {
             context.throwIfCancellationRequested();
-            String command = requiredString(context.getArguments(), "command");
-            int timeoutSeconds = optionalPositiveNumber(context.getArguments(), "timeout", DEFAULT_TIMEOUT_SECONDS);
+            Args args = Args.from(context.getArguments());
+            String command = args.command();
             Optional<List<String>> shellCommand = shellCommand(command);
             if (shellCommand.isEmpty()) {
                 return ToolExecutionResult.errorText("bash failed: Git Bash is required on Windows. Install Git for Windows or set AETHER_GIT_BASH_PATH to bash.exe.");
@@ -115,6 +114,7 @@ public class BashTool implements Tool {
                             output::appendStdout,
                             output,
                             context,
+                            command,
                             readerDone,
                             readerError
                     ),
@@ -126,6 +126,7 @@ public class BashTool implements Tool {
                             output::appendStderr,
                             output,
                             context,
+                            command,
                             readerDone,
                             readerError
                     ),
@@ -137,13 +138,13 @@ public class BashTool implements Tool {
             stderrReaderThread.start();
 
             try (AutoCloseable ignored = context.cancellationToken().onCancel(() -> destroyProcessTree(runningProcess))) {
-                boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+                boolean finished = process.waitFor(args.timeoutSeconds(), TimeUnit.SECONDS);
                 if (!finished) {
                     destroyProcessTree(process);
                     readerDone.await(1, TimeUnit.SECONDS);
                     ShellOutputCapture.Snapshot snapshot = output.snapshot(true);
                     return result(command, null, startedAt, snapshot,
-                            "Command timed out after " + timeoutSeconds + " seconds", true);
+                            "Command timed out after " + args.timeoutSeconds() + " seconds", true);
                 }
                 readerDone.await(1, TimeUnit.SECONDS);
                 if (readerError.get() != null) {
@@ -180,6 +181,7 @@ public class BashTool implements Tool {
             OutputAppender appendOutput,
             ShellOutputCapture output,
             ToolInvocation context,
+            String command,
             CountDownLatch readerDone,
             AtomicReference<Exception> readerError
     ) {
@@ -192,10 +194,10 @@ public class BashTool implements Tool {
                 long now = System.currentTimeMillis();
                 if (now - lastUpdateAt >= 100L) {
                     lastUpdateAt = now;
-                    emitPartial(output, context);
+                    emitPartial(output, context, command);
                 }
             }
-            emitPartial(output, context);
+            emitPartial(output, context, command);
         } catch (Exception e) {
             readerError.set(e);
         } finally {
@@ -203,10 +205,9 @@ public class BashTool implements Tool {
         }
     }
 
-    private void emitPartial(ShellOutputCapture output, ToolInvocation context) {
+    private void emitPartial(ShellOutputCapture output, ToolInvocation context, String command) {
         try {
             ShellOutputCapture.Snapshot snapshot = output.snapshot(false);
-            String command = requiredString(context.getArguments(), "command");
             context.emitUpdate(ToolExecutionResult.builder()
                     .contents(ToolExecutionResult.text(snapshot.content()).getContents())
                     .details(partialDetails(command, snapshot))
@@ -316,7 +317,7 @@ public class BashTool implements Tool {
         ShellOutputCapture.StreamTruncation truncation = stream.truncation();
         if (truncation.lastLinePartial()) {
             int line = truncation.totalLines();
-            notices.add("[Showing last " + TextOutputTruncator.formatSize(truncation.outputBytes())
+            notices.add("[Showing last " + ToolResultLimits.formatSize(truncation.outputBytes())
                     + " of " + streamName + " line " + line
                     + ". Full output: " + stream.fullOutputPath() + "]");
             return;
@@ -327,7 +328,7 @@ public class BashTool implements Tool {
                 + ". Full output: " + stream.fullOutputPath() + "]");
     }
 
-    private int optionalPositiveNumber(Map<String, Object> arguments, String name, int defaultValue) {
+    private static int optionalPositiveNumber(Map<String, Object> arguments, String name, int defaultValue) {
         Object value = arguments.get(name);
         if (value == null) {
             return defaultValue;
@@ -348,12 +349,21 @@ public class BashTool implements Tool {
         return parsed;
     }
 
-    private String requiredString(Map<String, Object> arguments, String name) {
+    private static String requiredString(Map<String, Object> arguments, String name) {
         Object value = arguments.get(name);
         if (!(value instanceof String stringValue) || stringValue.isBlank()) {
             throw new IllegalArgumentException(name + " must be a non-blank string");
         }
         return stringValue;
+    }
+
+    private record Args(String command, int timeoutSeconds) {
+        static Args from(Map<String, Object> arguments) {
+            return new Args(
+                    requiredString(arguments, "command"),
+                    optionalPositiveNumber(arguments, "timeout", DEFAULT_TIMEOUT_SECONDS)
+            );
+        }
     }
 
     public static boolean isAvailable() {

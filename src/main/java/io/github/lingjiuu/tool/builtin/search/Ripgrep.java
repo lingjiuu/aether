@@ -1,6 +1,7 @@
-package io.github.lingjiuu.tool.builtin;
+package io.github.lingjiuu.tool.builtin.search;
 
 import io.github.lingjiuu.infra.config.AetherPaths;
+import io.github.lingjiuu.tool.builtin.ExecutableFinder;
 
 import java.io.IOException;
 import java.io.InputStream;
