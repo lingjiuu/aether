@@ -55,9 +55,9 @@ public class ReadTool implements Tool {
         return Map.of(
                 "type", "object",
                 "properties", Map.of(
-                        "file_path", Map.of("type", "string", "description", "File path to read."),
-                        "offset", Map.of("type", "integer", "minimum", 1, "description", "Line number to start reading from, 1-indexed."),
-                        "limit", Map.of("type", "integer", "minimum", 1, "description", "Maximum number of lines to read.")
+                        "file_path", Map.of("type", "string", "description", "The absolute path to the file to read."),
+                        "offset", Map.of("type", "integer", "minimum", 1, "description", "The line number to start reading from. Only provide if the file is too large to read at once."),
+                        "limit", Map.of("type", "integer", "minimum", 1, "description", "The number of lines to read. Only provide if the file is too large to read at once.")
                 ),
                 "required", List.of("file_path"),
                 "additionalProperties", false

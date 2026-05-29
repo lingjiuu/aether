@@ -50,9 +50,18 @@ public class GrepTool implements Tool {
 
     @Override
     public String description() {
-        return "Fast content search tool based on ripgrep. Defaults to returning files that contain matches. "
-                + "Use output_mode=content when matching lines are needed, or output_mode=count for per-file counts. "
-                + "Supports Claude-style filters like glob, type, -i, -n, -A, -B, -C, context, head_limit, offset, and multiline.";
+        return """
+                A powerful search tool built on ripgrep
+                
+                  Usage:
+                  - ALWAYS use Grep for search tasks. NEVER invoke `grep` or `rg` as a Bash command. The Grep tool has been optimized for correct permissions and access.
+                  - Supports full regex syntax (e.g., "log.*Error", "function\\\\s+\\\\w+")
+                  - Filter files with glob parameter (e.g., "*.js", "**/*.tsx") or type parameter (e.g., "js", "py", "rust")
+                  - Output modes: "content" shows matching lines, "files_with_matches" shows only file paths (default), "count" shows match counts
+                  - Use Agent tool for open-ended searches requiring multiple rounds
+                  - Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use `interface\\\\{\\\\}` to find `interface{}` in Go code)
+                  - Multiline matching: By default patterns match within single lines only. For cross-line patterns like `struct \\\\{[\\\\s\\\\S]*?field`, use `multiline: true`
+                """;
     }
 
     @Override
@@ -77,20 +86,22 @@ public class GrepTool implements Tool {
                                 "enum", List.of(MODE_CONTENT, MODE_FILES_WITH_MATCHES, MODE_COUNT),
                                 "description", "Result mode: files_with_matches (default), content, or count."
                         )),
-                        Map.entry("-B", Map.of("type", "integer", "minimum", 0, "description", "Lines before each match.")),
-                        Map.entry("-A", Map.of("type", "integer", "minimum", 0, "description", "Lines after each match.")),
-                        Map.entry("-C", Map.of("type", "integer", "minimum", 0, "description", "Lines before and after each match.")),
-                        Map.entry("context", Map.of("type", "integer", "minimum", 0, "description", "Lines before and after each match.")),
-                        Map.entry("-n", Map.of("type", "boolean", "description", "Show line numbers in content mode.")),
-                        Map.entry("-i", Map.of("type", "boolean", "description", "Case-insensitive search.")),
-                        Map.entry("type", Map.of("type", "string", "description", "ripgrep file type filter, e.g. java, ts, md.")),
+                        Map.entry("-B", Map.of("type", "integer", "minimum", 0, "description", "Number of lines to show before each match (rg -B). Requires output_mode: \"content\", ignored otherwise.")),
+                        Map.entry("-A", Map.of("type", "integer", "minimum", 0, "description", "Number of lines to show after each match (rg -A). Requires output_mode: \"content\", ignored otherwise.")),
+                        Map.entry("-C", Map.of("type", "integer", "minimum", 0, "description", "Alias for context.\n" +
+                                "context: Number of lines to show before and after each match (rg -C). Requires output_mode: \"content\", ignored otherwise.")),
+                        Map.entry("context", Map.of("type", "integer", "minimum", 0, "description", "Number of lines to show before and after each match (rg -C). Requires output_mode: \"content\", ignored otherwise.")),
+                        Map.entry("-n", Map.of("type", "boolean", "description", "Show line numbers in output (rg -n). Requires output_mode: \"content\", ignored otherwise. Defaults to true.")),
+                        Map.entry("-i", Map.of("type", "boolean", "description", "Case insensitive search (rg -i)")),
+                        Map.entry("type", Map.of("type", "string", "description", "File type to search (rg --type). Common types: js, py, rust, go, java, etc. More efficient than include for standard file types.")),
                         Map.entry("head_limit", Map.of(
                                 "type", "integer",
                                 "minimum", 0,
-                                "description", "Maximum results to return after offset. 0 means no limit."
+                                "description", "Limit output to first N lines/entries, equivalent to \"| head -N\". Works across all output modes: content (limits output lines), files_with_matches (limits file paths), count (limits count entries). Defaults to 250 when unspecified. Pass 0 for unlimited (use sparingly — large result sets waste context).\n" +
+                                        "offset: Skip first N lines/entries before applying head_limit, equivalent to \"| tail -n +N | head -N\". Works across all output modes. Defaults to 0."
                         )),
                         Map.entry("offset", Map.of("type", "integer", "minimum", 0, "description", "Number of results to skip.")),
-                        Map.entry("multiline", Map.of("type", "boolean", "description", "Allow matches to span multiple lines."))
+                        Map.entry("multiline", Map.of("type", "boolean", "description", "Enable multiline mode where . matches newlines and patterns can span lines (rg -U --multiline-dotall). Default: false."))
                 ),
                 "required", List.of("pattern"),
                 "additionalProperties", false

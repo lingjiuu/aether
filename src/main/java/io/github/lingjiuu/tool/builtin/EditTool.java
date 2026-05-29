@@ -38,9 +38,17 @@ public class EditTool implements Tool {
 
     @Override
     public String description() {
-        return "Edit one text file using an exact string replacement. "
-                + "The file must be read first unless old_string is empty for creating an empty or missing file. "
-                + "old_string must be unique unless replace_all is true.";
+        return """
+                Performs exact string replacements in files.
+                
+                Usage:
+                - You must use your `Read` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
+                - When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: 'line number + tab'. Everything after that is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
+                - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
+                - Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.
+                - The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`.
+                - Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.
+                """;
     }
 
     @Override
@@ -48,10 +56,10 @@ public class EditTool implements Tool {
         return Map.of(
                 "type", "object",
                 "properties", Map.of(
-                        "file_path", Map.of("type", "string", "description", "File path to edit."),
-                        "old_string", Map.of("type", "string", "description", "Exact text to replace."),
-                        "new_string", Map.of("type", "string", "description", "Replacement text. Must differ from old_string."),
-                        "replace_all", Map.of("type", "boolean", "description", "Replace all occurrences of old_string. Defaults to false.")
+                        "file_path", Map.of("type", "string", "description", "The absolute path to the file to modify."),
+                        "old_string", Map.of("type", "string", "description", "The text to replace."),
+                        "new_string", Map.of("type", "string", "description", "The text to replace it with (must be different from old_string)."),
+                        "replace_all", Map.of("type", "boolean", "description", "Replace all occurrences of old_string (default false)")
                 ),
                 "required", List.of("file_path", "old_string", "new_string"),
                 "additionalProperties", false

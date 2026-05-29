@@ -62,7 +62,7 @@ public class InstructionsManagerTest extends TestCase {
 
         InstructionsManager instructions = new InstructionsManager(cwd, agentDir);
 
-        assertEquals(BaseInstructions.DEFAULT, instructions.baseInstructions());
+        assertEquals(BaseInstructions.getDefault(), instructions.baseInstructions());
         assertEquals("", instructions.developerInstructions());
     }
 

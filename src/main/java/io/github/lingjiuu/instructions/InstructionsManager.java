@@ -34,7 +34,7 @@ public class InstructionsManager {
     public String baseInstructions() {
         String configured = readInstructionFile("SYSTEM.md");
         return configured == null || configured.isBlank()
-                ? BaseInstructions.DEFAULT
+                ? BaseInstructions.getDefault()
                 : configured.trim();
     }
 
