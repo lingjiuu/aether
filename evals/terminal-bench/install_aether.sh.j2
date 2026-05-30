@@ -1,40 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if command -v apt-get >/dev/null 2>&1; then
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    git \
-    gzip \
-    maven \
-    nodejs \
-    tar
-  DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-21-jdk || true
+bundle="${AETHER_EVAL_BUNDLE:-/opt/aether-eval-bundle}"
+if [[ ! -x "${bundle}/bin/aether-eval" ]]; then
+  echo "Aether eval bundle is required at ${bundle}/bin/aether-eval." >&2
+  echo "Build it with evals/build-aether-eval-bundle.sh and mount it into the task container." >&2
+  exit 1
 fi
 
-java_major="$(java -XshowSettings:properties -version 2>&1 | awk -F= '/java.specification.version/ {gsub(/ /, "", $2); print $2; exit}' || true)"
-if [[ -z "${java_major}" || "${java_major}" -lt 21 ]]; then
-  arch="$(uname -m)"
-  case "${arch}" in
-    x86_64|amd64) adoptium_arch="x64" ;;
-    aarch64|arm64) adoptium_arch="aarch64" ;;
-    *) echo "Unsupported architecture for JDK 21: ${arch}" >&2; exit 1 ;;
-  esac
-  curl -fsSL "https://api.adoptium.net/v3/binary/latest/21/ga/linux/${adoptium_arch}/jdk/hotspot/normal/eclipse" -o /tmp/jdk21.tar.gz
-  rm -rf /opt/jdk-21
-  mkdir -p /opt/jdk-21
-  tar -xzf /tmp/jdk21.tar.gz -C /opt/jdk-21 --strip-components=1
-  ln -sf /opt/jdk-21/bin/java /usr/local/bin/java
-  ln -sf /opt/jdk-21/bin/javac /usr/local/bin/javac
-  ln -sf /opt/jdk-21/bin/jar /usr/local/bin/jar
-fi
-
-if [[ -n "${AETHER_REPO_URL:-}" && ! -d /opt/aether/.git ]]; then
-  rm -rf /opt/aether
-  git clone --depth 1 "${AETHER_REPO_URL}" /opt/aether
-  chmod -R a+rwX /opt/aether
-fi
-
+"${bundle}/bin/aether-eval" --help >/dev/null
 mkdir -p /logs/artifacts /tmp/aether-home

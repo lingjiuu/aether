@@ -3,44 +3,93 @@
 This directory contains evaluation harness code that is intentionally separate from
 the terminal frontend.
 
-## Shared runner
+## Java eval runner
 
-`evals/runner/runAetherTask.mjs` is a small Node.js headless runner. It starts the
-Aether backend over stdio JSON-RPC, sets sandbox-friendly permissions, submits one
-instruction, waits for the session to become idle, and writes a JSON summary.
+`src/main/java/io/github/lingjiuu/eval/EvalRunner.java` is the preferred
+headless runner for evaluations. It runs Aether in-process through `UiRuntime`,
+sets sandbox-friendly permissions, submits one instruction, waits for the
+session to become idle, writes a JSON summary, and copies the isolated
+`~/.aether` directory so logs, traces, transcripts, and tool artifacts are
+collected by the harness.
 
-Default backend command:
-
-```sh
-mvn -q compile exec:java -Dexec.mainClass=io.github.lingjiuu.App -Dexec.args=--stdio
-```
-
-For a future GraalVM binary, set:
+Create the local eval config before building:
 
 ```sh
-AETHER_BIN=/path/to/aether node evals/runner/runAetherTask.mjs --instruction "..."
+cp evals/aether-eval.example.toml evals/aether-eval.toml
 ```
 
-Useful environment variables:
+`evals/aether-eval.toml` is gitignored because it may contain a real API key.
+The committed example has the same shape:
 
-- `AETHER_BIN`: native Aether binary to run with `--stdio`.
-- `AETHER_BACKEND_COMMAND` / `AETHER_BACKEND_ARGS`: custom backend command.
-- `AETHER_BACKEND_CWD`: backend working directory.
-- `AETHER_SESSION_CWD`: task workspace.
-- `AETHER_EVAL_HOME`: isolated Aether home for config, logs, traces, and transcripts.
-- `AETHER_EVAL_ARTIFACT_DIR`: directory for eval summary and copied Aether state.
-- `AETHER_EVAL_TIMEOUT_SECONDS`: max runtime for one instruction.
-- `AETHER_CONFIG_TOML`: full Aether config content to write into the isolated home.
-- `OPENAI_API_KEY`: used to generate a minimal OpenAI-compatible config when
-  `AETHER_CONFIG_TOML` is not set.
-- `AETHER_EVAL_MODEL_ID`: model for the generated config, defaulting to `gpt-5.5`.
-- `AETHER_EVAL_DEFAULT_THINKING_LEVEL`: optional generated config reasoning effort.
+```toml
+# Tips: Only for OpenAI Responses API.
+base_url = "https://api.openai.com/v1"
+model = "gpt-5.5"
+thinking_level = "xhigh"
+auto_compact_token_limit = 115200
+api_key = "sk-xxxxxx"
+```
+
+Build the container-friendly bundle:
+
+```sh
+evals/build-aether-eval-bundle.sh
+```
+
+Or build and run Terminal-Bench in one command:
+
+```sh
+evals/run-terminal-bench.sh --n-tasks 1 --n-concurrent 1
+```
+
+The script installs `harbor` with `uv` if needed, starts OrbStack/Docker when
+Docker is not ready, validates `evals/aether-eval.toml`, builds the bundle, and
+runs Harbor. `--n-tasks 1` is optional; it limits the run to one task for a
+quick smoke test. Omit it to run the selected dataset/tasks without that limit.
+
+The output is ignored by git and lives at:
+
+```text
+evals/.bundle/aether-eval
+```
+
+It contains compiled Maven classes/resources, runtime dependency jars, the copied
+`evals/aether-eval.toml`, a shell wrapper, and downloaded Linux Temurin JRE 21
+runtimes. For faster local checks, skip JRE downloads:
+
+```sh
+evals/build-aether-eval-bundle.sh --jre-arch none
+```
 
 Example:
 
 ```sh
-node evals/runner/runAetherTask.mjs \
+evals/.bundle/aether-eval/bin/aether-eval \
   --instruction "Create hello.txt containing hello" \
   --session-cwd "$PWD" \
   --timeout-seconds 120
 ```
+
+Useful environment variables:
+
+- `AETHER_SESSION_CWD`: task workspace.
+- `AETHER_EVAL_HOME`: isolated Aether home for config, logs, traces, and transcripts.
+- `AETHER_EVAL_ARTIFACT_DIR`: directory for eval summary and copied Aether state.
+- `AETHER_EVAL_TIMEOUT_SECONDS`: max runtime for one instruction.
+- `AETHER_EVAL_CONFIG`: optional override path for the small eval config.
+- `OPENAI_API_KEY`: needed only when `api_key = "$OPENAI_API_KEY"`.
+
+Terminal-Bench evals require this bundle. There is no Node/Maven fallback inside
+task containers.
+
+## Output directory
+
+Keep host-side benchmark output under:
+
+```text
+evals/results/terminal-bench
+```
+
+That directory is gitignored. Each run should put its task/trial artifacts there,
+including the collected `aether-eval-summary.json` and `aether-home/` trace
+bundle from `/logs/artifacts` inside the task container.
