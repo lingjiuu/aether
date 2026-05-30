@@ -5,6 +5,7 @@ import io.github.lingjiuu.tool.ToolCallResult;
 import io.github.lingjiuu.tool.ToolFailure;
 import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.ToolUseContext;
+import io.github.lingjiuu.tool.builtin.diff.StructuredDiff;
 import io.github.lingjiuu.tool.file.ReadFileState;
 import io.github.lingjiuu.tool.result.ModelToolResult;
 import io.github.lingjiuu.tool.result.ToolDisplayResult;
@@ -53,20 +54,47 @@ public class WriteTool implements Tool<WriteTool.Input, WriteTool.Output> {
                 - If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first.
                 - Prefer the Edit tool for modifying existing files — it only sends the diff. Only use this tool to create new files or for complete rewrites.
                 - NEVER create documentation files (*.md) or README files unless explicitly requested by the User.
-                - Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.
+                - Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.\
                 """;
     }
 
     @Override
-    public Map<String, Object> parametersSchema() {
+    public Map<String, Object> inputSchema() {
         return Map.of(
                 "type", "object",
                 "properties", Map.of(
-                        "file_path", Map.of("type", "string", "description", "The absolute path to the file to write (must be absolute, not relative)."),
-                        "content", Map.of("type", "string", "description", "The content to write to the file.")
+                        "file_path", Map.of("type", "string", "description", "The absolute path to the file to write (must be absolute, not relative)"),
+                        "content", Map.of("type", "string", "description", "The content to write to the file")
                 ),
                 "required", List.of("file_path", "content"),
                 "additionalProperties", false
+        );
+    }
+
+    @Override
+    public Map<String, Object> outputSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "type", Map.of(
+                                "type", "string",
+                                "enum", List.of("create", "update"),
+                                "description", "Whether a new file was created or an existing file was updated"
+                        ),
+                        "filePath", Map.of("type", "string", "description", "The path to the file that was written"),
+                        "content", Map.of("type", "string", "description", "The content that was written to the file"),
+                        "structuredPatch", Map.of(
+                                "type", "array",
+                                "items", StructuredDiff.hunkSchema(),
+                                "description", "Diff patch showing the changes"
+                        ),
+                        "originalFile", Map.of(
+                                "type", List.of("string", "null"),
+                                "description", "The original file content before the write (null for new files)"
+                        ),
+                        "gitDiff", StructuredDiff.gitDiffSchema()
+                ),
+                "required", List.of("type", "filePath", "content", "structuredPatch", "originalFile")
         );
     }
 
@@ -82,7 +110,7 @@ public class WriteTool implements Tool<WriteTool.Input, WriteTool.Output> {
 
     @Override
     public Input parseInput(String argumentsJson) {
-        return Input.from(validateArguments(argumentsJson));
+        return Input.from(validateInputJson(argumentsJson));
     }
 
     @Override
@@ -97,8 +125,9 @@ public class WriteTool implements Tool<WriteTool.Input, WriteTool.Output> {
             Path resolvedPath = accessPolicy.resolveWritablePath(input.filePath());
 
             boolean existedBefore = Files.exists(resolvedPath);
+            String originalFile = null;
             if (existedBefore) {
-                ensureExistingFileCanBeWritten(context.readFileState(), input.filePath(), resolvedPath);
+                originalFile = ensureExistingFileCanBeWritten(context.readFileState(), input.filePath(), resolvedPath);
             }
             Path parent = resolvedPath.getParent();
             if (parent != null) {
@@ -109,25 +138,13 @@ public class WriteTool implements Tool<WriteTool.Input, WriteTool.Output> {
             recordWrite(context.readFileState(), resolvedPath, input.content());
             context.throwIfCancellationRequested();
 
-            int bytes = input.content().getBytes(StandardCharsets.UTF_8).length;
-            Map<String, Object> details = new LinkedHashMap<>();
-            details.put("kind", "write");
-            details.put("path", input.filePath());
-            details.put("resolvedPath", resolvedPath.toString());
-            details.put("operation", existedBefore ? "update" : "create");
-            details.put("chars", input.content().length());
-            details.put("bytes", bytes);
-            details.put("lineCount", lineCount(input.content()));
-            details.put("existedBefore", existedBefore);
-            details.put("firstLine", firstLine(input.content()));
             return ToolCallResult.success(new Output(
+                    existedBefore ? "update" : "create",
                     input.filePath(),
-                    resolvedPath.toString(),
-                    existedBefore,
-                    input.content().length(),
-                    bytes,
-                    lineCount(input.content()),
-                    details
+                    input.content(),
+                    existedBefore ? StructuredDiff.patch(originalFile, input.content()) : List.of(),
+                    originalFile,
+                    null
             ));
         } catch (Exception e) {
             if (READ_REQUIRED_MESSAGE.equals(e.getMessage())) {
@@ -139,7 +156,7 @@ public class WriteTool implements Tool<WriteTool.Input, WriteTool.Output> {
 
     @Override
     public ModelToolResult toModelResult(Output output, ToolResultContext<Input, Output> context) {
-        if (output.existedBefore()) {
+        if ("update".equals(output.type())) {
             return ModelToolResult.text("The file " + output.filePath() + " has been updated successfully.");
         }
         return ModelToolResult.text("File created successfully at: " + output.filePath());
@@ -147,15 +164,17 @@ public class WriteTool implements Tool<WriteTool.Input, WriteTool.Output> {
 
     @Override
     public ToolDisplayResult toDisplayResult(Output output, ToolResultContext<Input, Output> context) {
-        return ToolDisplayResult.of("write", output.details());
-    }
-
-    private static String requiredNonBlankString(Map<String, Object> arguments, String name) {
-        String value = requiredString(arguments, name);
-        if (value.isBlank()) {
-            throw new IllegalArgumentException(name + " must be a non-blank string");
-        }
-        return value;
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("kind", "write");
+        details.put("path", output.filePath());
+        details.put("operation", output.type());
+        details.put("chars", output.content().length());
+        details.put("bytes", output.content().getBytes(StandardCharsets.UTF_8).length);
+        details.put("lineCount", lineCount(output.content()));
+        details.put("existedBefore", "update".equals(output.type()));
+        details.put("firstLine", firstLine(output.content()));
+        details.put("structuredPatch", output.structuredPatch());
+        return ToolDisplayResult.of("write", details);
     }
 
     private static String requiredString(Map<String, Object> arguments, String name) {
@@ -166,7 +185,7 @@ public class WriteTool implements Tool<WriteTool.Input, WriteTool.Output> {
         return stringValue;
     }
 
-    private void ensureExistingFileCanBeWritten(
+    private String ensureExistingFileCanBeWritten(
             ReadFileState readFileState,
             String requestedPath,
             Path resolvedPath
@@ -186,6 +205,7 @@ public class WriteTool implements Tool<WriteTool.Input, WriteTool.Output> {
         if (!snapshot.matchesCurrent(currentContent, Files.getLastModifiedTime(resolvedPath))) {
             throw new IllegalStateException("File has been modified since read. Read it again before writing to it.");
         }
+        return currentContent;
     }
 
     private void recordWrite(ReadFileState readFileState, Path resolvedPath, String content) throws IOException {
@@ -220,20 +240,19 @@ public class WriteTool implements Tool<WriteTool.Input, WriteTool.Output> {
     public record Input(String filePath, String content) {
         static Input from(Map<String, Object> arguments) {
             return new Input(
-                    requiredNonBlankString(arguments, "file_path"),
+                    requiredString(arguments, "file_path"),
                     requiredString(arguments, "content")
             );
         }
     }
 
     public record Output(
+            String type,
             String filePath,
-            String resolvedPath,
-            boolean existedBefore,
-            int chars,
-            int bytes,
-            int lineCount,
-            Map<String, Object> details
+            String content,
+            List<StructuredDiff.Hunk> structuredPatch,
+            String originalFile,
+            Map<String, Object> gitDiff
     ) {
     }
 }

@@ -562,7 +562,7 @@ public final class UiEvents {
         if (arguments instanceof JsonNode node && node.isObject()) {
             return switch (toolName == null ? "" : toolName) {
                 case "Bash", "bash", "powershell" -> jsonText(node, "command");
-                case "read", "Write", "write", "edit" -> jsonText(node, "file_path");
+                case "Read", "read", "Write", "write", "Edit", "edit" -> jsonText(node, "file_path");
                 case "Glob", "glob" -> joinSummary(
                         jsonText(node, "pattern"),
                         prefixed("in ", jsonText(node, "path"))
@@ -580,7 +580,7 @@ public final class UiEvents {
         }
         return switch (toolName == null ? "" : toolName) {
             case "Bash", "bash", "powershell" -> stringValue(map.get("command"));
-            case "read", "Write", "write", "edit" -> stringValue(map.get("file_path"));
+            case "Read", "read", "Write", "write", "Edit", "edit" -> stringValue(map.get("file_path"));
             case "Glob", "glob" -> joinSummary(
                     stringValue(map.get("pattern")),
                     prefixed("in ", stringValue(map.get("path")))

@@ -64,7 +64,7 @@ public class GlobToolTest extends TestCase {
 
         IllegalArgumentException error = null;
         try {
-            tool.validateArguments("{\"pattern\":\"*.md\",\"limit\":10}");
+            tool.validateInputJson("{\"pattern\":\"*.md\",\"limit\":10}");
         } catch (IllegalArgumentException e) {
             error = e;
         }

@@ -1,5 +1,6 @@
 package io.github.lingjiuu.tool;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -13,11 +14,16 @@ public record ToolSpec(
         String name,
         String label,
         String description,
-        Map<String, Object> parametersSchema,
+        Map<String, Object> inputSchema,
+        Map<String, Object> outputSchema,
         ToolRiskLevel riskLevel
 ) {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+            .findAndRegisterModules()
+            .setSerializationInclusion(JsonInclude.Include.ALWAYS);
+    private static final SchemaValidationContext INPUT_CONTEXT = new SchemaValidationContext("tool argument");
+    private static final SchemaValidationContext OUTPUT_CONTEXT = new SchemaValidationContext("tool output field");
 
     public ToolSpec {
         if (name == null || name.isBlank()) {
@@ -25,7 +31,8 @@ public record ToolSpec(
         }
         label = label == null || label.isBlank() ? name : label;
         description = description == null ? "" : description;
-        parametersSchema = parametersSchema == null ? Map.of() : Map.copyOf(parametersSchema);
+        inputSchema = inputSchema == null ? Map.of() : Map.copyOf(inputSchema);
+        outputSchema = outputSchema == null ? Map.of() : Map.copyOf(outputSchema);
         riskLevel = riskLevel == null ? ToolRiskLevel.UNKNOWN : riskLevel;
     }
 
@@ -33,38 +40,40 @@ public record ToolSpec(
             String name,
             String label,
             String description,
-            Map<String, Object> parametersSchema,
+            Map<String, Object> inputSchema,
+            Map<String, Object> outputSchema,
             ToolRiskLevel riskLevel
     ) {
         return new ToolSpec(
                 name,
                 label,
                 description,
-                parametersSchema,
+                inputSchema,
+                outputSchema,
                 riskLevel
         );
     }
 
-    public Map<String, Object> validateArguments(String argumentsJson) {
-        return validateArguments(argumentsJson, null);
+    public Map<String, Object> validateInputJson(String argumentsJson) {
+        return validateInputJson(argumentsJson, null);
     }
 
-    public Map<String, Object> validateArguments(String argumentsJson, ToolArgumentPreparer preparer) {
+    public Map<String, Object> validateInputJson(String argumentsJson, ToolInputPreparer preparer) {
         try {
             String json = argumentsJson == null || argumentsJson.isBlank() ? "{}" : argumentsJson;
             JsonNode argumentsNode = OBJECT_MAPPER.readTree(json);
             Object rawArguments = OBJECT_MAPPER.convertValue(argumentsNode, Object.class);
-            Object preparedArguments = preparer == null ? rawArguments : preparer.prepareArguments(rawArguments);
+            Object preparedArguments = preparer == null ? rawArguments : preparer.prepareInput(rawArguments);
             JsonNode preparedNode = OBJECT_MAPPER.valueToTree(preparedArguments);
             if (preparedNode == null || !preparedNode.isObject()) {
                 throw new IllegalArgumentException("Tool arguments must be a JSON object");
             }
 
-            JsonNode parametersNode = parametersSchema.isEmpty()
+            JsonNode schemaNode = inputSchema.isEmpty()
                     ? null
-                    : OBJECT_MAPPER.valueToTree(parametersSchema);
-            if (parametersNode != null) {
-                validateNode(preparedNode, parametersNode, "");
+                    : OBJECT_MAPPER.valueToTree(inputSchema);
+            if (schemaNode != null) {
+                validateNode(preparedNode, schemaNode, "", INPUT_CONTEXT);
             }
 
             return OBJECT_MAPPER.convertValue(preparedNode, new TypeReference<>() {
@@ -78,26 +87,88 @@ public record ToolSpec(
         }
     }
 
-    private static void validateNode(JsonNode value, JsonNode schema, String path) {
+    public void validateOutput(Object output) {
+        if (outputSchema.isEmpty()) {
+            return;
+        }
+        JsonNode outputNode = OBJECT_MAPPER.valueToTree(output);
+        JsonNode schemaNode = OBJECT_MAPPER.valueToTree(outputSchema);
+        validateNode(outputNode, schemaNode, "", OUTPUT_CONTEXT);
+    }
+
+    private static void validateNode(JsonNode value, JsonNode schema, String path, SchemaValidationContext context) {
         if (schema == null || schema.isMissingNode() || schema.isNull()) {
             return;
         }
 
+        if (schema.has("oneOf")) {
+            validateOneOf(value, schema.get("oneOf"), path, context);
+            return;
+        }
+        if (schema.has("anyOf")) {
+            validateAnyOf(value, schema.get("anyOf"), path, context);
+            return;
+        }
+        validateConst(value, schema, path);
         validateType(value, schema, path);
         validateEnum(value, schema, path);
 
         String type = primaryType(schema);
         if ("object".equals(type) || value.isObject() && schema.has("properties")) {
-            validateObject(value, schema, path);
+            validateObject(value, schema, path, context);
         }
         if ("array".equals(type) || value.isArray() && schema.has("items")) {
-            validateArray(value, schema, path);
+            validateArray(value, schema, path, context);
         }
         if (value.isNumber()) {
             validateNumber(value, schema, path);
         }
         if (value.isTextual()) {
             validateString(value, schema, path);
+        }
+    }
+
+    private static void validateOneOf(JsonNode value, JsonNode schemas, String path, SchemaValidationContext context) {
+        if (schemas == null || !schemas.isArray()) {
+            return;
+        }
+        int matches = 0;
+        IllegalArgumentException lastError = null;
+        for (JsonNode candidate : schemas) {
+            try {
+                validateNode(value, candidate, path, context);
+                matches++;
+            } catch (IllegalArgumentException e) {
+                lastError = e;
+            }
+        }
+        if (matches != 1) {
+            String detail = matches == 0 && lastError != null ? ": " + lastError.getMessage() : "";
+            throw new IllegalArgumentException(field(path) + " must match exactly one schema" + detail);
+        }
+    }
+
+    private static void validateAnyOf(JsonNode value, JsonNode schemas, String path, SchemaValidationContext context) {
+        if (schemas == null || !schemas.isArray()) {
+            return;
+        }
+        IllegalArgumentException lastError = null;
+        for (JsonNode candidate : schemas) {
+            try {
+                validateNode(value, candidate, path, context);
+                return;
+            } catch (IllegalArgumentException e) {
+                lastError = e;
+            }
+        }
+        String detail = lastError == null ? "" : ": " + lastError.getMessage();
+        throw new IllegalArgumentException(field(path) + " must match at least one schema" + detail);
+    }
+
+    private static void validateConst(JsonNode value, JsonNode schema, String path) {
+        JsonNode constNode = schema.get("const");
+        if (constNode != null && !constNode.equals(value)) {
+            throw new IllegalArgumentException(field(path) + " must be " + constNode);
         }
     }
 
@@ -138,7 +209,7 @@ public record ToolSpec(
         };
     }
 
-    private static void validateObject(JsonNode value, JsonNode schema, String path) {
+    private static void validateObject(JsonNode value, JsonNode schema, String path, SchemaValidationContext context) {
         if (!value.isObject()) {
             return;
         }
@@ -149,8 +220,8 @@ public record ToolSpec(
             });
             for (String field : requiredFields) {
                 JsonNode child = value.get(field);
-                if (child == null || child.isNull()) {
-                    throw new IllegalArgumentException("Missing required tool argument: " + childPath(path, field));
+                if (child == null) {
+                    throw new IllegalArgumentException("Missing required " + context.fieldLabel() + ": " + childPath(path, field));
                 }
             }
         }
@@ -163,20 +234,35 @@ public record ToolSpec(
             JsonNode child = value.get(field);
             JsonNode propertySchema = propertiesNode == null ? null : propertiesNode.get(field);
             if (propertySchema != null) {
-                validateNode(child, propertySchema, childPath(path, field));
+                if (child != null && child.isNull() && (requiredNode == null || !containsRequiredField(requiredNode, field))) {
+                    continue;
+                }
+                validateNode(child, propertySchema, childPath(path, field), context);
                 continue;
             }
             if (additionalPropertiesNode != null && additionalPropertiesNode.isBoolean()
                     && !additionalPropertiesNode.asBoolean()) {
-                throw new IllegalArgumentException("Unknown tool argument: " + childPath(path, field));
+                throw new IllegalArgumentException("Unknown " + context.fieldLabel() + ": " + childPath(path, field));
             }
             if (additionalPropertiesNode != null && additionalPropertiesNode.isObject()) {
-                validateNode(child, additionalPropertiesNode, childPath(path, field));
+                validateNode(child, additionalPropertiesNode, childPath(path, field), context);
             }
         }
     }
 
-    private static void validateArray(JsonNode value, JsonNode schema, String path) {
+    private static boolean containsRequiredField(JsonNode requiredNode, String field) {
+        if (requiredNode == null || !requiredNode.isArray()) {
+            return false;
+        }
+        for (JsonNode item : requiredNode) {
+            if (item.isTextual() && field.equals(item.asText())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void validateArray(JsonNode value, JsonNode schema, String path, SchemaValidationContext context) {
         if (!value.isArray()) {
             return;
         }
@@ -185,7 +271,7 @@ public record ToolSpec(
             return;
         }
         for (int i = 0; i < value.size(); i++) {
-            validateNode(value.get(i), itemsNode, path + "[" + i + "]");
+            validateNode(value.get(i), itemsNode, path + "[" + i + "]", context);
         }
     }
 
@@ -267,7 +353,10 @@ public record ToolSpec(
     }
 
     @FunctionalInterface
-    public interface ToolArgumentPreparer {
-        Object prepareArguments(Object arguments);
+    public interface ToolInputPreparer {
+        Object prepareInput(Object input);
+    }
+
+    private record SchemaValidationContext(String fieldLabel) {
     }
 }

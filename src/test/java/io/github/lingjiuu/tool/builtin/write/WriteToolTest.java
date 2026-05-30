@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.util.List;
 import java.util.Map;
 
 public class WriteToolTest extends TestCase {
@@ -28,7 +29,7 @@ public class WriteToolTest extends TestCase {
                 .arguments(Map.of("file_path", "hello.txt", "content", "a\nb\n"))
                 .build());
 
-        assertFalse(result.isError());
+        assertFalse(toolText(result), result.isError());
         assertTrue(result.getDetails() instanceof Map);
         @SuppressWarnings("unchecked")
         Map<String, Object> details = (Map<String, Object>) result.getDetails();
@@ -44,7 +45,7 @@ public class WriteToolTest extends TestCase {
 
         IllegalArgumentException error = null;
         try {
-            tool.validateArguments("{\"path\":\"hello.txt\",\"content\":\"hi\"}");
+            tool.validateInputJson("{\"path\":\"hello.txt\",\"content\":\"hi\"}");
         } catch (IllegalArgumentException e) {
             error = e;
         }
@@ -52,6 +53,31 @@ public class WriteToolTest extends TestCase {
         assertNotNull(error);
         assertTrue(error.getMessage().contains("Missing required tool argument: file_path")
                 || error.getMessage().contains("Unknown tool argument: path"));
+    }
+
+    public void testWriteOutputSchemaUsesClaudeCodeShape() throws Exception {
+        Path root = Files.createTempDirectory("aether-write-output-schema-test");
+        WriteTool tool = new WriteTool(WorkspaceAccessPolicy.rootedAt(root));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> outputSchema = tool.outputSchema();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> properties = (Map<String, Object>) outputSchema.get("properties");
+
+        assertTrue(properties.containsKey("type"));
+        assertTrue(properties.containsKey("filePath"));
+        assertTrue(properties.containsKey("content"));
+        assertTrue(properties.containsKey("structuredPatch"));
+        assertTrue(properties.containsKey("originalFile"));
+        assertTrue(properties.containsKey("gitDiff"));
+        assertFalse(outputSchema.containsKey("additionalProperties"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> gitDiff = (Map<String, Object>) properties.get("gitDiff");
+        assertEquals("object", gitDiff.get("type"));
+        @SuppressWarnings("unchecked")
+        List<String> required = (List<String>) outputSchema.get("required");
+        assertFalse(required.contains("gitDiff"));
     }
 
     public void testWriteExistingFileRequiresPriorRead() throws Exception {
@@ -192,5 +218,12 @@ public class WriteToolTest extends TestCase {
         assertTrue(result.getContents().getFirst() instanceof TextContent);
         String text = ((TextContent) result.getContents().getFirst()).getText();
         assertEquals(expected, text);
+    }
+
+    private String toolText(ToolExecutionResult result) {
+        if (result.getContents().isEmpty() || !(result.getContents().getFirst() instanceof TextContent textContent)) {
+            return "";
+        }
+        return textContent.getText();
     }
 }

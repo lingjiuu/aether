@@ -96,7 +96,7 @@ public class BashTool implements Tool<BashTool.Input, BashTool.Output> {
     }
 
     @Override
-    public Map<String, Object> parametersSchema() {
+    public Map<String, Object> inputSchema() {
         return Map.of(
                 "type", "object",
                 "properties", Map.of(
@@ -120,7 +120,7 @@ public class BashTool implements Tool<BashTool.Input, BashTool.Output> {
 
     @Override
     public Input parseInput(String argumentsJson) {
-        return Input.from(validateArguments(argumentsJson));
+        return Input.from(validateInputJson(argumentsJson));
     }
 
     @Override

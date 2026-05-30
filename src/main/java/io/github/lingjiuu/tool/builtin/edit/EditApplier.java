@@ -73,54 +73,7 @@ final class EditApplier {
             throw new IllegalArgumentException("No changes made to " + path + ". The replacements produced identical content.");
         }
 
-        int firstChangedLine = lineNumberAtOffset(safeContent, matchIndexes.getFirst());
-        return new AppliedEdit(
-                newContent,
-                matchIndexes.size(),
-                firstChangedLine,
-                repeatedDiff(normalizedOldText, normalizedNewText, matchIndexes.size())
-        );
-    }
-
-    static int lineNumberAtOffset(String text, int index) {
-        if (text == null || index < 0) {
-            return -1;
-        }
-        int line = 1;
-        int end = Math.min(index, text.length());
-        for (int i = 0; i < end; i++) {
-            if (text.charAt(i) == '\n') {
-                line++;
-            }
-        }
-        return line;
-    }
-
-    static String simpleDiff(String oldText, String newText) {
-        return prefixLines("-", oldText) + "\n" + prefixLines("+", newText);
-    }
-
-    private static String repeatedDiff(String oldText, String newText, int count) {
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < count; i++) {
-            if (i > 0) {
-                builder.append('\n');
-            }
-            builder.append(simpleDiff(oldText, newText));
-        }
-        return builder.toString();
-    }
-
-    private static String prefixLines(String prefix, String text) {
-        String[] lines = normalizeLineEndings(text).split("\n", -1);
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < lines.length; i++) {
-            if (i > 0) {
-                builder.append('\n');
-            }
-            builder.append(prefix).append(lines[i]);
-        }
-        return builder.toString();
+        return new AppliedEdit(newContent);
     }
 
     record TextState(boolean hasBom, String lineEnding, String normalizedContent) {
@@ -131,11 +84,6 @@ final class EditApplier {
         }
     }
 
-    record AppliedEdit(
-            String newContent,
-            int replacements,
-            int firstChangedLine,
-            String diff
-    ) {
+    record AppliedEdit(String newContent) {
     }
 }

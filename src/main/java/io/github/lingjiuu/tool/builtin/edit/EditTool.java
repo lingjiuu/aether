@@ -5,6 +5,7 @@ import io.github.lingjiuu.tool.ToolCallResult;
 import io.github.lingjiuu.tool.ToolFailure;
 import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.ToolUseContext;
+import io.github.lingjiuu.tool.builtin.diff.StructuredDiff;
 import io.github.lingjiuu.tool.file.ReadFileState;
 import io.github.lingjiuu.tool.result.ModelToolResult;
 import io.github.lingjiuu.tool.result.ToolDisplayResult;
@@ -16,6 +17,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -32,12 +34,12 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
 
     @Override
     public String name() {
-        return "edit";
+        return "Edit";
     }
 
     @Override
     public String label() {
-        return "edit";
+        return "Edit";
     }
 
     @Override
@@ -47,27 +49,70 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
                 
                 Usage:
                 - You must use your `Read` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
-                - When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: 'line number + tab'. Everything after that is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
+                - When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + tab. Everything after that is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
                 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
                 - Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.
                 - The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`.
-                - Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.
+                - Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.\
                 """;
     }
 
     @Override
-    public Map<String, Object> parametersSchema() {
+    public Map<String, Object> inputSchema() {
         return Map.of(
                 "type", "object",
                 "properties", Map.of(
-                        "file_path", Map.of("type", "string", "description", "The absolute path to the file to modify."),
-                        "old_string", Map.of("type", "string", "description", "The text to replace."),
-                        "new_string", Map.of("type", "string", "description", "The text to replace it with (must be different from old_string)."),
+                        "file_path", Map.of("type", "string", "description", "The absolute path to the file to modify"),
+                        "old_string", Map.of("type", "string", "description", "The text to replace"),
+                        "new_string", Map.of("type", "string", "description", "The text to replace it with (must be different from old_string)"),
                         "replace_all", Map.of("type", "boolean", "description", "Replace all occurrences of old_string (default false)")
                 ),
                 "required", List.of("file_path", "old_string", "new_string"),
                 "additionalProperties", false
         );
+    }
+
+    @Override
+    public Map<String, Object> outputSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "filePath", Map.of("type", "string", "description", "The file path that was edited"),
+                        "oldString", Map.of("type", "string", "description", "The original string that was replaced"),
+                        "newString", Map.of("type", "string", "description", "The new string that replaced it"),
+                        "originalFile", Map.of("type", "string", "description", "The original file contents before editing"),
+                        "structuredPatch", Map.of(
+                                "type", "array",
+                                "items", StructuredDiff.hunkSchema(),
+                                "description", "Diff patch showing the changes"
+                        ),
+                        "userModified", Map.of("type", "boolean", "description", "Whether the user modified the proposed changes"),
+                        "replaceAll", Map.of("type", "boolean", "description", "Whether all occurrences were replaced"),
+                        "gitDiff", StructuredDiff.gitDiffSchema()
+                ),
+                "required", List.of("filePath", "oldString", "newString", "originalFile", "structuredPatch", "userModified", "replaceAll")
+        );
+    }
+
+    @Override
+    public Object prepareInput(Object input) {
+        if (!(input instanceof Map<?, ?> map)) {
+            return input;
+        }
+        Map<String, Object> prepared = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            String key = String.valueOf(entry.getKey());
+            Object value = entry.getValue();
+            if ("replace_all".equals(key) && value instanceof String stringValue) {
+                if ("true".equals(stringValue)) {
+                    value = true;
+                } else if ("false".equals(stringValue)) {
+                    value = false;
+                }
+            }
+            prepared.put(key, value);
+        }
+        return prepared;
     }
 
     @Override
@@ -82,7 +127,7 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
 
     @Override
     public Input parseInput(String argumentsJson) {
-        return Input.from(validateArguments(argumentsJson));
+        return Input.from(validateInputJson(argumentsJson));
     }
 
     @Override
@@ -116,12 +161,25 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
 
     @Override
     public ModelToolResult toModelResult(Output output, ToolResultContext<Input, Output> context) {
-        return ModelToolResult.text(output.text());
+        String modifiedNote = output.userModified()
+                ? ".  The user modified your proposed changes before accepting them. "
+                : "";
+        if (output.replaceAll()) {
+            return ModelToolResult.text("The file " + output.filePath()
+                    + " has been updated" + modifiedNote + ". All occurrences were successfully replaced.");
+        }
+        return ModelToolResult.text("The file " + output.filePath() + " has been updated successfully" + modifiedNote + ".");
     }
 
     @Override
     public ToolDisplayResult toDisplayResult(Output output, ToolResultContext<Input, Output> context) {
-        return ToolDisplayResult.of("edit", output.details());
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("kind", "edit");
+        details.put("path", output.filePath());
+        details.put("replaceAll", output.replaceAll());
+        details.put("structuredPatch", output.structuredPatch());
+        details.put("diffText", StructuredDiff.toDiffText(output.structuredPatch()));
+        return ToolDisplayResult.of("edit", details);
     }
 
     private Output editFile(
@@ -137,7 +195,7 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
             if (!oldString.isEmpty()) {
                 throw new IOException("Path not found: " + requestedPath);
             }
-            return createFile(readFileState, requestedPath, resolvedPath, newString);
+            return createFile(readFileState, requestedPath, resolvedPath, oldString, newString);
         }
         if (!Files.isRegularFile(resolvedPath)) {
             throw new IOException("Not a file: " + requestedPath);
@@ -154,12 +212,11 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
                     requestedPath,
                     resolvedPath,
                     state,
+                    state.normalizedContent(),
+                    oldString,
                     newString,
-                    1,
-                    1,
-                    "create",
-                    false,
-                    EditApplier.simpleDiff("", newString)
+                    newString,
+                    false
             );
         }
 
@@ -177,12 +234,11 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
                 requestedPath,
                 resolvedPath,
                 state,
+                state.normalizedContent(),
+                oldString,
+                newString,
                 applied.newContent(),
-                applied.replacements(),
-                applied.firstChangedLine(),
-                "update",
-                replaceAll,
-                applied.diff()
+                replaceAll
         );
     }
 
@@ -190,6 +246,7 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
             ReadFileState readFileState,
             String requestedPath,
             Path resolvedPath,
+            String oldString,
             String content
     ) throws IOException {
         Path parent = resolvedPath.getParent();
@@ -199,17 +256,14 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
         Files.writeString(resolvedPath, content, StandardCharsets.UTF_8);
         recordFileState(readFileState, resolvedPath, content);
         return new Output(
-                "Created " + requestedPath + ".",
-                Map.of(
-                        "kind", "edit",
-                        "path", requestedPath,
-                        "resolvedPath", resolvedPath.toString(),
-                        "operation", "create",
-                        "editCount", 1,
-                        "firstChangedLine", 1,
-                        "replaceAll", false,
-                        "diffText", EditApplier.simpleDiff("", content)
-                )
+                requestedPath,
+                oldString,
+                content,
+                "",
+                StructuredDiff.patch("", content),
+                false,
+                false,
+                null
         );
     }
 
@@ -218,31 +272,24 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
             String requestedPath,
             Path resolvedPath,
             EditApplier.TextState state,
+            String originalFile,
+            String oldString,
+            String newString,
             String normalizedNewContent,
-            int replacements,
-            int firstChangedLine,
-            String operation,
-            boolean replaceAll,
-            String diffText
+            boolean replaceAll
     ) throws IOException {
         String restored = state.restore(normalizedNewContent);
         Files.writeString(resolvedPath, restored, StandardCharsets.UTF_8);
         recordFileState(readFileState, resolvedPath, restored);
-        String resultText = "create".equals(operation)
-                ? "Created " + requestedPath + "."
-                : "Successfully replaced " + replacements + " block(s) in " + requestedPath + ".";
         return new Output(
-                resultText,
-                Map.of(
-                        "kind", "edit",
-                        "path", requestedPath,
-                        "resolvedPath", resolvedPath.toString(),
-                        "operation", operation,
-                        "editCount", replacements,
-                        "firstChangedLine", firstChangedLine,
-                        "replaceAll", replaceAll,
-                        "diffText", diffText
-                )
+                requestedPath,
+                oldString,
+                newString,
+                originalFile,
+                StructuredDiff.patch(originalFile, normalizedNewContent),
+                false,
+                replaceAll,
+                null
         );
     }
 
@@ -269,14 +316,6 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
         }
     }
 
-    private static String requiredNonBlankString(Map<String, Object> arguments, String name) {
-        String value = requiredString(arguments, name);
-        if (value.isBlank()) {
-            throw new IllegalArgumentException(name + " must be a non-blank string");
-        }
-        return value;
-    }
-
     private static String requiredString(Map<String, Object> arguments, String name) {
         Object value = arguments.get(name);
         if (!(value instanceof String stringValue)) {
@@ -299,7 +338,7 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
     public record Input(String filePath, String oldString, String newString, boolean replaceAll) {
         static Input from(Map<String, Object> arguments) {
             return new Input(
-                    requiredNonBlankString(arguments, "file_path"),
+                    requiredString(arguments, "file_path"),
                     requiredString(arguments, "old_string"),
                     requiredString(arguments, "new_string"),
                     optionalBoolean(arguments, "replace_all", false)
@@ -307,6 +346,15 @@ public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
         }
     }
 
-    public record Output(String text, Map<String, Object> details) {
+    public record Output(
+            String filePath,
+            String oldString,
+            String newString,
+            String originalFile,
+            List<StructuredDiff.Hunk> structuredPatch,
+            boolean userModified,
+            boolean replaceAll,
+            Map<String, Object> gitDiff
+    ) {
     }
 }

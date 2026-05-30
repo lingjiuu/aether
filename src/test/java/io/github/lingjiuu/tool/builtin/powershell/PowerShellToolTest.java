@@ -18,7 +18,7 @@ public class PowerShellToolTest extends TestCase {
 
         IllegalArgumentException error = null;
         try {
-            tool.validateArguments("{\"command\":\"Get-ChildItem\",\"shell\":\"cmd\"}");
+            tool.validateInputJson("{\"command\":\"Get-ChildItem\",\"shell\":\"cmd\"}");
         } catch (IllegalArgumentException e) {
             error = e;
         }

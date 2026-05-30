@@ -212,7 +212,7 @@ public class ToolCancellationClosureTest extends TestCase {
         }
 
         @Override
-        public Map<String, Object> parametersSchema() {
+        public Map<String, Object> inputSchema() {
             return Map.of(
                     "type", "object",
                     "properties", Map.of()

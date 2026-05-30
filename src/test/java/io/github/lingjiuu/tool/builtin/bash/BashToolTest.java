@@ -74,10 +74,10 @@ public class BashToolTest extends TestCase {
 
         assertEquals("Bash", tool.name());
         assertEquals("Bash", tool.label());
-        assertTrue(String.valueOf(tool.parametersSchema()).contains("maximum=600000"));
+        assertTrue(String.valueOf(tool.inputSchema()).contains("maximum=600000"));
 
         try {
-            tool.validateArguments("{\"command\":\"true\",\"timeout\":600001}");
+            tool.validateInputJson("{\"command\":\"true\",\"timeout\":600001}");
             fail("Expected timeout above max to fail validation");
         } catch (IllegalArgumentException e) {
             assertTrue(e.getMessage().contains("timeout"));

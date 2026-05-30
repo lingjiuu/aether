@@ -32,6 +32,11 @@ public final class ToolTestSupport {
         if (callResult.hasFailure()) {
             return ToolExecutionResult.errorText(callResult.failure().message());
         }
+        try {
+            tool.validateOutput(callResult.output());
+        } catch (IllegalArgumentException e) {
+            return ToolExecutionResult.errorText("Tool output did not match outputSchema: " + e.getMessage());
+        }
         ToolResultContext<I, O> resultContext = new ToolResultContext<>(
                 context.getToolCall(),
                 input,

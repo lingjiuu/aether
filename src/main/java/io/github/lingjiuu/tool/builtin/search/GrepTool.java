@@ -70,7 +70,7 @@ public class GrepTool implements Tool<GrepTool.Input, GrepTool.Output> {
     }
 
     @Override
-    public Map<String, Object> parametersSchema() {
+    public Map<String, Object> inputSchema() {
         return Map.of(
                 "type", "object",
                 "properties", Map.ofEntries(
@@ -116,7 +116,7 @@ public class GrepTool implements Tool<GrepTool.Input, GrepTool.Output> {
     }
 
     @Override
-    public Object prepareArguments(Object arguments) {
+    public Object prepareInput(Object arguments) {
         if (!(arguments instanceof Map<?, ?> map)) {
             return arguments;
         }
@@ -135,7 +135,7 @@ public class GrepTool implements Tool<GrepTool.Input, GrepTool.Output> {
 
     @Override
     public Input parseInput(String argumentsJson) {
-        return Input.from(validateArguments(argumentsJson));
+        return Input.from(validateInputJson(argumentsJson));
     }
 
     @Override

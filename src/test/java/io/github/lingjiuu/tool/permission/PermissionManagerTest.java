@@ -147,7 +147,7 @@ public class PermissionManagerTest extends TestCase {
             }
 
             @Override
-            public Map<String, Object> parametersSchema() {
+            public Map<String, Object> inputSchema() {
                 return Map.of();
             }
 

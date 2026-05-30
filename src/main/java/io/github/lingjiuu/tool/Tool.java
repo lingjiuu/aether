@@ -15,20 +15,25 @@ public interface Tool<I, O> {
 
     String description();
 
-    Map<String, Object> parametersSchema();
+    Map<String, Object> inputSchema();
+
+    default Map<String, Object> outputSchema() {
+        return Map.of();
+    }
 
     default ToolSpec spec() {
         return ToolSpec.of(
                 name(),
                 label(),
                 description(),
-                parametersSchema(),
+                inputSchema(),
+                outputSchema(),
                 riskLevel()
         );
     }
 
-    default Object prepareArguments(Object arguments) {
-        return arguments;
+    default Object prepareInput(Object input) {
+        return input;
     }
 
     default ToolRiskLevel riskLevel() {
@@ -43,8 +48,12 @@ public interface Tool<I, O> {
         return ToolResultPolicy.defaultPolicy();
     }
 
-    default Map<String, Object> validateArguments(String argumentsJson) {
-        return spec().validateArguments(argumentsJson, this::prepareArguments);
+    default Map<String, Object> validateInputJson(String argumentsJson) {
+        return spec().validateInputJson(argumentsJson, this::prepareInput);
+    }
+
+    default void validateOutput(O output) {
+        spec().validateOutput(output);
     }
 
     I parseInput(String argumentsJson);

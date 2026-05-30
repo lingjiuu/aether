@@ -108,7 +108,17 @@ public class ToolRouter {
         if (validation != null && !validation.valid()) {
             return ToolCallResult.failure(ToolFailure.validation(validation.message()));
         }
-        return typedTool.call(typedInput, context);
+        ToolCallResult<O> result = typedTool.call(typedInput, context);
+        if (result != null && !result.hasFailure()) {
+            try {
+                typedTool.validateOutput(result.output());
+            } catch (IllegalArgumentException e) {
+                return ToolCallResult.failure(ToolFailure.schema(
+                        "Tool output did not match outputSchema for " + safeToolName(context.getToolCall()) + ": " + e.getMessage()
+                ));
+            }
+        }
+        return result;
     }
 
     private void checkRuntimeBoundary(ToolUseContext context) {

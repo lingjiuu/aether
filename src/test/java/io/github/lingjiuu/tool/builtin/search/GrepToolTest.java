@@ -68,7 +68,7 @@ public class GrepToolTest extends TestCase {
 
         ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, ToolInvocation.builder()
                 .toolCall(toolCall("Grep"))
-                .arguments(tool.validateArguments("""
+                .arguments(tool.validateInputJson("""
                         {"pattern":"HELLO","output_mode":"count","head_limit":"1","-i":"true"}
                         """))
                 .build());
@@ -106,7 +106,7 @@ public class GrepToolTest extends TestCase {
 
         IllegalArgumentException error = null;
         try {
-            tool.validateArguments("{\"pattern\":\"hello\",\"ignoreCase\":true}");
+            tool.validateInputJson("{\"pattern\":\"hello\",\"ignoreCase\":true}");
         } catch (IllegalArgumentException e) {
             error = e;
         }
