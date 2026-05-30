@@ -2,11 +2,15 @@ package io.github.lingjiuu.tool.builtin.powershell;
 
 import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolCancelledException;
-import io.github.lingjiuu.tool.ToolExecutionResult;
-import io.github.lingjiuu.tool.ToolInvocation;
+import io.github.lingjiuu.tool.ToolCallResult;
+import io.github.lingjiuu.tool.ToolFailure;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.ToolUseContext;
 import io.github.lingjiuu.tool.builtin.shell.ShellOutputCapture;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolDisplayResult;
 import io.github.lingjiuu.tool.result.ToolResultLimits;
+import io.github.lingjiuu.tool.result.ToolResultContext;
 import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
@@ -24,7 +28,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class PowerShellTool implements Tool {
+public class PowerShellTool implements Tool<PowerShellTool.Input, PowerShellTool.Output> {
 
     private static final int DEFAULT_TIMEOUT_SECONDS = 120;
 
@@ -84,18 +88,27 @@ public class PowerShellTool implements Tool {
     }
 
     @Override
-    public ToolExecutionResult execute(ToolInvocation context) {
+    public Input parseInput(String argumentsJson) {
+        return Input.from(validateArguments(argumentsJson));
+    }
+
+    @Override
+    public Map<String, Object> permissionArguments(Input input) {
+        return Map.of("command", input.command());
+    }
+
+    @Override
+    public ToolCallResult<Output> call(Input input, ToolUseContext context) {
         Instant startedAt = Instant.now();
         Process process = null;
         Thread stdoutReaderThread = null;
         Thread stderrReaderThread = null;
         try {
             context.throwIfCancellationRequested();
-            Args args = Args.from(context.getArguments());
-            String command = args.command();
+            String command = input.command();
             Optional<List<String>> shellCommand = PowerShell.commandLine(command);
             if (shellCommand.isEmpty()) {
-                return ToolExecutionResult.errorText("powershell failed: PowerShell is not available on Windows.");
+                return ToolCallResult.failure(ToolFailure.runtime("PowerShell is not available on Windows."));
             }
             ShellOutputCapture output = new ShellOutputCapture("aether-powershell");
             ProcessBuilder builder = new ProcessBuilder(shellCommand.get())
@@ -135,13 +148,13 @@ public class PowerShellTool implements Tool {
             stderrReaderThread.start();
 
             try (AutoCloseable ignored = context.cancellationToken().onCancel(() -> destroyProcessTree(runningProcess))) {
-                boolean finished = process.waitFor(args.timeoutSeconds(), TimeUnit.SECONDS);
+                boolean finished = process.waitFor(input.timeoutSeconds(), TimeUnit.SECONDS);
                 if (!finished) {
                     destroyProcessTree(process);
                     readerDone.await(1, TimeUnit.SECONDS);
                     ShellOutputCapture.Snapshot snapshot = output.snapshot(true);
-                    return result(command, null, startedAt, snapshot,
-                            "Command timed out after " + args.timeoutSeconds() + " seconds", true);
+                    return ToolCallResult.failedOutput(result(command, null, startedAt, snapshot,
+                            "Command timed out after " + input.timeoutSeconds() + " seconds"));
                 }
                 readerDone.await(1, TimeUnit.SECONDS);
                 if (readerError.get() != null) {
@@ -151,15 +164,15 @@ public class PowerShellTool implements Tool {
                 ShellOutputCapture.Snapshot snapshot = output.snapshot(true);
                 int exitCode = process.exitValue();
                 if (exitCode != 0) {
-                    return result(command, exitCode, startedAt, snapshot,
-                            "Command exited with code " + exitCode, true);
+                    return ToolCallResult.failedOutput(result(command, exitCode, startedAt, snapshot,
+                            "Command exited with code " + exitCode));
                 }
-                return result(command, exitCode, startedAt, snapshot, null, false);
+                return ToolCallResult.success(result(command, exitCode, startedAt, snapshot, null));
             }
         } catch (ToolCancelledException e) {
             throw e;
         } catch (Exception e) {
-            return ToolExecutionResult.errorText("powershell failed: " + e.getMessage());
+            return ToolCallResult.failure(ToolFailure.runtime(e.getMessage()));
         } finally {
             if (process != null && process.isAlive()) {
                 destroyProcessTree(process);
@@ -173,11 +186,21 @@ public class PowerShellTool implements Tool {
         }
     }
 
+    @Override
+    public ModelToolResult toModelResult(Output output, ToolResultContext<Input, Output> context) {
+        return ModelToolResult.text(output.text());
+    }
+
+    @Override
+    public ToolDisplayResult toDisplayResult(Output output, ToolResultContext<Input, Output> context) {
+        return ToolDisplayResult.of("powershell", output.details());
+    }
+
     private void readOutput(
             InputStream input,
             OutputAppender appendOutput,
             ShellOutputCapture output,
-            ToolInvocation context,
+            ToolUseContext context,
             String command,
             CountDownLatch readerDone,
             AtomicReference<Exception> readerError
@@ -202,26 +225,21 @@ public class PowerShellTool implements Tool {
         }
     }
 
-    private void emitPartial(ShellOutputCapture output, ToolInvocation context, String command) {
+    private void emitPartial(ShellOutputCapture output, ToolUseContext context, String command) {
         try {
             ShellOutputCapture.Snapshot snapshot = output.snapshot(false);
-            context.emitUpdate(ToolExecutionResult.builder()
-                    .contents(ToolExecutionResult.text(snapshot.content()).getContents())
-                    .details(partialDetails(command, snapshot))
-                    .error(false)
-                    .build());
+            context.emitUpdate(ToolDisplayResult.text("powershell", snapshot.content(), partialDetails(command, snapshot)));
         } catch (IOException ignored) {
         } catch (IllegalArgumentException ignored) {
         }
     }
 
-    private ToolExecutionResult result(
+    private Output result(
             String command,
             Integer exitCode,
             Instant startedAt,
             ShellOutputCapture.Snapshot snapshot,
-            String status,
-            boolean error
+            String status
     ) {
         String text = snapshot.content() == null || snapshot.content().isBlank() ? "(no output)" : snapshot.content();
         String notice = truncationNotice(snapshot);
@@ -263,11 +281,7 @@ public class PowerShellTool implements Tool {
         if (snapshot.aggregate().fullOutputPath() != null) {
             details.put("aggregateFullOutputPath", snapshot.aggregate().fullOutputPath().toString());
         }
-        return ToolExecutionResult.builder()
-                .contents(ToolExecutionResult.text(text).getContents())
-                .details(details)
-                .error(error)
-                .build();
+        return new Output(text, details);
     }
 
     private Map<String, Object> partialDetails(
@@ -354,13 +368,16 @@ public class PowerShellTool implements Tool {
         return stringValue;
     }
 
-    private record Args(String command, int timeoutSeconds) {
-        static Args from(Map<String, Object> arguments) {
-            return new Args(
+    public record Input(String command, int timeoutSeconds) {
+        static Input from(Map<String, Object> arguments) {
+            return new Input(
                     requiredString(arguments, "command"),
                     optionalPositiveNumber(arguments, "timeout", DEFAULT_TIMEOUT_SECONDS)
             );
         }
+    }
+
+    public record Output(String text, Map<String, Object> details) {
     }
 
     @FunctionalInterface

@@ -18,8 +18,8 @@ public class BashToolTest extends TestCase {
         Path root = Files.createTempDirectory("aether-bash-tool-test");
         BashTool tool = new BashTool(root);
 
-        ToolExecutionResult result = tool.execute(ToolInvocation.builder()
-                .toolCall(toolCall("bash", "{\"command\":\"printf out; printf err >&2; exit 7\"}"))
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, ToolInvocation.builder()
+                .toolCall(toolCall("Bash", "{\"command\":\"printf out; printf err >&2; exit 7\"}"))
                 .arguments(Map.of("command", "printf out; printf err >&2; exit 7"))
                 .build());
 
@@ -54,8 +54,8 @@ public class BashToolTest extends TestCase {
         Path root = Files.createTempDirectory("aether-bash-tool-test");
         BashTool tool = new BashTool(root);
 
-        ToolExecutionResult result = tool.execute(ToolInvocation.builder()
-                .toolCall(toolCall("bash", "{\"command\":\"true\"}"))
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, ToolInvocation.builder()
+                .toolCall(toolCall("Bash", "{\"command\":\"true\"}"))
                 .arguments(Map.of("command", "true"))
                 .build());
 
@@ -67,6 +67,21 @@ public class BashToolTest extends TestCase {
         assertEquals("", details.get("stderr"));
         assertEquals("", details.get("aggregatedOutput"));
         assertFalse(details.containsKey("outputPreview"));
+    }
+
+    public void testBashUsesClaudeStyleToolNameAndTimeoutSchema() throws Exception {
+        BashTool tool = new BashTool(Files.createTempDirectory("aether-bash-tool-test"));
+
+        assertEquals("Bash", tool.name());
+        assertEquals("Bash", tool.label());
+        assertTrue(String.valueOf(tool.parametersSchema()).contains("maximum=600000"));
+
+        try {
+            tool.validateArguments("{\"command\":\"true\",\"timeout\":600001}");
+            fail("Expected timeout above max to fail validation");
+        } catch (IllegalArgumentException e) {
+            assertTrue(e.getMessage().contains("timeout"));
+        }
     }
 
     public void testShellOutputCaptureKeepsTailAndPersistsFullOutput() throws Exception {

@@ -1,10 +1,13 @@
 package io.github.lingjiuu.tool;
 
 import io.github.lingjiuu.tool.result.ToolResultPolicy;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolDisplayResult;
+import io.github.lingjiuu.tool.result.ToolResultContext;
 
 import java.util.Map;
 
-public interface Tool {
+public interface Tool<I, O> {
 
     String name();
 
@@ -44,5 +47,21 @@ public interface Tool {
         return spec().validateArguments(argumentsJson, this::prepareArguments);
     }
 
-    ToolExecutionResult execute(ToolInvocation invocation);
+    I parseInput(String argumentsJson);
+
+    default Map<String, Object> permissionArguments(I input) {
+        return Map.of();
+    }
+
+    default ValidationResult validateInput(I input, ToolUseContext context) {
+        return ValidationResult.ok();
+    }
+
+    ToolCallResult<O> call(I input, ToolUseContext context);
+
+    ModelToolResult toModelResult(O output, ToolResultContext<I, O> context);
+
+    default ToolDisplayResult toDisplayResult(O output, ToolResultContext<I, O> context) {
+        return ToolDisplayResult.empty(name());
+    }
 }

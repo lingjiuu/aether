@@ -68,6 +68,7 @@ export type UiToolResult = {
   status?: string | null;
   durationMs?: number | null;
   details?: unknown;
+  display?: unknown;
   truncated?: boolean | null;
 };
 
@@ -81,6 +82,7 @@ export type UiToolUpdate = {
   text?: string | null;
   durationMs?: number | null;
   details?: unknown;
+  display?: unknown;
   truncated?: boolean | null;
 };
 

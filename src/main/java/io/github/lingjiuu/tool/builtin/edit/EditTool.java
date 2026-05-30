@@ -1,10 +1,14 @@
 package io.github.lingjiuu.tool.builtin.edit;
 
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolInvocation;
-import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.ToolCallResult;
+import io.github.lingjiuu.tool.ToolFailure;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.ToolUseContext;
 import io.github.lingjiuu.tool.file.ReadFileState;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolDisplayResult;
+import io.github.lingjiuu.tool.result.ToolResultContext;
 import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
@@ -15,7 +19,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
-public class EditTool implements Tool {
+public class EditTool implements Tool<EditTool.Input, EditTool.Output> {
 
     private final WorkspaceAccessPolicy accessPolicy;
 
@@ -77,31 +81,50 @@ public class EditTool implements Tool {
     }
 
     @Override
-    public ToolExecutionResult execute(ToolInvocation context) {
+    public Input parseInput(String argumentsJson) {
+        return Input.from(validateArguments(argumentsJson));
+    }
+
+    @Override
+    public Map<String, Object> permissionArguments(Input input) {
+        return Map.of("file_path", input.filePath());
+    }
+
+    @Override
+    public ToolCallResult<Output> call(Input input, ToolUseContext context) {
         try {
             context.throwIfCancellationRequested();
-            Args args = Args.from(context.getArguments());
-            if (args.oldString().equals(args.newString())) {
+            if (input.oldString().equals(input.newString())) {
                 throw new IllegalArgumentException("old_string and new_string must be different");
             }
 
-            Path resolvedPath = accessPolicy.resolveWritablePath(args.filePath());
-            ToolExecutionResult result = editFile(
+            Path resolvedPath = accessPolicy.resolveWritablePath(input.filePath());
+            Output result = editFile(
                     context.readFileState(),
-                    args.filePath(),
+                    input.filePath(),
                     resolvedPath,
-                    args.oldString(),
-                    args.newString(),
-                    args.replaceAll()
+                    input.oldString(),
+                    input.newString(),
+                    input.replaceAll()
             );
             context.throwIfCancellationRequested();
-            return result;
+            return ToolCallResult.success(result);
         } catch (Exception e) {
-            return ToolExecutionResult.errorText("edit failed: " + e.getMessage());
+            return ToolCallResult.failure(ToolFailure.runtime(e.getMessage()));
         }
     }
 
-    private ToolExecutionResult editFile(
+    @Override
+    public ModelToolResult toModelResult(Output output, ToolResultContext<Input, Output> context) {
+        return ModelToolResult.text(output.text());
+    }
+
+    @Override
+    public ToolDisplayResult toDisplayResult(Output output, ToolResultContext<Input, Output> context) {
+        return ToolDisplayResult.of("edit", output.details());
+    }
+
+    private Output editFile(
             ReadFileState readFileState,
             String requestedPath,
             Path resolvedPath,
@@ -163,7 +186,7 @@ public class EditTool implements Tool {
         );
     }
 
-    private ToolExecutionResult createFile(
+    private Output createFile(
             ReadFileState readFileState,
             String requestedPath,
             Path resolvedPath,
@@ -175,9 +198,9 @@ public class EditTool implements Tool {
         }
         Files.writeString(resolvedPath, content, StandardCharsets.UTF_8);
         recordFileState(readFileState, resolvedPath, content);
-        return ToolExecutionResult.builder()
-                .contents(ToolExecutionResult.text("Created " + requestedPath + ".").getContents())
-                .details(Map.of(
+        return new Output(
+                "Created " + requestedPath + ".",
+                Map.of(
                         "kind", "edit",
                         "path", requestedPath,
                         "resolvedPath", resolvedPath.toString(),
@@ -186,12 +209,11 @@ public class EditTool implements Tool {
                         "firstChangedLine", 1,
                         "replaceAll", false,
                         "diffText", EditApplier.simpleDiff("", content)
-                ))
-                .error(false)
-                .build();
+                )
+        );
     }
 
-    private ToolExecutionResult writeAppliedContent(
+    private Output writeAppliedContent(
             ReadFileState readFileState,
             String requestedPath,
             Path resolvedPath,
@@ -209,9 +231,9 @@ public class EditTool implements Tool {
         String resultText = "create".equals(operation)
                 ? "Created " + requestedPath + "."
                 : "Successfully replaced " + replacements + " block(s) in " + requestedPath + ".";
-        return ToolExecutionResult.builder()
-                .contents(ToolExecutionResult.text(resultText).getContents())
-                .details(Map.of(
+        return new Output(
+                resultText,
+                Map.of(
                         "kind", "edit",
                         "path", requestedPath,
                         "resolvedPath", resolvedPath.toString(),
@@ -220,9 +242,8 @@ public class EditTool implements Tool {
                         "firstChangedLine", firstChangedLine,
                         "replaceAll", replaceAll,
                         "diffText", diffText
-                ))
-                .error(false)
-                .build();
+                )
+        );
     }
 
     private void ensureFileWasRead(
@@ -275,14 +296,17 @@ public class EditTool implements Tool {
         throw new IllegalArgumentException(name + " must be a boolean");
     }
 
-    private record Args(String filePath, String oldString, String newString, boolean replaceAll) {
-        static Args from(Map<String, Object> arguments) {
-            return new Args(
+    public record Input(String filePath, String oldString, String newString, boolean replaceAll) {
+        static Input from(Map<String, Object> arguments) {
+            return new Input(
                     requiredNonBlankString(arguments, "file_path"),
                     requiredString(arguments, "old_string"),
                     requiredString(arguments, "new_string"),
                     optionalBoolean(arguments, "replace_all", false)
             );
         }
+    }
+
+    public record Output(String text, Map<String, Object> details) {
     }
 }

@@ -4,8 +4,10 @@ import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.tool.Tool;
+import io.github.lingjiuu.tool.ToolCallResult;
 import io.github.lingjiuu.tool.ToolExecutionResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.ToolUseContext;
 import junit.framework.TestCase;
 
 import java.nio.charset.StandardCharsets;
@@ -146,7 +148,17 @@ public class ToolResultProcessorTest extends TestCase {
     }
 
     private ToolResultInput input(String toolCallId, Tool tool, ToolExecutionResult result) {
-        return new ToolResultInput(toolCall(toolCallId, tool.name()), tool, result);
+        TestOutput output = new TestOutput(MessageContents.text(ToolResultMessage.builder()
+                .contents(result.getContents())
+                .build()), result.getDetails());
+        return new ToolResultInput(
+                toolCall(toolCallId, tool.name()),
+                tool,
+                null,
+                ToolCallResult.success(output),
+                "COMPLETED",
+                null
+        );
     }
 
     private ToolCallContent toolCall(String id, String name) {
@@ -177,7 +189,7 @@ public class ToolResultProcessorTest extends TestCase {
         }
     }
 
-    private static final class FakeTool implements Tool {
+    private static final class FakeTool implements Tool<Object, TestOutput> {
         private final String name;
         private final ToolResultPolicy policy;
 
@@ -217,8 +229,26 @@ public class ToolResultProcessorTest extends TestCase {
         }
 
         @Override
-        public ToolExecutionResult execute(io.github.lingjiuu.tool.ToolInvocation invocation) {
-            return ToolExecutionResult.text("");
+        public Object parseInput(String argumentsJson) {
+            return new Object();
         }
+
+        @Override
+        public ToolCallResult<TestOutput> call(Object input, ToolUseContext context) {
+            return ToolCallResult.success(new TestOutput("", null));
+        }
+
+        @Override
+        public ModelToolResult toModelResult(TestOutput output, ToolResultContext<Object, TestOutput> context) {
+            return ModelToolResult.text(output.text());
+        }
+
+        @Override
+        public ToolDisplayResult toDisplayResult(TestOutput output, ToolResultContext<Object, TestOutput> context) {
+            return ToolDisplayResult.of(name, output.details());
+        }
+    }
+
+    private record TestOutput(String text, Object details) {
     }
 }

@@ -1,10 +1,14 @@
 package io.github.lingjiuu.tool.builtin.write;
 
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolInvocation;
-import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.ToolCallResult;
+import io.github.lingjiuu.tool.ToolFailure;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.ToolUseContext;
 import io.github.lingjiuu.tool.file.ReadFileState;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolDisplayResult;
+import io.github.lingjiuu.tool.result.ToolResultContext;
 import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
@@ -16,7 +20,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class WriteTool implements Tool {
+public class WriteTool implements Tool<WriteTool.Input, WriteTool.Output> {
+
+    private static final String READ_REQUIRED_MESSAGE = "File has not been read yet. Read it first before writing to it.";
 
     private final WorkspaceAccessPolicy accessPolicy;
 
@@ -29,12 +35,12 @@ public class WriteTool implements Tool {
 
     @Override
     public String name() {
-        return "write";
+        return "Write";
     }
 
     @Override
     public String label() {
-        return "write";
+        return "Write";
     }
 
     @Override
@@ -75,46 +81,73 @@ public class WriteTool implements Tool {
     }
 
     @Override
-    public ToolExecutionResult execute(ToolInvocation context) {
+    public Input parseInput(String argumentsJson) {
+        return Input.from(validateArguments(argumentsJson));
+    }
+
+    @Override
+    public Map<String, Object> permissionArguments(Input input) {
+        return Map.of("file_path", input.filePath());
+    }
+
+    @Override
+    public ToolCallResult<Output> call(Input input, ToolUseContext context) {
         try {
             context.throwIfCancellationRequested();
-            Args args = Args.from(context.getArguments());
-            Path resolvedPath = accessPolicy.resolveWritablePath(args.filePath());
+            Path resolvedPath = accessPolicy.resolveWritablePath(input.filePath());
 
             boolean existedBefore = Files.exists(resolvedPath);
             if (existedBefore) {
-                ensureExistingFileCanBeWritten(context.readFileState(), args.filePath(), resolvedPath);
+                ensureExistingFileCanBeWritten(context.readFileState(), input.filePath(), resolvedPath);
             }
             Path parent = resolvedPath.getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
             }
             context.throwIfCancellationRequested();
-            Files.writeString(resolvedPath, args.content(), StandardCharsets.UTF_8);
-            recordWrite(context.readFileState(), resolvedPath, args.content());
+            Files.writeString(resolvedPath, input.content(), StandardCharsets.UTF_8);
+            recordWrite(context.readFileState(), resolvedPath, input.content());
             context.throwIfCancellationRequested();
 
-            int bytes = args.content().getBytes(StandardCharsets.UTF_8).length;
+            int bytes = input.content().getBytes(StandardCharsets.UTF_8).length;
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("kind", "write");
-            details.put("path", args.filePath());
+            details.put("path", input.filePath());
             details.put("resolvedPath", resolvedPath.toString());
             details.put("operation", existedBefore ? "update" : "create");
-            details.put("chars", args.content().length());
+            details.put("chars", input.content().length());
             details.put("bytes", bytes);
-            details.put("lineCount", lineCount(args.content()));
+            details.put("lineCount", lineCount(input.content()));
             details.put("existedBefore", existedBefore);
-            details.put("firstLine", firstLine(args.content()));
-            return ToolExecutionResult.builder()
-                    .contents(ToolExecutionResult.text(
-                            "Successfully wrote " + args.content().length() + " chars to " + args.filePath()
-                    ).getContents())
-                    .details(details)
-                    .error(false)
-                    .build();
+            details.put("firstLine", firstLine(input.content()));
+            return ToolCallResult.success(new Output(
+                    input.filePath(),
+                    resolvedPath.toString(),
+                    existedBefore,
+                    input.content().length(),
+                    bytes,
+                    lineCount(input.content()),
+                    details
+            ));
         } catch (Exception e) {
-            return ToolExecutionResult.errorText("write failed: " + e.getMessage());
+            if (READ_REQUIRED_MESSAGE.equals(e.getMessage())) {
+                return ToolCallResult.failure(ToolFailure.validation(READ_REQUIRED_MESSAGE));
+            }
+            return ToolCallResult.failure(ToolFailure.runtime(e.getMessage()));
         }
+    }
+
+    @Override
+    public ModelToolResult toModelResult(Output output, ToolResultContext<Input, Output> context) {
+        if (output.existedBefore()) {
+            return ModelToolResult.text("The file " + output.filePath() + " has been updated successfully.");
+        }
+        return ModelToolResult.text("File created successfully at: " + output.filePath());
+    }
+
+    @Override
+    public ToolDisplayResult toDisplayResult(Output output, ToolResultContext<Input, Output> context) {
+        return ToolDisplayResult.of("write", output.details());
     }
 
     private static String requiredNonBlankString(Map<String, Object> arguments, String name) {
@@ -142,11 +175,11 @@ public class WriteTool implements Tool {
             throw new IOException("Not a file: " + requestedPath);
         }
         if (readFileState == null) {
-            throw new IllegalStateException("File has not been read yet. Read it first before writing to it.");
+            throw new IllegalStateException(READ_REQUIRED_MESSAGE);
         }
         ReadFileState.Snapshot snapshot = readFileState.get(resolvedPath);
-        if (snapshot == null) {
-            throw new IllegalStateException("File has not been read yet. Read it first before writing to it.");
+        if (snapshot == null || snapshot.partial()) {
+            throw new IllegalStateException(READ_REQUIRED_MESSAGE);
         }
 
         String currentContent = Files.readString(resolvedPath, StandardCharsets.UTF_8);
@@ -184,12 +217,23 @@ public class WriteTool implements Tool {
         return lines;
     }
 
-    private record Args(String filePath, String content) {
-        static Args from(Map<String, Object> arguments) {
-            return new Args(
+    public record Input(String filePath, String content) {
+        static Input from(Map<String, Object> arguments) {
+            return new Input(
                     requiredNonBlankString(arguments, "file_path"),
                     requiredString(arguments, "content")
             );
         }
+    }
+
+    public record Output(
+            String filePath,
+            String resolvedPath,
+            boolean existedBefore,
+            int chars,
+            int bytes,
+            int lineCount,
+            Map<String, Object> details
+    ) {
     }
 }

@@ -14,7 +14,7 @@ export const bashPresenter: ToolPresenter = {
 };
 
 export const shellToolPresentations: ToolPresentationDefinition[] = [
-  { names: ['bash'], presenter: bashPresenter },
+  { names: ['Bash', 'bash'], presenter: bashPresenter },
 ];
 
 function bashResultView(details: Details, result: UiToolResult): ToolResultView {

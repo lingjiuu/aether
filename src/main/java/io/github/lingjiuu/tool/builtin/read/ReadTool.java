@@ -1,13 +1,18 @@
 package io.github.lingjiuu.tool.builtin.read;
 
 import io.github.lingjiuu.message.content.ImageContent;
+import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolInvocation;
-import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.ToolCallResult;
+import io.github.lingjiuu.tool.ToolFailure;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.ToolUseContext;
 import io.github.lingjiuu.tool.file.ReadFileState;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolDisplayResult;
 import io.github.lingjiuu.tool.result.ToolResultLimits;
+import io.github.lingjiuu.tool.result.ToolResultContext;
 import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
@@ -21,7 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ReadTool implements Tool {
+public class ReadTool implements Tool<ReadTool.Input, ReadTool.Output> {
 
     private static final int MAX_TEXT_BYTES = 24 * 1024;
     private static final int MAX_IMAGE_BASE64_BYTES = (int) (4.5 * 1024 * 1024);
@@ -79,37 +84,56 @@ public class ReadTool implements Tool {
     }
 
     @Override
-    public ToolExecutionResult execute(ToolInvocation context) {
+    public Input parseInput(String argumentsJson) {
+        return Input.from(validateArguments(argumentsJson));
+    }
+
+    @Override
+    public Map<String, Object> permissionArguments(Input input) {
+        return Map.of("file_path", input.filePath());
+    }
+
+    @Override
+    public ToolCallResult<Output> call(Input input, ToolUseContext context) {
         try {
             context.throwIfCancellationRequested();
-            Args args = Args.from(context.getArguments());
-            Path resolvedPath = accessPolicy.resolveReadablePath(args.filePath());
-            ToolExecutionResult result = readFile(args, resolvedPath, context.readFileState());
+            Path resolvedPath = accessPolicy.resolveReadablePath(input.filePath());
+            Output result = readFile(input, resolvedPath, context.readFileState());
             context.throwIfCancellationRequested();
-            return result;
+            return ToolCallResult.success(result);
         } catch (Exception e) {
-            return ToolExecutionResult.errorText("read failed: " + e.getMessage());
+            return ToolCallResult.failure(ToolFailure.runtime(e.getMessage()));
         }
     }
 
-    private ToolExecutionResult readFile(
-            Args args,
+    @Override
+    public ModelToolResult toModelResult(Output output, ToolResultContext<Input, Output> context) {
+        return new ModelToolResult(output.contents(), false);
+    }
+
+    @Override
+    public ToolDisplayResult toDisplayResult(Output output, ToolResultContext<Input, Output> context) {
+        return ToolDisplayResult.of("read", output.details());
+    }
+
+    private Output readFile(
+            Input input,
             Path resolvedPath,
             ReadFileState readFileState
     ) throws IOException {
         if (!Files.exists(resolvedPath)) {
-            throw new IOException("Path not found: " + args.filePath());
+            throw new IOException("Path not found: " + input.filePath());
         }
         if (!Files.isRegularFile(resolvedPath)) {
-            throw new IOException("Not a file: " + args.filePath());
+            throw new IOException("Not a file: " + input.filePath());
         }
         if (!Files.isReadable(resolvedPath)) {
-            throw new IOException("File is not readable: " + args.filePath());
+            throw new IOException("File is not readable: " + input.filePath());
         }
 
         String mimeType = ImageMimeDetector.detect(resolvedPath);
         if (mimeType != null) {
-            return readImageFile(args.filePath(), resolvedPath, mimeType);
+            return readImageFile(input.filePath(), resolvedPath, mimeType);
         }
 
         String content = Files.readString(resolvedPath, StandardCharsets.UTF_8);
@@ -117,18 +141,17 @@ public class ReadTool implements Tool {
         int totalLines = lines.size();
         if (totalLines == 0) {
             recordTextRead(readFileState, resolvedPath, content, true);
-            return ToolExecutionResult.builder()
-                    .contents(ToolExecutionResult.text("[File is empty.]").getContents())
-                    .details(textReadDetails(args.filePath(), resolvedPath, args.offset(), args.limit(), 0, 0, false, false))
-                    .error(false)
-                    .build();
+            return new Output(
+                    List.of(TextContent.builder().text("[File is empty.]").build()),
+                    textReadDetails(input.filePath(), resolvedPath, input.offset(), input.limit(), 0, 0, false, false)
+            );
         }
-        int startIndex = args.offset() - 1;
+        int startIndex = input.offset() - 1;
         if (startIndex >= totalLines) {
-            throw new IOException("Offset " + args.offset() + " is beyond end of file (" + totalLines + " lines total)");
+            throw new IOException("Offset " + input.offset() + " is beyond end of file (" + totalLines + " lines total)");
         }
 
-        int selectedEnd = args.limit() == null ? totalLines : Math.min(totalLines, startIndex + args.limit());
+        int selectedEnd = input.limit() == null ? totalLines : Math.min(totalLines, startIndex + input.limit());
         List<String> selectedLines = lines.subList(startIndex, selectedEnd);
         String selectedContent = String.join("\n", selectedLines);
         TextWindow window = TextWindow.fromHead(selectedContent, MAX_TEXT_BYTES);
@@ -138,18 +161,18 @@ public class ReadTool implements Tool {
         boolean hasMore = selectedEnd < totalLines || truncated;
         String output;
         if (window.firstLineExceedsLimit()) {
-            output = "[Line " + args.offset() + " exceeds "
+            output = "[Line " + input.offset() + " exceeds "
                     + ToolResultLimits.formatSize(MAX_TEXT_BYTES)
                     + " limit.]";
             returnedLines = 0;
             hasMore = true;
         } else {
-            output = formatNumberedLines(window.content(), args.offset(), returnedLines);
+            output = formatNumberedLines(window.content(), input.offset(), returnedLines);
             List<String> notices = new ArrayList<>();
             if (truncated) {
-                int endLineDisplay = Math.max(args.offset(), args.offset() + returnedLines - 1);
+                int endLineDisplay = Math.max(input.offset(), input.offset() + returnedLines - 1);
                 int nextOffset = endLineDisplay + 1;
-                notices.add("Showing lines " + args.offset() + "-" + endLineDisplay
+                notices.add("Showing lines " + input.offset() + "-" + endLineDisplay
                         + " of " + totalLines + ". Use offset=" + nextOffset + " to continue.");
             } else if (selectedEnd < totalLines) {
                 int remaining = totalLines - selectedEnd;
@@ -161,12 +184,11 @@ public class ReadTool implements Tool {
             }
         }
 
-        recordTextRead(readFileState, resolvedPath, content, args.offset() == 1 && !hasMore);
-        return ToolExecutionResult.builder()
-                .contents(ToolExecutionResult.text(output).getContents())
-                .details(textReadDetails(args.filePath(), resolvedPath, args.offset(), args.limit(), returnedLines, totalLines, truncated, hasMore))
-                .error(false)
-                .build();
+        recordTextRead(readFileState, resolvedPath, content, input.offset() == 1 && !hasMore);
+        return new Output(
+                List.of(TextContent.builder().text(output).build()),
+                textReadDetails(input.filePath(), resolvedPath, input.offset(), input.limit(), returnedLines, totalLines, truncated, hasMore)
+        );
     }
 
     private void recordTextRead(ReadFileState readFileState, Path resolvedPath, String content, boolean fullRead) throws IOException {
@@ -180,18 +202,18 @@ public class ReadTool implements Tool {
         }
     }
 
-    private ToolExecutionResult readImageFile(String requestedPath, Path resolvedPath, String mimeType) throws IOException {
+    private Output readImageFile(String requestedPath, Path resolvedPath, String mimeType) throws IOException {
         byte[] bytes = Files.readAllBytes(resolvedPath);
         String base64 = Base64.getEncoder().encodeToString(bytes);
         int base64Bytes = base64.getBytes(StandardCharsets.UTF_8).length;
         String text = "Read image file [" + mimeType + "]";
         if (base64Bytes > MAX_IMAGE_BASE64_BYTES) {
-            return ToolExecutionResult.builder()
-                    .contents(ToolExecutionResult.text(text
+            return new Output(
+                    List.of(TextContent.builder().text(text
                             + "\n[Image omitted: inline image exceeds "
                             + ToolResultLimits.formatSize(MAX_IMAGE_BASE64_BYTES)
-                            + " limit.]").getContents())
-                    .details(Map.of(
+                            + " limit.]").build()),
+                    Map.of(
                             "kind", "read",
                             "path", requestedPath,
                             "resolvedPath", resolvedPath.toString(),
@@ -201,20 +223,19 @@ public class ReadTool implements Tool {
                             "base64Bytes", base64Bytes,
                             "image", true,
                             "omitted", true
-                    ))
-                    .error(false)
-                    .build();
+                    )
+            );
         }
 
-        return ToolExecutionResult.builder()
-                .contents(List.of(
+        return new Output(
+                List.of(
                         TextContent.builder().text(text).build(),
                         ImageContent.builder()
                                 .data(base64)
                                 .mimeType(mimeType)
                                 .build()
-                ))
-                .details(Map.of(
+                ),
+                Map.of(
                         "kind", "read",
                         "path", requestedPath,
                         "resolvedPath", resolvedPath.toString(),
@@ -224,9 +245,8 @@ public class ReadTool implements Tool {
                         "base64Bytes", base64Bytes,
                         "image", true,
                         "omitted", false
-                ))
-                .error(false)
-                .build();
+                )
+        );
     }
 
     private Map<String, Object> textReadDetails(
@@ -310,17 +330,20 @@ public class ReadTool implements Tool {
         return parsed;
     }
 
-    private record Args(String filePath, int offset, Integer limit) {
-        static Args from(Map<String, Object> arguments) {
+    public record Input(String filePath, int offset, Integer limit) {
+        static Input from(Map<String, Object> arguments) {
             Integer limit = arguments.containsKey("limit") && arguments.get("limit") != null
                     ? optionalPositiveInt(arguments, "limit", 1)
                     : null;
-            return new Args(
+            return new Input(
                     requiredString(arguments, "file_path"),
                     optionalPositiveInt(arguments, "offset", 1),
                     limit
             );
         }
+    }
+
+    public record Output(List<MessageContent> contents, Map<String, Object> details) {
     }
 
     private record TextWindow(

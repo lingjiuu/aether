@@ -50,8 +50,8 @@ export const globPresenter: ToolPresenter = {
 
 export const searchToolPresentations: ToolPresentationDefinition[] = [
   { names: ['ls'], presenter: lsPresenter },
-  { names: ['grep'], presenter: grepPresenter },
-  { names: ['glob'], presenter: globPresenter },
+  { names: ['Grep', 'grep'], presenter: grepPresenter },
+  { names: ['Glob', 'glob'], presenter: globPresenter },
 ];
 
 function countResultView(

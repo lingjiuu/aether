@@ -338,6 +338,7 @@ public class ContextManager {
                 .toolCallId(message.getToolCallId())
                 .toolName(message.getToolName())
                 .details(message.getDetails())
+                .display(message.getDisplay())
                 .isError(message.isError())
                 .build();
     }

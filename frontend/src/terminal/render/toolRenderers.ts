@@ -6,6 +6,7 @@ import {
   clean,
   defaultToolUseSummary,
   defaultUserFacingName,
+  displayDetails,
   detailsKind,
   detailsRecord,
   toolArguments,
@@ -34,7 +35,7 @@ export function toolUseView(item: TimelineItem, cwd?: string | null): ToolUseVie
 
 export function toolProgressView(item: TimelineItem): ToolResultView {
   const update = item.toolUpdate;
-  const details = detailsRecord(update?.details) ?? {};
+  const details = displayDetails(update) ?? {};
   const kind = detailsKind(details, update, item.toolCall);
   const view = presenterFor(kind)?.progressView?.(details, update);
   if (view) {
@@ -51,7 +52,7 @@ export function toolResultView(item: TimelineItem, cwd?: string | null): ToolRes
     return { lines: [] };
   }
 
-  const details = detailsRecord(result.details) ?? {};
+  const details = displayDetails(result) ?? {};
   const kind = detailsKind(details, result, item.toolCall);
   return presenterFor(kind)?.resultView?.(details, result, cwd)
     ?? fallbackResultView(result);

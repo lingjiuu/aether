@@ -34,7 +34,7 @@ public class PowerShellToolTest extends TestCase {
         Path root = Files.createTempDirectory("aether-powershell-tool-test");
         PowerShellTool tool = new PowerShellTool(root);
 
-        ToolExecutionResult result = tool.execute(ToolInvocation.builder()
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, ToolInvocation.builder()
                 .toolCall(toolCall("powershell", "{\"command\":\"Write-Output hello\"}"))
                 .arguments(Map.of("command", "Write-Output hello"))
                 .build());

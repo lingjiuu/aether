@@ -4,6 +4,8 @@ import junit.framework.TestCase;
 
 import java.util.List;
 import java.util.Map;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolResultContext;
 
 public class ToolTest extends TestCase {
 
@@ -65,7 +67,7 @@ public class ToolTest extends TestCase {
     }
 
     private Tool tool(String name, ToolRiskLevel riskLevel) {
-        return new Tool() {
+        return new Tool<Object, String>() {
             @Override
             public String name() {
                 return name;
@@ -92,8 +94,18 @@ public class ToolTest extends TestCase {
             }
 
             @Override
-            public ToolExecutionResult execute(ToolInvocation context) {
-                return ToolExecutionResult.text("ok");
+            public Object parseInput(String argumentsJson) {
+                return new Object();
+            }
+
+            @Override
+            public ToolCallResult<String> call(Object input, ToolUseContext context) {
+                return ToolCallResult.success("ok");
+            }
+
+            @Override
+            public ModelToolResult toModelResult(String output, ToolResultContext<Object, String> context) {
+                return ModelToolResult.text(output);
             }
         };
     }

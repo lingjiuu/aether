@@ -12,10 +12,12 @@ import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolExecutionResult;
-import io.github.lingjiuu.tool.ToolInvocation;
+import io.github.lingjiuu.tool.ToolCallResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.ToolUseContext;
 import io.github.lingjiuu.tool.permission.PermissionPreset;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolResultContext;
 import io.github.lingjiuu.tool.result.ToolResultProcessor;
 import io.github.lingjiuu.trace.sqlite.SqliteTraceStore;
 import io.github.lingjiuu.transcript.TranscriptStore;
@@ -166,7 +168,7 @@ public class SessionTraceIntegrationTest extends TestCase {
         }
     }
 
-    private static final class ArtifactTool implements Tool {
+    private static final class ArtifactTool implements Tool<Object, String> {
 
         @Override
         public String name() {
@@ -194,8 +196,18 @@ public class SessionTraceIntegrationTest extends TestCase {
         }
 
         @Override
-        public ToolExecutionResult execute(ToolInvocation invocation) {
-            return ToolExecutionResult.text("artifact-visible-output\n" + "x".repeat(60_000));
+        public Object parseInput(String argumentsJson) {
+            return new Object();
+        }
+
+        @Override
+        public ToolCallResult<String> call(Object input, ToolUseContext context) {
+            return ToolCallResult.success("artifact-visible-output\n" + "x".repeat(60_000));
+        }
+
+        @Override
+        public ModelToolResult toModelResult(String output, ToolResultContext<Object, String> context) {
+            return ModelToolResult.text(output);
         }
     }
 }

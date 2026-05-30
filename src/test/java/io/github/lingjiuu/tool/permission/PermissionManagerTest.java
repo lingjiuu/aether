@@ -1,9 +1,11 @@
 package io.github.lingjiuu.tool.permission;
 
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolExecutionResult;
-import io.github.lingjiuu.tool.ToolInvocation;
+import io.github.lingjiuu.tool.ToolCallResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.ToolUseContext;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolResultContext;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import junit.framework.TestCase;
 
@@ -18,9 +20,9 @@ public class PermissionManagerTest extends TestCase {
         Path outside = Files.createTempFile("aether-permission-outside", ".txt");
         PermissionManager manager = defaultManager(workspace);
 
-        PermissionDecision decision = manager.decide(invocation(tool("read", ToolRiskLevel.READ_ONLY), Map.of(
+        PermissionDecision decision = decide(manager, tool("read", ToolRiskLevel.READ_ONLY), Map.of(
                 "path", outside.toString()
-        )));
+        ));
 
         assertEquals(PermissionDecision.Action.ALLOW, decision.action());
     }
@@ -29,9 +31,9 @@ public class PermissionManagerTest extends TestCase {
         Path workspace = Files.createTempDirectory("aether-permission-workspace");
         PermissionManager manager = defaultManager(workspace);
 
-        PermissionDecision decision = manager.decide(invocation(tool("write", ToolRiskLevel.WRITE), Map.of(
+        PermissionDecision decision = decide(manager, tool("write", ToolRiskLevel.WRITE), Map.of(
                 "file_path", "notes/todo.md"
-        )));
+        ));
 
         assertEquals(PermissionDecision.Action.ALLOW, decision.action());
     }
@@ -41,9 +43,9 @@ public class PermissionManagerTest extends TestCase {
         Path outside = Files.createTempDirectory("aether-permission-outside").resolve("todo.md");
         PermissionManager manager = defaultManager(workspace);
 
-        PermissionDecision decision = manager.decide(invocation(tool("write", ToolRiskLevel.WRITE), Map.of(
+        PermissionDecision decision = decide(manager, tool("write", ToolRiskLevel.WRITE), Map.of(
                 "file_path", outside.toString()
-        )));
+        ));
 
         assertEquals(PermissionDecision.Action.ASK, decision.action());
     }
@@ -52,9 +54,9 @@ public class PermissionManagerTest extends TestCase {
         Path workspace = Files.createTempDirectory("aether-permission-workspace");
         PermissionManager manager = defaultManager(workspace);
 
-        PermissionDecision decision = manager.decide(invocation(tool("edit", ToolRiskLevel.WRITE), Map.of(
+        PermissionDecision decision = decide(manager, tool("edit", ToolRiskLevel.WRITE), Map.of(
                 "file_path", "notes/todo.md"
-        )));
+        ));
 
         assertEquals(PermissionDecision.Action.ALLOW, decision.action());
     }
@@ -63,9 +65,9 @@ public class PermissionManagerTest extends TestCase {
         Path workspace = Files.createTempDirectory("aether-permission-workspace");
         PermissionManager manager = defaultManager(workspace);
 
-        PermissionDecision decision = manager.decide(invocation(tool("bash", ToolRiskLevel.EXEC), Map.of(
+        PermissionDecision decision = decide(manager, tool("bash", ToolRiskLevel.EXEC), Map.of(
                 "command", "pwd"
-        )));
+        ));
 
         assertEquals(PermissionDecision.Action.ASK, decision.action());
     }
@@ -74,9 +76,9 @@ public class PermissionManagerTest extends TestCase {
         Path workspace = Files.createTempDirectory("aether-permission-workspace");
         PermissionManager manager = defaultManager(workspace);
 
-        PermissionDecision decision = manager.decide(invocation(tool("powershell", ToolRiskLevel.EXEC), Map.of(
+        PermissionDecision decision = decide(manager, tool("powershell", ToolRiskLevel.EXEC), Map.of(
                 "command", "Get-ChildItem"
-        )));
+        ));
 
         assertEquals(PermissionDecision.Action.ASK, decision.action());
     }
@@ -89,13 +91,13 @@ public class PermissionManagerTest extends TestCase {
                 WorkspaceAccessPolicy.rootedAt(workspace)
         );
 
-        PermissionDecision write = manager.decide(invocation(tool("write", ToolRiskLevel.WRITE), Map.of(
+        PermissionDecision write = decide(manager, tool("write", ToolRiskLevel.WRITE), Map.of(
                 "file_path", outside.toString()
-        )));
-        PermissionDecision bash = manager.decide(invocation(tool("bash", ToolRiskLevel.EXEC), Map.of(
+        ));
+        PermissionDecision bash = decide(manager, tool("bash", ToolRiskLevel.EXEC), Map.of(
                 "command", "rm -rf build"
-        )));
-        PermissionDecision unknown = manager.decide(invocation(tool("mystery", ToolRiskLevel.UNKNOWN), Map.of()));
+        ));
+        PermissionDecision unknown = decide(manager, tool("mystery", ToolRiskLevel.UNKNOWN), Map.of());
 
         assertEquals(PermissionDecision.Action.ALLOW, write.action());
         assertEquals(PermissionDecision.Action.ALLOW, bash.action());
@@ -106,13 +108,13 @@ public class PermissionManagerTest extends TestCase {
         Path workspace = Files.createTempDirectory("aether-permission-workspace");
         PermissionManager manager = defaultManager(workspace);
 
-        PermissionDecision before = manager.decide(invocation(tool("bash", ToolRiskLevel.EXEC), Map.of(
+        PermissionDecision before = decide(manager, tool("bash", ToolRiskLevel.EXEC), Map.of(
                 "command", "pwd"
-        )));
+        ));
         manager.setPreset(PermissionPreset.FULL_ACCESS);
-        PermissionDecision after = manager.decide(invocation(tool("bash", ToolRiskLevel.EXEC), Map.of(
+        PermissionDecision after = decide(manager, tool("bash", ToolRiskLevel.EXEC), Map.of(
                 "command", "pwd"
-        )));
+        ));
 
         assertEquals(PermissionPreset.FULL_ACCESS, manager.preset());
         assertEquals(PermissionDecision.Action.ASK, before.action());
@@ -123,15 +125,12 @@ public class PermissionManagerTest extends TestCase {
         return new PermissionManager(PermissionPreset.DEFAULT, WorkspaceAccessPolicy.rootedAt(workspace));
     }
 
-    private ToolInvocation invocation(Tool tool, Map<String, Object> arguments) {
-        return ToolInvocation.builder()
-                .tool(tool)
-                .arguments(arguments)
-                .build();
+    private PermissionDecision decide(PermissionManager manager, Tool tool, Map<String, Object> arguments) {
+        return manager.decide(tool, tool.name(), arguments);
     }
 
     private Tool tool(String name, ToolRiskLevel riskLevel) {
-        return new Tool() {
+        return new Tool<Object, String>() {
             @Override
             public String name() {
                 return name;
@@ -158,8 +157,18 @@ public class PermissionManagerTest extends TestCase {
             }
 
             @Override
-            public ToolExecutionResult execute(ToolInvocation context) {
-                return ToolExecutionResult.text("ok");
+            public Object parseInput(String argumentsJson) {
+                return new Object();
+            }
+
+            @Override
+            public ToolCallResult<String> call(Object input, ToolUseContext context) {
+                return ToolCallResult.success("ok");
+            }
+
+            @Override
+            public ModelToolResult toModelResult(String output, ToolResultContext<Object, String> context) {
+                return ModelToolResult.text(output);
             }
         };
     }

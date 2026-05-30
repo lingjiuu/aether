@@ -79,7 +79,7 @@ export const editPresenter: ToolPresenter = {
 
 export const fileToolPresentations: ToolPresentationDefinition[] = [
   { names: ['read'], presenter: readPresenter },
-  { names: ['write'], presenter: writePresenter },
+  { names: ['Write', 'write'], presenter: writePresenter },
   { names: ['edit'], presenter: editPresenter },
 ];
 

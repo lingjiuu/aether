@@ -248,20 +248,20 @@ public class SessionFactoryTest extends TestCase {
 
         List<String> unixTools = toolNames(SessionFactory.buildDefaultTools(cwd, false, false, true));
         assertFalse(unixTools.contains("ls"));
-        assertTrue(unixTools.contains("bash"));
+        assertTrue(unixTools.contains("Bash"));
         assertFalse(unixTools.contains("powershell"));
 
         List<String> windowsPowerShellOnly = toolNames(SessionFactory.buildDefaultTools(cwd, true, false, true));
         assertTrue(windowsPowerShellOnly.contains("powershell"));
-        assertFalse(windowsPowerShellOnly.contains("bash"));
+        assertFalse(windowsPowerShellOnly.contains("Bash"));
 
         List<String> windowsBothShells = toolNames(SessionFactory.buildDefaultTools(cwd, true, true, true));
         assertTrue(windowsBothShells.contains("powershell"));
-        assertTrue(windowsBothShells.contains("bash"));
+        assertTrue(windowsBothShells.contains("Bash"));
 
         List<String> windowsNoShells = toolNames(SessionFactory.buildDefaultTools(cwd, true, false, false));
         assertFalse(windowsNoShells.contains("powershell"));
-        assertFalse(windowsNoShells.contains("bash"));
+        assertFalse(windowsNoShells.contains("Bash"));
     }
 
     private List<String> toolNames(List<Tool> tools) {

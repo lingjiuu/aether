@@ -63,10 +63,21 @@ export function detailsKind(
   toolCall: UiToolCall | undefined,
 ): string {
   return clean(stringField(details, 'kind'))
+    ?? clean(displayKind(source?.display))
     ?? clean(source?.toolName)
     ?? clean(toolCall?.toolName)
     ?? clean(toolCall?.displayName)
     ?? 'tool';
+}
+
+export function displayDetails(source: UiToolResult | UiToolUpdate | undefined): Details | undefined {
+  const display = detailsRecord(source?.display);
+  return detailsRecord(display?.data) ?? detailsRecord(source?.details);
+}
+
+function displayKind(displayValue: unknown): string | undefined {
+  const display = detailsRecord(displayValue);
+  return stringField(display, 'kind');
 }
 
 export function toolArguments(toolCall: UiToolCall | undefined): Details | undefined {

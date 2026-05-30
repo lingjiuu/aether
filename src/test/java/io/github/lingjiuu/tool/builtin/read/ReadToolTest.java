@@ -23,7 +23,7 @@ public class ReadToolTest extends TestCase {
         ReadFileState readFileState = new ReadFileState();
 
         ReadTool tool = new ReadTool(WorkspaceAccessPolicy.rootedAt(root));
-        ToolExecutionResult result = tool.execute(ToolInvocation.builder()
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, ToolInvocation.builder()
                 .toolCall(toolCall("read", "{\"file_path\":\"hello.txt\"}"))
                 .arguments(Map.of("file_path", "hello.txt"))
                 .readFileState(readFileState)
@@ -70,7 +70,7 @@ public class ReadToolTest extends TestCase {
         ReadFileState readFileState = new ReadFileState();
 
         ReadTool tool = new ReadTool(WorkspaceAccessPolicy.rootedAt(root));
-        ToolExecutionResult result = tool.execute(ToolInvocation.builder()
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, ToolInvocation.builder()
                 .toolCall(toolCall("read", "{\"file_path\":\"hello.txt\",\"limit\":1}"))
                 .arguments(Map.of("file_path", "hello.txt", "limit", 1))
                 .readFileState(readFileState)
@@ -90,12 +90,12 @@ public class ReadToolTest extends TestCase {
         ReadFileState readFileState = new ReadFileState();
         ReadTool tool = new ReadTool(WorkspaceAccessPolicy.rootedAt(root));
 
-        tool.execute(ToolInvocation.builder()
+        io.github.lingjiuu.tool.ToolTestSupport.execute(tool, ToolInvocation.builder()
                 .toolCall(toolCall("read", "{\"file_path\":\"hello.txt\"}"))
                 .arguments(Map.of("file_path", "hello.txt"))
                 .readFileState(readFileState)
                 .build());
-        tool.execute(ToolInvocation.builder()
+        io.github.lingjiuu.tool.ToolTestSupport.execute(tool, ToolInvocation.builder()
                 .toolCall(toolCall("read", "{\"file_path\":\"hello.txt\",\"limit\":1}"))
                 .arguments(Map.of("file_path", "hello.txt", "limit", 1))
                 .readFileState(readFileState)
@@ -113,7 +113,7 @@ public class ReadToolTest extends TestCase {
         ReadFileState readFileState = new ReadFileState();
 
         ReadTool tool = new ReadTool(WorkspaceAccessPolicy.rootedAt(root));
-        ToolExecutionResult result = tool.execute(ToolInvocation.builder()
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, ToolInvocation.builder()
                 .toolCall(toolCall("read", "{\"file_path\":\"image.png\"}"))
                 .arguments(Map.of("file_path", "image.png"))
                 .readFileState(readFileState)

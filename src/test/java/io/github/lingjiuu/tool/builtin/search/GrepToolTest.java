@@ -21,10 +21,11 @@ public class GrepToolTest extends TestCase {
         Path root = fixtureRoot();
         GrepTool tool = new GrepTool(WorkspaceAccessPolicy.rootedAt(root));
 
-        ToolExecutionResult result = tool.execute(invocation(Map.of("pattern", "hello")));
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, invocation(Map.of("pattern", "hello")));
 
         assertFalse(result.isError());
         assertToolTextContains(result, "Found 2 files");
+        assertToolTextDoesNotContain(result, "[Showing results with pagination");
         assertToolTextContains(result, "a.txt");
         assertToolTextContains(result, "nested/b.txt");
         @SuppressWarnings("unchecked")
@@ -41,10 +42,9 @@ public class GrepToolTest extends TestCase {
         Path root = fixtureRoot();
         GrepTool tool = new GrepTool(WorkspaceAccessPolicy.rootedAt(root));
 
-        ToolExecutionResult result = tool.execute(invocation(Map.of(
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, invocation(Map.of(
                 "pattern", "hello",
-                "output_mode", "content",
-                "-n", true
+                "output_mode", "content"
         )));
 
         assertFalse(result.isError());
@@ -55,6 +55,29 @@ public class GrepToolTest extends TestCase {
         assertEquals(2, ((Number) details.get("numLines")).intValue());
     }
 
+    public void testGrepUsesClaudeStyleToolName() throws Exception {
+        GrepTool tool = new GrepTool(WorkspaceAccessPolicy.rootedAt(Files.createTempDirectory("aether-grep-tool-test")));
+
+        assertEquals("Grep", tool.name());
+        assertEquals("Grep", tool.label());
+    }
+
+    public void testGrepAcceptsSemanticNumberAndBooleanStrings() throws Exception {
+        Path root = fixtureRoot();
+        GrepTool tool = new GrepTool(WorkspaceAccessPolicy.rootedAt(root));
+
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, ToolInvocation.builder()
+                .toolCall(toolCall("Grep"))
+                .arguments(tool.validateArguments("""
+                        {"pattern":"HELLO","output_mode":"count","head_limit":"1","-i":"true"}
+                        """))
+                .build());
+
+        assertFalse(result.isError());
+        assertToolTextContains(result, "Found 3 occurrences across 2 files.");
+        assertToolTextContains(result, "[Showing results with pagination = limit: 1");
+    }
+
     public void testGrepCountModeSummarizesOccurrences() throws Exception {
         if (Ripgrep.command().isEmpty()) {
             return;
@@ -62,7 +85,7 @@ public class GrepToolTest extends TestCase {
         Path root = fixtureRoot();
         GrepTool tool = new GrepTool(WorkspaceAccessPolicy.rootedAt(root));
 
-        ToolExecutionResult result = tool.execute(invocation(Map.of(
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, invocation(Map.of(
                 "pattern", "hello",
                 "output_mode", "count",
                 "-i", true
@@ -103,7 +126,7 @@ public class GrepToolTest extends TestCase {
 
     private ToolInvocation invocation(Map<String, Object> arguments) {
         return ToolInvocation.builder()
-                .toolCall(toolCall("grep"))
+                .toolCall(toolCall("Grep"))
                 .arguments(arguments)
                 .build();
     }
@@ -121,5 +144,12 @@ public class GrepToolTest extends TestCase {
         assertTrue(result.getContents().getFirst() instanceof TextContent);
         String text = ((TextContent) result.getContents().getFirst()).getText();
         assertTrue("Expected tool text to contain " + expected + " but was: " + text, text.contains(expected));
+    }
+
+    private void assertToolTextDoesNotContain(ToolExecutionResult result, String unexpected) {
+        assertFalse(result.getContents().isEmpty());
+        assertTrue(result.getContents().getFirst() instanceof TextContent);
+        String text = ((TextContent) result.getContents().getFirst()).getText();
+        assertFalse("Expected tool text not to contain " + unexpected + " but was: " + text, text.contains(unexpected));
     }
 }

@@ -1,9 +1,13 @@
 package io.github.lingjiuu.tool.builtin.search;
 
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolExecutionResult;
-import io.github.lingjiuu.tool.ToolInvocation;
+import io.github.lingjiuu.tool.ToolCallResult;
+import io.github.lingjiuu.tool.ToolFailure;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.ToolUseContext;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolDisplayResult;
+import io.github.lingjiuu.tool.result.ToolResultContext;
 import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
@@ -20,7 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-public class GlobTool implements Tool {
+public class GlobTool implements Tool<GlobTool.Input, GlobTool.Output> {
 
     private static final int DEFAULT_RESULT_LIMIT = 100;
 
@@ -35,12 +39,12 @@ public class GlobTool implements Tool {
 
     @Override
     public String name() {
-        return "glob";
+        return "Glob";
     }
 
     @Override
     public String label() {
-        return "glob";
+        return "Glob";
     }
 
     @Override
@@ -83,29 +87,45 @@ public class GlobTool implements Tool {
     }
 
     @Override
-    public ToolExecutionResult execute(ToolInvocation context) {
+    public Input parseInput(String argumentsJson) {
+        return Input.from(validateArguments(argumentsJson));
+    }
+
+    @Override
+    public ToolCallResult<Output> call(Input input, ToolUseContext context) {
         try {
             context.throwIfCancellationRequested();
-            Args args = Args.from(context.getArguments());
-            Path resolvedPath = accessPolicy.resolveReadablePath(args.path());
+            Path resolvedPath = accessPolicy.resolveReadablePath(input.path());
             var rgPath = Ripgrep.command();
             if (rgPath.isEmpty()) {
-                return ToolExecutionResult.errorText("glob failed: ripgrep (rg) is unavailable");
+                return ToolCallResult.failure(ToolFailure.runtime("ripgrep (rg) is unavailable"));
             }
-            return glob(context, rgPath.get(), args.pattern(), args.path(), resolvedPath);
+            SearchTarget searchTarget = SearchTarget.from(input.pattern(), resolvedPath, accessPolicy);
+            return ToolCallResult.success(glob(context, rgPath.get(), input.pattern(), input.path(), searchTarget));
         } catch (Exception e) {
-            return ToolExecutionResult.errorText("glob failed: " + e.getMessage());
+            return ToolCallResult.failure(ToolFailure.runtime(e.getMessage()));
         }
     }
 
-    private ToolExecutionResult glob(
-            ToolInvocation context,
+    @Override
+    public ModelToolResult toModelResult(Output output, ToolResultContext<Input, Output> context) {
+        return ModelToolResult.text(output.text());
+    }
+
+    @Override
+    public ToolDisplayResult toDisplayResult(Output output, ToolResultContext<Input, Output> context) {
+        return ToolDisplayResult.of("glob", output.details());
+    }
+
+    private Output glob(
+            ToolUseContext context,
             String rgPath,
             String pattern,
             String requestedPath,
-            Path resolvedPath
+            SearchTarget searchTarget
     ) throws IOException, InterruptedException {
         context.throwIfCancellationRequested();
+        Path resolvedPath = searchTarget.directory();
         if (!Files.exists(resolvedPath)) {
             throw new IOException("Path not found: " + requestedPath);
         }
@@ -117,8 +137,8 @@ public class GlobTool implements Tool {
         args.add(rgPath);
         args.add("--files");
         args.add("--glob");
-        args.add(pattern);
-        args.add("--sortr=modified");
+        args.add(searchTarget.pattern());
+        args.add("--sort=modified");
         args.add("--no-ignore");
         args.add("--hidden");
         for (String ignoredVcsDir : List.of("!.git/**", "!.svn/**", "!.hg/**", "!.bzr/**", "!.jj/**", "!.sl/**")) {
@@ -184,11 +204,7 @@ public class GlobTool implements Tool {
             details.put("filenames", List.copyOf(returned));
             details.put("truncated", resultLimitReached);
 
-            return ToolExecutionResult.builder()
-                    .contents(ToolExecutionResult.text(output).getContents())
-                    .details(details)
-                    .error(false)
-                    .build();
+            return new Output(output, details);
         } finally {
             closeQuietly(cancelRegistration);
         }
@@ -243,6 +259,42 @@ public class GlobTool implements Tool {
         return path.toString().replace('\\', '/');
     }
 
+    private static SearchTarget absolutePatternTarget(String pattern, WorkspaceAccessPolicy accessPolicy) {
+        int globIndex = firstGlobIndex(pattern);
+        if (globIndex < 0) {
+            Path literalPath = accessPolicy.resolveReadablePath(pattern);
+            Path parent = literalPath.getParent();
+            if (parent == null) {
+                return new SearchTarget(pattern, literalPath);
+            }
+            return new SearchTarget(literalPath.getFileName().toString(), parent);
+        }
+
+        int slashIndex = Math.max(pattern.lastIndexOf('/', globIndex), pattern.lastIndexOf('\\', globIndex));
+        if (slashIndex < 0) {
+            return new SearchTarget(pattern, accessPolicy.root());
+        }
+
+        String base = pattern.substring(0, slashIndex);
+        String relativePattern = pattern.substring(slashIndex + 1);
+        if (base.isBlank()) {
+            base = pattern.startsWith("/") ? "/" : base;
+        }
+        Path directory = accessPolicy.resolveReadablePath(base);
+        return new SearchTarget(relativePattern, directory);
+    }
+
+    private static int firstGlobIndex(String pattern) {
+        int first = -1;
+        for (char globChar : List.of('*', '?', '[', '{')) {
+            int index = pattern.indexOf(globChar);
+            if (index >= 0 && (first < 0 || index < first)) {
+                first = index;
+            }
+        }
+        return first;
+    }
+
     private static String requiredString(Map<String, Object> arguments, String name) {
         Object value = arguments.get(name);
         if (!(value instanceof String stringValue) || stringValue.isBlank()) {
@@ -262,12 +314,37 @@ public class GlobTool implements Tool {
         return stringValue.isBlank() ? defaultValue : stringValue;
     }
 
-    private record Args(String pattern, String path) {
-        static Args from(Map<String, Object> arguments) {
-            return new Args(
+    public record Input(String pattern, String path) {
+        static Input from(Map<String, Object> arguments) {
+            return new Input(
                     requiredString(arguments, "pattern"),
                     optionalString(arguments, "path", ".")
             );
+        }
+    }
+
+    public record Output(String text, Map<String, Object> details) {
+    }
+
+    private record SearchTarget(String pattern, Path directory) {
+        static SearchTarget from(
+                String pattern,
+                Path resolvedPath,
+                WorkspaceAccessPolicy accessPolicy
+        ) {
+            if (looksAbsolute(pattern)) {
+                return absolutePatternTarget(pattern, accessPolicy);
+            }
+            return new SearchTarget(pattern, resolvedPath);
+        }
+
+        private static boolean looksAbsolute(String pattern) {
+            if (pattern == null || pattern.isBlank()) {
+                return false;
+            }
+            return pattern.startsWith("/")
+                    || pattern.startsWith("\\\\")
+                    || pattern.matches("^[A-Za-z]:[\\\\/].*");
         }
     }
 }

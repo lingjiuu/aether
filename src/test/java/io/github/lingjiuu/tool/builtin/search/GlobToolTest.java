@@ -24,7 +24,7 @@ public class GlobToolTest extends TestCase {
         Files.writeString(root.resolve("src/App.kt"), "class App", StandardCharsets.UTF_8);
 
         GlobTool tool = new GlobTool(WorkspaceAccessPolicy.rootedAt(root));
-        ToolExecutionResult result = tool.execute(invocation("glob", Map.of("pattern", "**/*.java")));
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, invocation("Glob", Map.of("pattern", "**/*.java")));
 
         assertFalse(result.isError());
         assertToolTextContains(result, "src/App.java");
@@ -32,6 +32,30 @@ public class GlobToolTest extends TestCase {
         Map<String, Object> details = (Map<String, Object>) result.getDetails();
         assertEquals("glob", details.get("kind"));
         assertEquals(1, ((Number) details.get("numFiles")).intValue());
+    }
+
+    public void testGlobUsesClaudeStyleToolName() throws Exception {
+        GlobTool tool = new GlobTool(WorkspaceAccessPolicy.rootedAt(Files.createTempDirectory("aether-glob-tool-test")));
+
+        assertEquals("Glob", tool.name());
+        assertEquals("Glob", tool.label());
+    }
+
+    public void testGlobSupportsAbsolutePattern() throws Exception {
+        if (Ripgrep.command().isEmpty()) {
+            return;
+        }
+        Path root = Files.createTempDirectory("aether-glob-absolute-pattern-test");
+        Files.createDirectories(root.resolve("src"));
+        Files.writeString(root.resolve("src/Absolute.java"), "class Absolute {}", StandardCharsets.UTF_8);
+
+        GlobTool tool = new GlobTool(WorkspaceAccessPolicy.rootedAt(root));
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, invocation("Glob", Map.of(
+                "pattern", root.resolve("src").resolve("*.java").toString()
+        )));
+
+        assertFalse(result.isError());
+        assertToolTextContains(result, "src/Absolute.java");
     }
 
     public void testGlobSchemaRejectsOldFindLimitArgument() throws Exception {

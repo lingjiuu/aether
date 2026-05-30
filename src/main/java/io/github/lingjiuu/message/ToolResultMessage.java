@@ -2,6 +2,7 @@ package io.github.lingjiuu.message;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.github.lingjiuu.message.content.MessageContent;
+import io.github.lingjiuu.tool.result.ToolDisplayResult;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -31,6 +32,8 @@ public class ToolResultMessage implements Message{
     private String toolName;
 
     private Object details;
+
+    private ToolDisplayResult display;
 
     @JsonProperty("isError")
     private boolean isError;

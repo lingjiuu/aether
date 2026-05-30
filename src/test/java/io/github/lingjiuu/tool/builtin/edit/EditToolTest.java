@@ -22,7 +22,7 @@ public class EditToolTest extends TestCase {
         Files.writeString(root.resolve("hello.txt"), "hello world", StandardCharsets.UTF_8);
 
         EditTool tool = new EditTool(WorkspaceAccessPolicy.rootedAt(root));
-        ToolExecutionResult result = tool.execute(editInvocation(
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, editInvocation(
                 new ReadFileState(),
                 "hello.txt",
                 "hello",
@@ -60,7 +60,7 @@ public class EditToolTest extends TestCase {
 
         read(accessPolicy, readFileState, "hello.txt");
         EditTool tool = new EditTool(accessPolicy);
-        ToolExecutionResult result = tool.execute(editInvocation(
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, editInvocation(
                 readFileState,
                 "hello.txt",
                 "hello",
@@ -80,14 +80,14 @@ public class EditToolTest extends TestCase {
         WorkspaceAccessPolicy accessPolicy = WorkspaceAccessPolicy.rootedAt(root);
         ReadFileState readFileState = new ReadFileState();
         ReadTool readTool = new ReadTool(accessPolicy);
-        readTool.execute(ToolInvocation.builder()
+        io.github.lingjiuu.tool.ToolTestSupport.execute(readTool, ToolInvocation.builder()
                 .toolCall(toolCall("read", "{\"file_path\":\"hello.txt\",\"limit\":1}"))
                 .arguments(Map.of("file_path", "hello.txt", "limit", 1))
                 .readFileState(readFileState)
                 .build());
 
         EditTool tool = new EditTool(accessPolicy);
-        ToolExecutionResult result = tool.execute(editInvocation(
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, editInvocation(
                 readFileState,
                 "hello.txt",
                 "hello",
@@ -108,7 +108,7 @@ public class EditToolTest extends TestCase {
         WorkspaceAccessPolicy accessPolicy = WorkspaceAccessPolicy.rootedAt(root);
         ReadFileState readFileState = new ReadFileState();
         ReadTool readTool = new ReadTool(accessPolicy);
-        readTool.execute(ToolInvocation.builder()
+        io.github.lingjiuu.tool.ToolTestSupport.execute(readTool, ToolInvocation.builder()
                 .toolCall(toolCall("read", "{\"file_path\":\"hello.txt\",\"limit\":1}"))
                 .arguments(Map.of("file_path", "hello.txt", "limit", 1))
                 .readFileState(readFileState)
@@ -118,7 +118,7 @@ public class EditToolTest extends TestCase {
         Files.setLastModifiedTime(file, FileTime.fromMillis(readFileState.get(file).modifiedAt().toMillis() + 5000));
 
         EditTool tool = new EditTool(accessPolicy);
-        ToolExecutionResult result = tool.execute(editInvocation(
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, editInvocation(
                 readFileState,
                 "hello.txt",
                 "hello",
@@ -142,7 +142,7 @@ public class EditToolTest extends TestCase {
         Files.writeString(file, "hello user", StandardCharsets.UTF_8);
 
         EditTool tool = new EditTool(accessPolicy);
-        ToolExecutionResult result = tool.execute(editInvocation(
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, editInvocation(
                 readFileState,
                 "hello.txt",
                 "hello",
@@ -164,7 +164,7 @@ public class EditToolTest extends TestCase {
 
         read(accessPolicy, readFileState, "hello.txt");
         EditTool tool = new EditTool(accessPolicy);
-        ToolExecutionResult result = tool.execute(editInvocation(
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, editInvocation(
                 readFileState,
                 "hello.txt",
                 "foo",
@@ -186,7 +186,7 @@ public class EditToolTest extends TestCase {
         ReadFileState readFileState = new ReadFileState();
 
         EditTool tool = new EditTool(accessPolicy);
-        ToolExecutionResult result = tool.execute(editInvocation(
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, editInvocation(
                 readFileState,
                 "created.txt",
                 "",
@@ -201,7 +201,7 @@ public class EditToolTest extends TestCase {
 
     private void read(WorkspaceAccessPolicy accessPolicy, ReadFileState readFileState, String path) {
         ReadTool readTool = new ReadTool(accessPolicy);
-        readTool.execute(ToolInvocation.builder()
+        io.github.lingjiuu.tool.ToolTestSupport.execute(readTool, ToolInvocation.builder()
                 .toolCall(toolCall("read", "{\"file_path\":\"" + path + "\"}"))
                 .arguments(Map.of("file_path", path))
                 .readFileState(readFileState)

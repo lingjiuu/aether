@@ -2,12 +2,16 @@ package io.github.lingjiuu.tool.builtin.bash;
 
 import io.github.lingjiuu.tool.ToolCancelledException;
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolInvocation;
-import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.ToolCallResult;
+import io.github.lingjiuu.tool.ToolFailure;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.ToolUseContext;
 import io.github.lingjiuu.tool.builtin.ExecutableFinder;
 import io.github.lingjiuu.tool.builtin.shell.ShellOutputCapture;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolDisplayResult;
 import io.github.lingjiuu.tool.result.ToolResultLimits;
+import io.github.lingjiuu.tool.result.ToolResultContext;
 import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
@@ -27,9 +31,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class BashTool implements Tool {
+public class BashTool implements Tool<BashTool.Input, BashTool.Output> {
 
-    private static final int DEFAULT_TIMEOUT_SECONDS = 120;
+    private static final int DEFAULT_TIMEOUT_MS = 120_000;
+    private static final int MAX_TIMEOUT_MS = 600_000;
 
     private final Path workspaceRoot;
 
@@ -46,20 +51,18 @@ public class BashTool implements Tool {
 
     @Override
     public String name() {
-        return "bash";
+        return "Bash";
     }
 
     @Override
     public String label() {
-        return "bash";
+        return "Bash";
     }
 
     @Override
     public String description() {
         return """
                 Executes a given bash command and returns its output.
-                
-                The working directory persists between commands, but shell state does not. The shell environment is initialized from the user's profile (bash or zsh).
                 
                 IMPORTANT: Avoid using this tool to run `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool as this will provide a much better experience for the user:
                 
@@ -98,7 +101,7 @@ public class BashTool implements Tool {
                 "type", "object",
                 "properties", Map.of(
                         "command", Map.of("type", "string", "description", "The command to execute."),
-                        "timeout", Map.of("type", "number", "minimum", 1, "description", "Optional timeout in milliseconds (max 600000).")
+                        "timeout", Map.of("type", "number", "minimum", 1, "maximum", MAX_TIMEOUT_MS, "description", "Optional timeout in milliseconds (max 600000).")
                 ),
                 "required", List.of("command"),
                 "additionalProperties", false
@@ -116,18 +119,27 @@ public class BashTool implements Tool {
     }
 
     @Override
-    public ToolExecutionResult execute(ToolInvocation context) {
+    public Input parseInput(String argumentsJson) {
+        return Input.from(validateArguments(argumentsJson));
+    }
+
+    @Override
+    public Map<String, Object> permissionArguments(Input input) {
+        return Map.of("command", input.command());
+    }
+
+    @Override
+    public ToolCallResult<Output> call(Input input, ToolUseContext context) {
         Instant startedAt = Instant.now();
         Process process = null;
         Thread stdoutReaderThread = null;
         Thread stderrReaderThread = null;
         try {
             context.throwIfCancellationRequested();
-            Args args = Args.from(context.getArguments());
-            String command = args.command();
+            String command = input.command();
             Optional<List<String>> shellCommand = shellCommand(command);
             if (shellCommand.isEmpty()) {
-                return ToolExecutionResult.errorText("bash failed: Git Bash is required on Windows. Install Git for Windows or set AETHER_GIT_BASH_PATH to bash.exe.");
+                return ToolCallResult.failure(ToolFailure.runtime("Git Bash is required on Windows. Install Git for Windows or set AETHER_GIT_BASH_PATH to bash.exe."));
             }
             ShellOutputCapture output = new ShellOutputCapture("aether-bash");
             ProcessBuilder builder = new ProcessBuilder(shellCommand.get())
@@ -167,13 +179,13 @@ public class BashTool implements Tool {
             stderrReaderThread.start();
 
             try (AutoCloseable ignored = context.cancellationToken().onCancel(() -> destroyProcessTree(runningProcess))) {
-                boolean finished = process.waitFor(args.timeoutSeconds(), TimeUnit.SECONDS);
+                boolean finished = process.waitFor(input.timeoutMs(), TimeUnit.MILLISECONDS);
                 if (!finished) {
                     destroyProcessTree(process);
                     readerDone.await(1, TimeUnit.SECONDS);
                     ShellOutputCapture.Snapshot snapshot = output.snapshot(true);
-                    return result(command, null, startedAt, snapshot,
-                            "Command timed out after " + args.timeoutSeconds() + " seconds", true);
+                    return ToolCallResult.failedOutput(result(command, null, startedAt, snapshot,
+                            "Command timed out after " + input.timeoutMs() + " milliseconds"));
                 }
                 readerDone.await(1, TimeUnit.SECONDS);
                 if (readerError.get() != null) {
@@ -183,15 +195,15 @@ public class BashTool implements Tool {
                 ShellOutputCapture.Snapshot snapshot = output.snapshot(true);
                 int exitCode = process.exitValue();
                 if (exitCode != 0) {
-                    return result(command, exitCode, startedAt, snapshot,
-                            "Command exited with code " + exitCode, true);
+                    return ToolCallResult.failedOutput(result(command, exitCode, startedAt, snapshot,
+                            "Command exited with code " + exitCode));
                 }
-                return result(command, exitCode, startedAt, snapshot, null, false);
+                return ToolCallResult.success(result(command, exitCode, startedAt, snapshot, null));
             }
         } catch (ToolCancelledException e) {
             throw e;
         } catch (Exception e) {
-            return ToolExecutionResult.errorText("bash failed: " + e.getMessage());
+            return ToolCallResult.failure(ToolFailure.runtime(e.getMessage()));
         } finally {
             if (process != null && process.isAlive()) {
                 destroyProcessTree(process);
@@ -205,11 +217,21 @@ public class BashTool implements Tool {
         }
     }
 
+    @Override
+    public ModelToolResult toModelResult(Output output, ToolResultContext<Input, Output> context) {
+        return ModelToolResult.text(output.text());
+    }
+
+    @Override
+    public ToolDisplayResult toDisplayResult(Output output, ToolResultContext<Input, Output> context) {
+        return ToolDisplayResult.of("bash", output.details());
+    }
+
     private void readOutput(
             InputStream input,
             OutputAppender appendOutput,
             ShellOutputCapture output,
-            ToolInvocation context,
+            ToolUseContext context,
             String command,
             CountDownLatch readerDone,
             AtomicReference<Exception> readerError
@@ -234,26 +256,21 @@ public class BashTool implements Tool {
         }
     }
 
-    private void emitPartial(ShellOutputCapture output, ToolInvocation context, String command) {
+    private void emitPartial(ShellOutputCapture output, ToolUseContext context, String command) {
         try {
             ShellOutputCapture.Snapshot snapshot = output.snapshot(false);
-            context.emitUpdate(ToolExecutionResult.builder()
-                    .contents(ToolExecutionResult.text(snapshot.content()).getContents())
-                    .details(partialDetails(command, snapshot))
-                    .error(false)
-                    .build());
+            context.emitUpdate(ToolDisplayResult.text("bash", snapshot.content(), partialDetails(command, snapshot)));
         } catch (IOException ignored) {
         } catch (IllegalArgumentException ignored) {
         }
     }
 
-    private ToolExecutionResult result(
+    private Output result(
             String command,
             Integer exitCode,
             Instant startedAt,
             ShellOutputCapture.Snapshot snapshot,
-            String status,
-            boolean error
+            String status
     ) {
         String text = snapshot.content() == null || snapshot.content().isBlank() ? "(no output)" : snapshot.content();
         String notice = truncationNotice(snapshot);
@@ -295,11 +312,7 @@ public class BashTool implements Tool {
         if (snapshot.aggregate().fullOutputPath() != null) {
             details.put("aggregateFullOutputPath", snapshot.aggregate().fullOutputPath().toString());
         }
-        return ToolExecutionResult.builder()
-                .contents(ToolExecutionResult.text(text).getContents())
-                .details(details)
-                .error(error)
-                .build();
+        return new Output(text, details);
     }
 
     private Map<String, Object> partialDetails(
@@ -357,7 +370,7 @@ public class BashTool implements Tool {
                 + ". Full output: " + stream.fullOutputPath() + "]");
     }
 
-    private static int optionalPositiveNumber(Map<String, Object> arguments, String name, int defaultValue) {
+    private static int optionalPositiveNumber(Map<String, Object> arguments, String name, int defaultValue, int maxValue) {
         Object value = arguments.get(name);
         if (value == null) {
             return defaultValue;
@@ -375,6 +388,9 @@ public class BashTool implements Tool {
         if (parsed <= 0) {
             throw new IllegalArgumentException(name + " must be a positive number");
         }
+        if (parsed > maxValue) {
+            throw new IllegalArgumentException(name + " must be <= " + maxValue);
+        }
         return parsed;
     }
 
@@ -386,13 +402,16 @@ public class BashTool implements Tool {
         return stringValue;
     }
 
-    private record Args(String command, int timeoutSeconds) {
-        static Args from(Map<String, Object> arguments) {
-            return new Args(
+    public record Input(String command, int timeoutMs) {
+        static Input from(Map<String, Object> arguments) {
+            return new Input(
                     requiredString(arguments, "command"),
-                    optionalPositiveNumber(arguments, "timeout", DEFAULT_TIMEOUT_SECONDS)
+                    optionalPositiveNumber(arguments, "timeout", DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS)
             );
         }
+    }
+
+    public record Output(String text, Map<String, Object> details) {
     }
 
     public static boolean isAvailable() {

@@ -2,6 +2,7 @@ package io.github.lingjiuu.tool;
 
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.tool.file.ReadFileState;
+import io.github.lingjiuu.tool.result.ToolDisplayResult;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -9,7 +10,6 @@ import lombok.NoArgsConstructor;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -17,21 +17,18 @@ import java.util.function.Consumer;
 @Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
-public class ToolInvocation {
+public class ToolUseContext {
 
-    private Tool tool;
+    private Tool<?, ?> tool;
 
     private ToolCallContent toolCall;
-
-    @Builder.Default
-    private Map<String, Object> arguments = Map.of();
 
     @Builder.Default
     private ToolCancellationToken cancellationToken = ToolCancellationToken.none();
 
     private Instant deadline;
 
-    private Consumer<ToolExecutionResult> updateSink;
+    private Consumer<ToolDisplayResult> updateSink;
 
     private ReadFileState readFileState;
 
@@ -66,7 +63,7 @@ public class ToolInvocation {
         return remainingTimeout().orElse(fallback);
     }
 
-    public void emitUpdate(ToolExecutionResult partialResult) {
+    public void emitUpdate(ToolDisplayResult partialResult) {
         if (updateSink != null && partialResult != null) {
             updateSink.accept(partialResult);
         }

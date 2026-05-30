@@ -7,7 +7,7 @@ import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.model.client.ModelRequest;
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.ToolCallResult;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -66,7 +66,7 @@ public final class TracePayloads {
     }
 
     public static Map<String, Object> toolOutput(
-            ToolExecutionResult result,
+            ToolCallResult<?> result,
             String status,
             Long durationMs
     ) {
@@ -77,9 +77,10 @@ public final class TracePayloads {
             return payload;
         }
         payload.put("isError", result.isError());
-        payload.put("details", result.getDetails());
-        payload.put("truncated", truncated(result.getDetails()));
-        payload.put("text", textPayload(messageText(result)));
+        payload.put("status", result.status() == null ? status : result.status().name());
+        payload.put("failureKind", result.failure() == null ? null : result.failure().kind().name());
+        payload.put("failureMessage", result.failure() == null ? null : result.failure().message());
+        payload.put("output", result.output());
         return payload;
     }
 
@@ -147,15 +148,6 @@ public final class TracePayloads {
         payload.put("sha256", sha256(value));
         payload.put("truncatedForTrace", value.length() > DEFAULT_PREVIEW_CHARS);
         return payload;
-    }
-
-    private static String messageText(ToolExecutionResult result) {
-        if (result == null || result.getContents() == null) {
-            return "";
-        }
-        return MessageContents.text(ToolResultMessage.builder()
-                .contents(result.getContents())
-                .build());
     }
 
     private static String preview(String value, int maxChars) {

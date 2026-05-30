@@ -21,8 +21,10 @@ public class WriteToolTest extends TestCase {
         Path root = Files.createTempDirectory("aether-write-tool-test");
         WriteTool tool = new WriteTool(WorkspaceAccessPolicy.rootedAt(root));
 
-        ToolExecutionResult result = tool.execute(ToolInvocation.builder()
-                .toolCall(toolCall("write", "{\"file_path\":\"hello.txt\",\"content\":\"a\\nb\\n\"}"))
+        assertEquals("Write", tool.name());
+        assertEquals("Write", tool.label());
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, ToolInvocation.builder()
+                .toolCall(toolCall("Write", "{\"file_path\":\"hello.txt\",\"content\":\"a\\nb\\n\"}"))
                 .arguments(Map.of("file_path", "hello.txt", "content", "a\nb\n"))
                 .build());
 
@@ -58,33 +60,33 @@ public class WriteToolTest extends TestCase {
         Files.writeString(file, "old", StandardCharsets.UTF_8);
 
         WriteTool tool = new WriteTool(WorkspaceAccessPolicy.rootedAt(root));
-        ToolExecutionResult result = tool.execute(writeInvocation(new ReadFileState(), "hello.txt", "new"));
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, writeInvocation(new ReadFileState(), "hello.txt", "new"));
 
         assertTrue(result.isError());
-        assertToolTextContains(result, "File has not been read yet");
+        assertToolTextEquals(result, "File has not been read yet. Read it first before writing to it.");
         assertEquals("old", Files.readString(file, StandardCharsets.UTF_8));
     }
 
-    public void testWriteAfterPartialReadUpdatesFileWhenUnchanged() throws Exception {
+    public void testWriteRejectsPartialRead() throws Exception {
         Path root = Files.createTempDirectory("aether-write-partial-read-test");
         Path file = root.resolve("hello.txt");
         Files.writeString(file, "old\ncontent", StandardCharsets.UTF_8);
         WorkspaceAccessPolicy accessPolicy = WorkspaceAccessPolicy.rootedAt(root);
         ReadFileState readFileState = new ReadFileState();
         ReadTool readTool = new ReadTool(accessPolicy);
-        readTool.execute(ToolInvocation.builder()
+        io.github.lingjiuu.tool.ToolTestSupport.execute(readTool, ToolInvocation.builder()
                 .toolCall(toolCall("read", "{\"file_path\":\"hello.txt\",\"limit\":1}"))
                 .arguments(Map.of("file_path", "hello.txt", "limit", 1))
                 .readFileState(readFileState)
                 .build());
 
         WriteTool tool = new WriteTool(accessPolicy);
-        ToolExecutionResult result = tool.execute(writeInvocation(readFileState, "hello.txt", "new"));
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, writeInvocation(readFileState, "hello.txt", "new"));
 
-        assertFalse(result.isError());
-        assertEquals("new", Files.readString(file, StandardCharsets.UTF_8));
-        assertEquals("new", readFileState.get(file).content());
-        assertFalse(readFileState.get(file).partial());
+        assertTrue(result.isError());
+        assertToolTextEquals(result, "File has not been read yet. Read it first before writing to it.");
+        assertEquals("old\ncontent", Files.readString(file, StandardCharsets.UTF_8));
+        assertTrue(readFileState.get(file).partial());
     }
 
     public void testWriteRejectsFileChangedSincePartialRead() throws Exception {
@@ -94,7 +96,7 @@ public class WriteToolTest extends TestCase {
         WorkspaceAccessPolicy accessPolicy = WorkspaceAccessPolicy.rootedAt(root);
         ReadFileState readFileState = new ReadFileState();
         ReadTool readTool = new ReadTool(accessPolicy);
-        readTool.execute(ToolInvocation.builder()
+        io.github.lingjiuu.tool.ToolTestSupport.execute(readTool, ToolInvocation.builder()
                 .toolCall(toolCall("read", "{\"file_path\":\"hello.txt\",\"limit\":1}"))
                 .arguments(Map.of("file_path", "hello.txt", "limit", 1))
                 .readFileState(readFileState)
@@ -104,10 +106,10 @@ public class WriteToolTest extends TestCase {
         Files.setLastModifiedTime(file, FileTime.fromMillis(readFileState.get(file).modifiedAt().toMillis() + 5000));
 
         WriteTool tool = new WriteTool(accessPolicy);
-        ToolExecutionResult result = tool.execute(writeInvocation(readFileState, "hello.txt", "new"));
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, writeInvocation(readFileState, "hello.txt", "new"));
 
         assertTrue(result.isError());
-        assertToolTextContains(result, "modified since read");
+        assertToolTextEquals(result, "File has not been read yet. Read it first before writing to it.");
         assertEquals("old\nuser changed", Files.readString(file, StandardCharsets.UTF_8));
     }
 
@@ -122,7 +124,7 @@ public class WriteToolTest extends TestCase {
         Files.writeString(file, "user changed", StandardCharsets.UTF_8);
 
         WriteTool tool = new WriteTool(accessPolicy);
-        ToolExecutionResult result = tool.execute(writeInvocation(readFileState, "hello.txt", "new"));
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, writeInvocation(readFileState, "hello.txt", "new"));
 
         assertTrue(result.isError());
         assertToolTextContains(result, "modified since read");
@@ -138,7 +140,7 @@ public class WriteToolTest extends TestCase {
 
         read(accessPolicy, readFileState, "hello.txt");
         WriteTool tool = new WriteTool(accessPolicy);
-        ToolExecutionResult result = tool.execute(writeInvocation(readFileState, "hello.txt", "new\ncontent\n"));
+        ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, writeInvocation(readFileState, "hello.txt", "new\ncontent\n"));
 
         assertFalse(result.isError());
         assertEquals("new\ncontent\n", Files.readString(file, StandardCharsets.UTF_8));
@@ -152,7 +154,7 @@ public class WriteToolTest extends TestCase {
 
     private void read(WorkspaceAccessPolicy accessPolicy, ReadFileState readFileState, String path) {
         ReadTool readTool = new ReadTool(accessPolicy);
-        readTool.execute(ToolInvocation.builder()
+        io.github.lingjiuu.tool.ToolTestSupport.execute(readTool, ToolInvocation.builder()
                 .toolCall(toolCall("read", "{\"file_path\":\"" + path + "\"}"))
                 .arguments(Map.of("file_path", path))
                 .readFileState(readFileState)
@@ -161,7 +163,7 @@ public class WriteToolTest extends TestCase {
 
     private ToolInvocation writeInvocation(ReadFileState readFileState, String path, String content) {
         return ToolInvocation.builder()
-                .toolCall(toolCall("write", "{}"))
+                .toolCall(toolCall("Write", "{}"))
                 .arguments(Map.of(
                         "file_path", path,
                         "content", content
@@ -183,5 +185,12 @@ public class WriteToolTest extends TestCase {
         assertTrue(result.getContents().getFirst() instanceof TextContent);
         String text = ((TextContent) result.getContents().getFirst()).getText();
         assertTrue("Expected tool text to contain " + expected + " but was: " + text, text.contains(expected));
+    }
+
+    private void assertToolTextEquals(ToolExecutionResult result, String expected) {
+        assertFalse(result.getContents().isEmpty());
+        assertTrue(result.getContents().getFirst() instanceof TextContent);
+        String text = ((TextContent) result.getContents().getFirst()).getText();
+        assertEquals(expected, text);
     }
 }

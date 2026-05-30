@@ -8,8 +8,6 @@ import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.message.UserMessage;
-import io.github.lingjiuu.message.content.MessageContent;
-import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.lingjiuu.model.ModelSelection;
@@ -29,7 +27,7 @@ import io.github.lingjiuu.protocol.UiToolCall;
 import io.github.lingjiuu.protocol.UiToolResult;
 import io.github.lingjiuu.protocol.UiToolUpdate;
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.result.ToolDisplayResult;
 import io.github.lingjiuu.tool.permission.ApprovalRequest;
 import io.github.lingjiuu.tool.permission.ApprovalResponse;
 import io.github.lingjiuu.tool.permission.PermissionPreset;
@@ -217,7 +215,7 @@ public final class UiEvents {
             Integer contentIndex,
             ToolCallContent toolCall,
             Tool toolDefinition,
-            ToolExecutionResult partialResult,
+            ToolDisplayResult partialResult,
             Long durationMs,
             TurnContext turnContext
     ) {
@@ -477,6 +475,7 @@ public final class UiEvents {
                 .status(status == null ? (message.isError() ? "FAILED" : "COMPLETED") : status)
                 .durationMs(durationMs)
                 .details(normalizeToolDetails(message.getToolName(), message.getDetails()))
+                .display(message.getDisplay())
                 .truncated(truncated(message.getDetails()))
                 .build();
     }
@@ -501,6 +500,7 @@ public final class UiEvents {
                 .status(status == null ? (message.isError() ? "FAILED" : "COMPLETED") : status)
                 .durationMs(durationMs)
                 .details(normalizeToolDetails(message.getToolName(), message.getDetails()))
+                .display(message.getDisplay())
                 .truncated(truncated(message.getDetails()))
                 .build();
     }
@@ -510,7 +510,7 @@ public final class UiEvents {
             String sourceItemId,
             Integer contentIndex,
             ToolCallContent toolCall,
-            ToolExecutionResult result,
+            ToolDisplayResult result,
             String status,
             Long durationMs
     ) {
@@ -532,11 +532,12 @@ public final class UiEvents {
                 .contentIndex(contentIndex)
                 .toolCallId(toolCall == null ? null : toolCall.getToolCallId())
                 .toolName(toolName)
-                .text(toolExecutionText(result))
-                .status(status == null ? (result.isError() ? "FAILED" : "COMPLETED") : status)
+                .text(result.text())
+                .status(status)
                 .durationMs(durationMs)
-                .details(normalizeToolDetails(toolName, result.getDetails()))
-                .truncated(truncated(result.getDetails()))
+                .details(normalizeToolDetails(toolName, result.data()))
+                .display(result)
+                .truncated(truncated(result.data()))
                 .build();
     }
 
@@ -560,13 +561,13 @@ public final class UiEvents {
         String toolName = toolCall.getToolName();
         if (arguments instanceof JsonNode node && node.isObject()) {
             return switch (toolName == null ? "" : toolName) {
-                case "bash", "powershell" -> jsonText(node, "command");
-                case "read", "write", "edit" -> jsonText(node, "file_path");
-                case "glob" -> joinSummary(
+                case "Bash", "bash", "powershell" -> jsonText(node, "command");
+                case "read", "Write", "write", "edit" -> jsonText(node, "file_path");
+                case "Glob", "glob" -> joinSummary(
                         jsonText(node, "pattern"),
                         prefixed("in ", jsonText(node, "path"))
                 );
-                case "grep" -> joinSummary(
+                case "Grep", "grep" -> joinSummary(
                         jsonText(node, "pattern"),
                         prefixed("in ", jsonText(node, "path")),
                         parenthesized(jsonText(node, "glob"))
@@ -578,13 +579,13 @@ public final class UiEvents {
             return null;
         }
         return switch (toolName == null ? "" : toolName) {
-            case "bash", "powershell" -> stringValue(map.get("command"));
-            case "read", "write", "edit" -> stringValue(map.get("file_path"));
-            case "glob" -> joinSummary(
+            case "Bash", "bash", "powershell" -> stringValue(map.get("command"));
+            case "read", "Write", "write", "edit" -> stringValue(map.get("file_path"));
+            case "Glob", "glob" -> joinSummary(
                     stringValue(map.get("pattern")),
                     prefixed("in ", stringValue(map.get("path")))
             );
-            case "grep" -> joinSummary(
+            case "Grep", "grep" -> joinSummary(
                     stringValue(map.get("pattern")),
                     prefixed("in ", stringValue(map.get("path"))),
                     parenthesized(stringValue(map.get("glob")))
@@ -654,21 +655,6 @@ public final class UiEvents {
             return truncated;
         }
         return null;
-    }
-
-    private static String toolExecutionText(ToolExecutionResult result) {
-        StringBuilder text = new StringBuilder();
-        for (MessageContent content : result.getContents()) {
-            if (content instanceof TextContent textContent
-                    && textContent.getText() != null
-                    && !textContent.getText().isBlank()) {
-                if (!text.isEmpty()) {
-                    text.append('\n');
-                }
-                text.append(textContent.getText());
-            }
-        }
-        return text.toString().trim();
     }
 
     private static UiApprovalRequest uiApprovalRequest(ApprovalRequest request) {
