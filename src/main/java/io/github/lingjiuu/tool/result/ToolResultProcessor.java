@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 public class ToolResultProcessor {
 
@@ -48,6 +49,81 @@ public class ToolResultProcessor {
         }
         applyAggregateBudget(processed);
         return processed.stream().map(Processed::result).toList();
+    }
+
+    public ProcessedToolResult processForRecording(ToolResultInput input) {
+        if (input == null) {
+            return null;
+        }
+        return processOne(input).result();
+    }
+
+    public List<ProcessedToolResult> processForRecording(List<ToolResultInput> inputs) {
+        if (inputs == null || inputs.isEmpty()) {
+            return List.of();
+        }
+        List<ProcessedToolResult> processed = new ArrayList<>(inputs.size());
+        for (ToolResultInput input : inputs) {
+            ProcessedToolResult result = processForRecording(input);
+            if (result != null) {
+                processed.add(result);
+            }
+        }
+        return List.copyOf(processed);
+    }
+
+    public List<ToolResultReplacement> applyAggregateBudgetForModel(
+            List<ToolResultMessage> batch,
+            Function<String, ToolResultPolicy> policyByToolName
+    ) {
+        if (batch == null || batch.isEmpty()) {
+            return List.of();
+        }
+
+        List<ModelCandidate> candidates = new ArrayList<>();
+        long total = 0L;
+        for (int i = 0; i < batch.size(); i++) {
+            ToolResultMessage message = batch.get(i);
+            ToolResultPolicy policy = policy(message.getToolName(), policyByToolName);
+            if (!eligibleForAggregate(message, policy)) {
+                continue;
+            }
+            String text = MessageContents.text(message);
+            long size = text.length();
+            candidates.add(new ModelCandidate(i, size, policy));
+            total += size;
+        }
+        if (total <= ToolResultLimits.MAX_TOOL_RESULTS_PER_BATCH_CHARS) {
+            return List.of();
+        }
+
+        List<ToolResultReplacement> replacements = new ArrayList<>();
+        candidates.sort(Comparator.comparingLong(ModelCandidate::size).reversed());
+        for (ModelCandidate candidate : candidates) {
+            if (total <= ToolResultLimits.MAX_TOOL_RESULTS_PER_BATCH_CHARS) {
+                break;
+            }
+            ToolResultMessage original = batch.get(candidate.index());
+            List<ToolResultArtifactRef> artifactRefs = new ArrayList<>();
+            ToolResultMessage replacement = maybePersistExistingContent(
+                    original,
+                    candidate.policy(),
+                    "batch-output",
+                    artifactRefs
+            );
+            if (replacement == original) {
+                continue;
+            }
+            replacements.add(new ToolResultReplacement(
+                    original.getId(),
+                    original.getToolCallId(),
+                    original.getToolBatchId(),
+                    replacement,
+                    artifactRefs
+            ));
+            total = total - candidate.size() + MessageContents.text(replacement).length();
+        }
+        return List.copyOf(replacements);
     }
 
     private Processed processOne(ToolResultInput input) {
@@ -105,10 +181,13 @@ public class ToolResultProcessor {
     }
 
     private boolean eligibleForAggregate(Processed processed) {
-        if (!processed.policy().includeInAggregateBudget() || !processed.policy().persistLargeText()) {
+        return eligibleForAggregate(processed.message(), processed.policy());
+    }
+
+    private boolean eligibleForAggregate(ToolResultMessage message, ToolResultPolicy policy) {
+        if (policy == null || !policy.includeInAggregateBudget() || !policy.persistLargeText()) {
             return false;
         }
-        ToolResultMessage message = processed.message();
         if (hasImage(message.messageContents())) {
             return false;
         }
@@ -135,6 +214,48 @@ public class ToolResultProcessor {
         artifactRefs.add(artifactRef("tool_result_output", suffix, persisted));
         String replacement = buildPersistedOutputMessage(persisted, policy.previewMode());
         return copy(message, textContents(replacement), message.getDetails());
+    }
+
+    private ToolResultMessage maybePersistExistingContent(
+            ToolResultMessage message,
+            ToolResultPolicy policy,
+            String suffix,
+            List<ToolResultArtifactRef> artifactRefs
+    ) {
+        if (message == null || !policy.persistLargeText() || hasImage(message.messageContents())) {
+            return message;
+        }
+        String text = MessageContents.text(message);
+        if (text.isBlank() || isPersistedOutput(text)) {
+            return message;
+        }
+        PersistedToolOutput persisted = persistExistingOutput(message, text, policy, suffix);
+        artifactRefs.add(artifactRef("tool_result_output", suffix, persisted));
+        String replacement = buildPersistedOutputMessage(persisted, policy.previewMode());
+        return copy(message, textContents(replacement), message.getDetails());
+    }
+
+    private PersistedToolOutput persistExistingOutput(
+            ToolResultMessage message,
+            String text,
+            ToolResultPolicy policy,
+            String suffix
+    ) {
+        Path sourcePath = mainOutputSourcePath(message.getDetails());
+        if (sourcePath != null && Files.isRegularFile(sourcePath)) {
+            return artifactStore.persistTextFile(
+                    safeToolCallId(message),
+                    suffix,
+                    sourcePath,
+                    policy.previewMode()
+            );
+        }
+        return artifactStore.persistText(
+                safeToolCallId(message),
+                suffix,
+                text,
+                policy.previewMode()
+        );
     }
 
     private PersistedToolOutput persistMainOutput(
@@ -308,6 +429,7 @@ public class ToolResultProcessor {
                 .timestamp(message.getTimestamp())
                 .contents(contents == null ? List.of() : List.copyOf(contents))
                 .toolCallId(message.getToolCallId())
+                .toolBatchId(message.getToolBatchId())
                 .toolName(message.getToolName())
                 .details(details)
                 .isError(message.isError())
@@ -322,12 +444,27 @@ public class ToolResultProcessor {
         return tool == null ? ToolResultPolicy.defaultPolicy() : tool.resultPolicy();
     }
 
+    private ToolResultPolicy policy(String toolName, Function<String, ToolResultPolicy> policyByToolName) {
+        if (policyByToolName == null) {
+            return ToolResultPolicy.defaultPolicy();
+        }
+        ToolResultPolicy policy = policyByToolName.apply(toolName);
+        return policy == null ? ToolResultPolicy.defaultPolicy() : policy;
+    }
+
     private String safeToolCallId(ToolResultInput input) {
         ToolCallContent toolCall = input.toolCall();
         if (toolCall == null || toolCall.getToolCallId() == null || toolCall.getToolCallId().isBlank()) {
             return "tool-call";
         }
         return toolCall.getToolCallId();
+    }
+
+    private String safeToolCallId(ToolResultMessage message) {
+        if (message == null || message.getToolCallId() == null || message.getToolCallId().isBlank()) {
+            return "tool-call";
+        }
+        return message.getToolCallId();
     }
 
     private int jsonSize(Object value) {
@@ -354,5 +491,8 @@ public class ToolResultProcessor {
     }
 
     private record Candidate(int index, long size) {
+    }
+
+    private record ModelCandidate(int index, long size, ToolResultPolicy policy) {
     }
 }

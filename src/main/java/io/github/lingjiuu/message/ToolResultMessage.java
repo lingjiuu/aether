@@ -28,6 +28,8 @@ public class ToolResultMessage implements Message{
 
     private String toolCallId;
 
+    private String toolBatchId;
+
     private String toolName;
 
     private Object details;

@@ -7,9 +7,12 @@ import io.github.lingjiuu.message.UserMessage;
 import io.github.lingjiuu.message.content.ImageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
+import io.github.lingjiuu.tool.result.ToolResultReplacement;
 import junit.framework.TestCase;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ContextManagerTest extends TestCase {
 
@@ -154,5 +157,69 @@ public class ContextManagerTest extends TestCase {
 
         assertSame(toolResult, contextManager.snapshot().getFirst());
         assertEquals(large, io.github.lingjiuu.message.MessageContents.text(contextManager.snapshot().getFirst()));
+    }
+
+    public void testApplyToolResultBudgetForModelGroupsByToolBatchIdAndReplacesInMemory() {
+        ContextManager contextManager = new ContextManager();
+        ToolResultMessage batchOneFirst = toolResult("message-1", "call-1", "batch-1", "raw-1");
+        ToolResultMessage batchOneSecond = toolResult("message-2", "call-2", "batch-1", "raw-2");
+        ToolResultMessage batchTwo = toolResult("message-3", "call-3", "batch-2", "raw-3");
+        contextManager.recordAll(List.of(
+                assistantToolCall("call-1", "batch-1"),
+                batchOneFirst,
+                assistantToolCall("call-2", "batch-1"),
+                batchOneSecond,
+                assistantToolCall("call-3", "batch-2"),
+                batchTwo
+        ));
+
+        AtomicInteger budgetCalls = new AtomicInteger();
+        List<List<String>> seenBatches = new ArrayList<>();
+        List<ToolResultReplacement> replacements = contextManager.applyToolResultBudgetForModel(batch -> {
+            budgetCalls.incrementAndGet();
+            seenBatches.add(batch.stream().map(ToolResultMessage::getToolCallId).toList());
+            if (!"batch-1".equals(batch.getFirst().getToolBatchId())) {
+                return List.of();
+            }
+            ToolResultMessage original = batch.getFirst();
+            return List.of(new ToolResultReplacement(
+                    original.getId(),
+                    original.getToolCallId(),
+                    original.getToolBatchId(),
+                    toolResult(original.getId(), original.getToolCallId(), original.getToolBatchId(), "preview-1"),
+                    List.of()
+            ));
+        });
+
+        assertEquals(2, budgetCalls.get());
+        assertEquals(List.of(List.of("call-1", "call-2"), List.of("call-3")), seenBatches);
+        assertEquals(1, replacements.size());
+        List<Message> snapshot = contextManager.snapshot();
+        assertEquals("preview-1", io.github.lingjiuu.message.MessageContents.text(snapshot.get(1)));
+        assertEquals("raw-2", io.github.lingjiuu.message.MessageContents.text(snapshot.get(3)));
+        assertEquals("raw-3", io.github.lingjiuu.message.MessageContents.text(snapshot.get(5)));
+    }
+
+    private AssistantMessage assistantToolCall(String toolCallId, String toolBatchId) {
+        return AssistantMessage.builder()
+                .contents(List.of(ToolCallContent.builder()
+                        .toolCallId(toolCallId)
+                        .toolBatchId(toolBatchId)
+                        .toolName("bash")
+                        .argumentsJson("{}")
+                        .build()))
+                .build();
+    }
+
+    private ToolResultMessage toolResult(String id, String toolCallId, String toolBatchId, String text) {
+        return ToolResultMessage.builder()
+                .id(id)
+                .toolCallId(toolCallId)
+                .toolBatchId(toolBatchId)
+                .toolName("bash")
+                .contents(List.of(TextContent.builder()
+                        .text(text)
+                        .build()))
+                .build();
     }
 }

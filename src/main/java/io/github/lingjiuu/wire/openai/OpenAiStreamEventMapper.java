@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 final class OpenAiStreamEventMapper {
 
@@ -32,6 +33,7 @@ final class OpenAiStreamEventMapper {
     private final List<OpenAiReplayData.ReplayItem> replayItems = new ArrayList<>();
     private final String provider;
     private final AssistantMessage partial;
+    private String toolBatchId;
 
     OpenAiStreamEventMapper(String model, String provider) {
         this.provider = provider;
@@ -47,6 +49,9 @@ final class OpenAiStreamEventMapper {
         if (event.created().isPresent()) {
             Response response = event.created().get().response();
             partial.setResponseId(response.id());
+            if (isBlank(toolBatchId)) {
+                toolBatchId = response.id();
+            }
             partial.setProvider(provider);
             partial.setModel(response.model().toString());
             return AssistantStreamEvent.builder()
@@ -84,6 +89,7 @@ final class OpenAiStreamEventMapper {
                 String itemId = item.id().orElse(item.callId());
                 ToolCallContent toolCall = ToolCallContent.builder()
                         .toolCallId(item.callId())
+                        .toolBatchId(currentToolBatchId())
                         .toolName(item.name())
                         .argumentsJson(item.arguments())
                         .arguments(parseStreamingJson(item.arguments()))
@@ -153,6 +159,7 @@ final class OpenAiStreamEventMapper {
             partialToolArguments.put(delta.itemId(), partialJson);
             ToolCallContent updatedToolCall = ToolCallContent.builder()
                     .toolCallId(toolCallContent.getToolCallId())
+                    .toolBatchId(toolCallContent.getToolBatchId())
                     .toolName(toolCallContent.getToolName())
                     .argumentsJson(partialJson)
                     .arguments(parseStreamingJson(partialJson))
@@ -180,6 +187,7 @@ final class OpenAiStreamEventMapper {
             partialToolArguments.put(done.itemId(), done.arguments());
             partial.getContents().set(contentIndex, ToolCallContent.builder()
                     .toolCallId(toolCallContent.getToolCallId())
+                    .toolBatchId(toolCallContent.getToolBatchId())
                     .toolName(toolCallContent.getToolName())
                     .argumentsJson(done.arguments())
                     .arguments(parseStreamingJson(done.arguments()))
@@ -238,9 +246,13 @@ final class OpenAiStreamEventMapper {
                 if (contentIndex == null) {
                     return null;
                 }
+                ToolCallContent existingToolCall = (ToolCallContent) partial.getContents().get(contentIndex);
                 String finalArguments = partialToolArguments.getOrDefault(itemId, functionCall.arguments());
                 ToolCallContent toolCall = ToolCallContent.builder()
                         .toolCallId(functionCall.callId())
+                        .toolBatchId(isBlank(existingToolCall.getToolBatchId())
+                                ? currentToolBatchId()
+                                : existingToolCall.getToolBatchId())
                         .toolName(functionCall.name())
                         .argumentsJson(finalArguments)
                         .arguments(parseStreamingJson(finalArguments))
@@ -468,10 +480,24 @@ final class OpenAiStreamEventMapper {
     private ToolCallContent copyToolCall(ToolCallContent toolCallContent) {
         return ToolCallContent.builder()
                 .toolCallId(toolCallContent.getToolCallId())
+                .toolBatchId(toolCallContent.getToolBatchId())
                 .toolName(toolCallContent.getToolName())
                 .argumentsJson(toolCallContent.getArgumentsJson())
                 .arguments(toolCallContent.getArguments())
                 .build();
+    }
+
+    private String currentToolBatchId() {
+        if (isBlank(toolBatchId)) {
+            toolBatchId = isBlank(partial.getResponseId())
+                    ? "local-tool-batch-" + UUID.randomUUID()
+                    : partial.getResponseId();
+        }
+        return toolBatchId;
+    }
+
+    private boolean isBlank(String text) {
+        return text == null || text.isBlank();
     }
 
     private Map<String, Object> toUsage(Response response) {

@@ -5,6 +5,7 @@ import io.github.lingjiuu.context.EnvironmentContext;
 import io.github.lingjiuu.message.ContextMessage;
 import io.github.lingjiuu.message.MessageContents;
 import io.github.lingjiuu.message.Message;
+import io.github.lingjiuu.message.ToolResultMessage;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiEventPayloads;
 import io.github.lingjiuu.protocol.UiEventType;
@@ -15,6 +16,7 @@ import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
 import io.github.lingjiuu.transcript.item.SessionNameItem;
 import io.github.lingjiuu.transcript.item.TranscriptItem;
+import io.github.lingjiuu.transcript.item.ToolResultReplacementTranscriptItem;
 import io.github.lingjiuu.transcript.item.TurnContextItem;
 
 import java.util.ArrayList;
@@ -156,6 +158,10 @@ public class TranscriptRestorer {
             }
             return initialContextBaseline;
         }
+        if (item instanceof ToolResultReplacementTranscriptItem replacementItem) {
+            applyToolResultReplacement(messages, replacementItem);
+            return initialContextBaseline;
+        }
         if (item instanceof CompactedTranscriptItem compactedItem) {
             messages.clear();
             if (compactedItem.getReplacementMessages() != null) {
@@ -167,6 +173,47 @@ public class TranscriptRestorer {
             return turnContextItem.getInitialContextBaseline();
         }
         return initialContextBaseline;
+    }
+
+    private void applyToolResultReplacement(
+            List<Message> messages,
+            ToolResultReplacementTranscriptItem replacementItem
+    ) {
+        if (replacementItem == null || replacementItem.getReplacementMessage() == null) {
+            return;
+        }
+        int index = findToolResultIndex(
+                messages,
+                replacementItem.getMessageId(),
+                replacementItem.getToolCallId()
+        );
+        if (index < 0) {
+            return;
+        }
+        messages.set(index, replacementItem.getReplacementMessage());
+    }
+
+    private int findToolResultIndex(List<Message> messages, String messageId, String toolCallId) {
+        String safeMessageId = safeText(messageId);
+        if (!safeMessageId.isBlank()) {
+            for (int index = 0; index < messages.size(); index++) {
+                Message message = messages.get(index);
+                if (message instanceof ToolResultMessage && safeMessageId.equals(message.id())) {
+                    return index;
+                }
+            }
+        }
+        String safeToolCallId = safeText(toolCallId);
+        if (!safeToolCallId.isBlank()) {
+            for (int index = messages.size() - 1; index >= 0; index--) {
+                Message message = messages.get(index);
+                if (message instanceof ToolResultMessage toolResultMessage
+                        && safeToolCallId.equals(safeText(toolResultMessage.getToolCallId()))) {
+                    return index;
+                }
+            }
+        }
+        return -1;
     }
 
     private List<UiEvent> timelineEvents(List<TranscriptRecord> records) {
@@ -211,6 +258,10 @@ public class TranscriptRestorer {
         }
         String text = MessageContents.text(lastMessage);
         return text.startsWith("<turn_aborted>") && text.endsWith("</turn_aborted>");
+    }
+
+    private String safeText(String text) {
+        return text == null ? "" : text.trim();
     }
 
     private InterruptedTurnBoundary interruptedTurnBoundary(List<UiEvent> timelineEvents) {

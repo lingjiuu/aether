@@ -11,6 +11,7 @@ import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ThinkingContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
+import io.github.lingjiuu.tool.result.ToolResultReplacement;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -19,6 +20,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 public class ContextManager {
 
@@ -90,6 +92,40 @@ public class ContextManager {
         return stripImagesWhenUnsupported(withoutOrphanToolResults, inputModalities);
     }
 
+    public synchronized List<ToolResultReplacement> applyToolResultBudgetForModel(
+            Function<List<ToolResultMessage>, List<ToolResultReplacement>> budgeter
+    ) {
+        if (budgeter == null || messages.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, List<ToolResultMessage>> batches = new LinkedHashMap<>();
+        for (Message message : messages) {
+            if (!(message instanceof ToolResultMessage toolResultMessage)) {
+                continue;
+            }
+            String toolBatchId = safeText(toolResultMessage.getToolBatchId());
+            if (toolBatchId.isBlank()) {
+                continue;
+            }
+            batches.computeIfAbsent(toolBatchId, ignored -> new ArrayList<>()).add(toolResultMessage);
+        }
+
+        List<ToolResultReplacement> replacements = new ArrayList<>();
+        for (List<ToolResultMessage> batch : batches.values()) {
+            List<ToolResultReplacement> batchReplacements = budgeter.apply(List.copyOf(batch));
+            if (batchReplacements == null || batchReplacements.isEmpty()) {
+                continue;
+            }
+            for (ToolResultReplacement replacement : batchReplacements) {
+                if (replaceToolResult(replacement)) {
+                    replacements.add(replacement);
+                }
+            }
+        }
+        return List.copyOf(replacements);
+    }
+
     public synchronized long estimateTokensForModel(String baseInstructions) {
         long chars = visibleChars(baseInstructions);
         for (Message message : messages) {
@@ -122,7 +158,7 @@ public class ContextManager {
 
     private List<Message> ensureToolResultsPresent(Collection<? extends Message> sourceMessages) {
         List<Message> normalized = new ArrayList<>();
-        Map<String, String> pendingToolCalls = new LinkedHashMap<>();
+        Map<String, PendingToolCall> pendingToolCalls = new LinkedHashMap<>();
         Set<String> seenToolCallIds = new LinkedHashSet<>();
 
         for (Message message : sourceMessages) {
@@ -200,7 +236,7 @@ public class ContextManager {
     private void collectToolCalls(
             AssistantMessage assistantMessage,
             Set<String> seenToolCallIds,
-            Map<String, String> pendingToolCalls
+            Map<String, PendingToolCall> pendingToolCalls
     ) {
         if (assistantMessage == null || assistantMessage.messageContents() == null) {
             return;
@@ -215,7 +251,10 @@ public class ContextManager {
             }
             seenToolCallIds.add(toolCallId);
             if (pendingToolCalls != null) {
-                pendingToolCalls.put(toolCallId, safeText(toolCallContent.getToolName()));
+                pendingToolCalls.put(toolCallId, new PendingToolCall(
+                        safeText(toolCallContent.getToolName()),
+                        safeText(toolCallContent.getToolBatchId())
+                ));
             }
         }
     }
@@ -246,15 +285,16 @@ public class ContextManager {
 
     private void appendPendingToolResults(
             List<Message> normalized,
-            Map<String, String> pendingToolCalls
+            Map<String, PendingToolCall> pendingToolCalls
     ) {
         if (pendingToolCalls.isEmpty()) {
             return;
         }
-        for (Map.Entry<String, String> entry : pendingToolCalls.entrySet()) {
+        for (Map.Entry<String, PendingToolCall> entry : pendingToolCalls.entrySet()) {
             normalized.add(ToolResultMessage.builder()
                     .toolCallId(entry.getKey())
-                    .toolName(entry.getValue())
+                    .toolBatchId(entry.getValue().toolBatchId())
+                    .toolName(entry.getValue().toolName())
                     .isError(true)
                     .contents(List.of(TextContent.builder()
                             .text(MISSING_TOOL_RESULT_TEXT)
@@ -336,6 +376,7 @@ public class ContextManager {
                 .timestamp(message.getTimestamp())
                 .contents(contents)
                 .toolCallId(message.getToolCallId())
+                .toolBatchId(message.getToolBatchId())
                 .toolName(message.getToolName())
                 .details(message.getDetails())
                 .isError(message.isError())
@@ -413,5 +454,43 @@ public class ContextManager {
             return 0;
         }
         return Math.max(1, (chars + 3) / 4);
+    }
+
+    private boolean replaceToolResult(ToolResultReplacement replacement) {
+        if (replacement == null || replacement.replacementMessage() == null) {
+            return false;
+        }
+        int index = findToolResultIndex(replacement.messageId(), replacement.toolCallId());
+        if (index < 0) {
+            return false;
+        }
+        messages.set(index, replacement.replacementMessage());
+        return true;
+    }
+
+    private int findToolResultIndex(String messageId, String toolCallId) {
+        String safeMessageId = safeText(messageId);
+        if (!safeMessageId.isBlank()) {
+            for (int index = 0; index < messages.size(); index++) {
+                Message message = messages.get(index);
+                if (message instanceof ToolResultMessage && safeMessageId.equals(message.id())) {
+                    return index;
+                }
+            }
+        }
+        String safeToolCallId = safeText(toolCallId);
+        if (!safeToolCallId.isBlank()) {
+            for (int index = messages.size() - 1; index >= 0; index--) {
+                Message message = messages.get(index);
+                if (message instanceof ToolResultMessage toolResultMessage
+                        && safeToolCallId.equals(safeText(toolResultMessage.getToolCallId()))) {
+                    return index;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private record PendingToolCall(String toolName, String toolBatchId) {
     }
 }

@@ -13,6 +13,7 @@ import lombok.NoArgsConstructor;
 public class ToolCallContent implements MessageContent {
 
     private String toolCallId;
+    private String toolBatchId;
     private String toolName;
     private String argumentsJson;
     private JsonNode arguments;

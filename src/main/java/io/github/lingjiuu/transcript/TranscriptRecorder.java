@@ -9,6 +9,7 @@ import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
 import io.github.lingjiuu.transcript.item.SessionNameItem;
 import io.github.lingjiuu.transcript.item.TranscriptItem;
+import io.github.lingjiuu.transcript.item.ToolResultReplacementTranscriptItem;
 
 import java.util.List;
 import java.util.UUID;
@@ -40,6 +41,16 @@ public class TranscriptRecorder {
         return append(MessageTranscriptItem.builder()
                 .message(message)
                 .build(), turn);
+    }
+
+    public synchronized TranscriptRecord recordToolResultReplacement(
+            ToolResultReplacementTranscriptItem item,
+            int turn
+    ) {
+        if (item == null || item.getReplacementMessage() == null) {
+            return null;
+        }
+        return append(item, turn);
     }
 
     public synchronized TranscriptRecord recordSessionMeta(SessionMetaItem sessionMeta) {

@@ -87,6 +87,62 @@ public class ToolResultProcessorTest extends TestCase {
                 modelVisibleChars <= ToolResultLimits.MAX_TOOL_RESULTS_PER_BATCH_CHARS);
     }
 
+    public void testProcessForRecordingDoesNotApplyAggregateBudget() throws Exception {
+        Path root = Files.createTempDirectory("aether-tool-result-processor-test");
+        ToolResultProcessor processor = processor(root);
+        Tool tool = tool("glob", ToolResultPolicy.defaultPolicy());
+
+        List<ProcessedToolResult> results = processor.processForRecording(List.of(
+                input("call-1", tool, ToolExecutionResult.text("a".repeat(45_000))),
+                input("call-2", tool, ToolExecutionResult.text("b".repeat(45_000))),
+                input("call-3", tool, ToolExecutionResult.text("c".repeat(45_000))),
+                input("call-4", tool, ToolExecutionResult.text("d".repeat(45_000))),
+                input("call-5", tool, ToolExecutionResult.text("e".repeat(45_000)))
+        ));
+
+        assertEquals(5, results.size());
+        for (ProcessedToolResult result : results) {
+            assertFalse(MessageContents.text(result.message()).startsWith(ToolResultProcessor.PERSISTED_OUTPUT_TAG));
+            assertEquals(0, result.artifactRefs().size());
+        }
+        assertEquals(0, artifactCount(root));
+    }
+
+    public void testApplyAggregateBudgetForModelReturnsReplacementsForExistingMessages() throws Exception {
+        Path root = Files.createTempDirectory("aether-tool-result-processor-test");
+        ToolResultProcessor processor = processor(root);
+        List<ToolResultMessage> batch = List.of(
+                toolResult("message-1", "call-1", "batch-1", "glob", "a".repeat(45_000)),
+                toolResult("message-2", "call-2", "batch-1", "glob", "b".repeat(45_000)),
+                toolResult("message-3", "call-3", "batch-1", "glob", "c".repeat(45_000)),
+                toolResult("message-4", "call-4", "batch-1", "glob", "d".repeat(45_000)),
+                toolResult("message-5", "call-5", "batch-1", "glob", "e".repeat(45_000))
+        );
+
+        List<ToolResultReplacement> replacements = processor.applyAggregateBudgetForModel(
+                batch,
+                ignored -> ToolResultPolicy.defaultPolicy()
+        );
+
+        assertTrue("expected at least one aggregate replacement", replacements.size() >= 1);
+        long modelVisibleChars = 0;
+        for (ToolResultMessage message : batch) {
+            ToolResultMessage visible = replacements.stream()
+                    .filter(replacement -> message.getId().equals(replacement.messageId()))
+                    .map(ToolResultReplacement::replacementMessage)
+                    .findFirst()
+                    .orElse(message);
+            modelVisibleChars += MessageContents.text(visible).length();
+        }
+        ToolResultReplacement firstReplacement = replacements.getFirst();
+        assertEquals("batch-1", firstReplacement.toolBatchId());
+        assertTrue(MessageContents.text(firstReplacement.replacementMessage()).startsWith(ToolResultProcessor.PERSISTED_OUTPUT_TAG));
+        assertEquals(1, firstReplacement.artifactRefs().size());
+        assertTrue("model-visible chars should be under aggregate budget: " + modelVisibleChars,
+                modelVisibleChars <= ToolResultLimits.MAX_TOOL_RESULTS_PER_BATCH_CHARS);
+        assertTrue(artifactCount(root) >= 1);
+    }
+
     public void testDetailsAreSanitizedToArtifactReference() throws Exception {
         Path root = Files.createTempDirectory("aether-tool-result-processor-test");
         ToolResultProcessor processor = processor(root);
@@ -152,8 +208,21 @@ public class ToolResultProcessorTest extends TestCase {
     private ToolCallContent toolCall(String id, String name) {
         return ToolCallContent.builder()
                 .toolCallId(id)
+                .toolBatchId("batch-1")
                 .toolName(name)
                 .argumentsJson("{}")
+                .build();
+    }
+
+    private ToolResultMessage toolResult(String id, String toolCallId, String toolBatchId, String toolName, String text) {
+        return ToolResultMessage.builder()
+                .id(id)
+                .toolCallId(toolCallId)
+                .toolBatchId(toolBatchId)
+                .toolName(toolName)
+                .contents(List.of(io.github.lingjiuu.message.content.TextContent.builder()
+                        .text(text)
+                        .build()))
                 .build();
     }
 

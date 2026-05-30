@@ -21,7 +21,6 @@ import io.github.lingjiuu.tool.result.ToolResultInput;
 import io.github.lingjiuu.tool.result.ToolResultProcessor;
 import io.github.lingjiuu.transcript.TranscriptRecord;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class RegularTask implements SessionTask {
@@ -42,6 +41,7 @@ public class RegularTask implements SessionTask {
         CompactTask compactTask = new CompactTask();
         long blockedAutoCompactAtOrBelow = -1;
         int contextWindowRecoveries = 0;
+        session.applyToolResultBudgetForModel(turnContext);
         blockedAutoCompactAtOrBelow = runAutoCompactIfNeeded(
                 session,
                 context,
@@ -62,6 +62,7 @@ public class RegularTask implements SessionTask {
 
         int streamRecoveries = 0;
         while (!context.isCancelled()) {
+            session.applyToolResultBudgetForModel(turnContext);
             blockedAutoCompactAtOrBelow = runAutoCompactIfNeeded(
                     session,
                     context,
@@ -91,11 +92,12 @@ public class RegularTask implements SessionTask {
                         event -> handleStreamItem(session, context, turnContext, toolScope, event)
                 );
                 if (context.isCancelled() || assistantMessage.isAborted()) {
-                    recordToolOutcomes(session, context, turnContext, toolScope.abortAndDrain());
+                    toolScope.abortAndDrainOrdered(outcome -> recordToolOutcome(session, context, turnContext, outcome));
                     return;
                 }
                 if (assistantMessage.isError()) {
-                    recordToolOutcomes(session, context, turnContext, toolScope.drain());
+                    toolScope.drainOrdered(outcome -> recordToolOutcome(session, context, turnContext, outcome));
+                    session.applyToolResultBudgetForModel(turnContext);
                     if (assistantMessage.isContextWindowExceeded()
                             && contextWindowRecoveries < MAX_CONTEXT_WINDOW_RECOVERIES) {
                         contextWindowRecoveries++;
@@ -134,13 +136,15 @@ public class RegularTask implements SessionTask {
                     return;
                 }
 
-                List<ToolOutcome> outcomes = context.isCancelled() || Thread.currentThread().isInterrupted()
-                        ? toolScope.abortAndDrain()
-                        : toolScope.drain();
-                recordToolOutcomes(session, context, turnContext, outcomes);
+                if (context.isCancelled() || Thread.currentThread().isInterrupted()) {
+                    toolScope.abortAndDrainOrdered(outcome -> recordToolOutcome(session, context, turnContext, outcome));
+                } else {
+                    toolScope.drainOrdered(outcome -> recordToolOutcome(session, context, turnContext, outcome));
+                }
                 if (context.isCancelled() || Thread.currentThread().isInterrupted()) {
                     return;
                 }
+                session.applyToolResultBudgetForModel(turnContext);
             }
             blockedAutoCompactAtOrBelow = runAutoCompactIfNeeded(
                     session,
@@ -344,72 +348,59 @@ public class RegularTask implements SessionTask {
         ));
     }
 
-    private void recordToolOutcomes(
+    private void recordToolOutcome(
             Session session,
             TaskContext context,
             TurnContext turnContext,
-            List<ToolOutcome> outcomes
+            ToolOutcome outcome
     ) {
-        List<ToolOutcome> validOutcomes = new ArrayList<>();
-        List<Tool> tools = new ArrayList<>();
-        List<ToolResultInput> inputs = new ArrayList<>();
-        for (ToolOutcome outcome : outcomes) {
-            if (outcome == null) {
-                continue;
-            }
-            ToolCallRef toolCallRef = outcome.toolCallRef();
-            if (toolCallRef == null || toolCallRef.toolCall() == null) {
-                continue;
-            }
-            Tool tool = session.toolRegistry().findTool(
-                    toolCallRef.toolCall().getToolName()
-            );
-            validOutcomes.add(outcome);
-            tools.add(tool);
-            inputs.add(new ToolResultInput(toolCallRef.toolCall(), tool, outcome.executionResult()));
+        if (outcome == null) {
+            return;
         }
-
-        List<ProcessedToolResult> processedResults = new ToolResultProcessor(
+        ToolCallRef toolCallRef = outcome.toolCallRef();
+        if (toolCallRef == null || toolCallRef.toolCall() == null) {
+            return;
+        }
+        Tool tool = session.toolRegistry().findTool(
+                toolCallRef.toolCall().getToolName()
+        );
+        ProcessedToolResult processedResult = new ToolResultProcessor(
                 session.contextBuilder(),
                 session.toolArtifactStore()
-        ).processBatch(inputs);
-
-        for (int i = 0; i < validOutcomes.size(); i++) {
-            ToolOutcome outcome = validOutcomes.get(i);
-            ToolCallRef toolCallRef = outcome.toolCallRef();
-            Tool tool = tools.get(i);
-            ProcessedToolResult processedResult = processedResults.get(i);
-            ToolResultMessage toolResult = processedResult.message();
-            TranscriptRecord record = session.recordConversationMessage(toolResult, turnContext);
-            session.config().traceRecorder().recordToolResult(
-                    context.traceContext(),
-                    outcome.traceSpanId(),
-                    toolResult,
-                    record,
-                    processedResult.artifactRefs(),
-                    outcome.status(),
-                    outcome.durationMs()
-            );
-            session.events().emit(UiEvents.toolExecutionEnd(
-                    toolCallRef.itemId(),
-                    toolCallRef.contentIndex(),
-                    toolCallRef.toolCall(),
-                    tool,
-                    toolResult,
-                    outcome.status(),
-                    outcome.durationMs(),
-                    turnContext
-            ));
-            session.events().emit(UiEvents.toolResult(
-                    toolCallRef.itemId(),
-                    toolCallRef.contentIndex(),
-                    toolCallRef.toolCall(),
-                    toolResult,
-                    outcome.status(),
-                    outcome.durationMs(),
-                    turnContext
-            ));
+        ).processForRecording(new ToolResultInput(toolCallRef.toolCall(), tool, outcome.executionResult()));
+        if (processedResult == null) {
+            return;
         }
+        ToolResultMessage toolResult = processedResult.message();
+        TranscriptRecord record = session.recordConversationMessage(toolResult, turnContext);
+        session.config().traceRecorder().recordToolResult(
+                context.traceContext(),
+                outcome.traceSpanId(),
+                toolResult,
+                record,
+                processedResult.artifactRefs(),
+                outcome.status(),
+                outcome.durationMs()
+        );
+        session.events().emit(UiEvents.toolExecutionEnd(
+                toolCallRef.itemId(),
+                toolCallRef.contentIndex(),
+                toolCallRef.toolCall(),
+                tool,
+                toolResult,
+                outcome.status(),
+                outcome.durationMs(),
+                turnContext
+        ));
+        session.events().emit(UiEvents.toolResult(
+                toolCallRef.itemId(),
+                toolCallRef.contentIndex(),
+                toolCallRef.toolCall(),
+                toolResult,
+                outcome.status(),
+                outcome.durationMs(),
+                turnContext
+        ));
     }
 
     private long runAutoCompactIfNeeded(

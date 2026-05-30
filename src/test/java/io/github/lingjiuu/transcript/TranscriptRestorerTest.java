@@ -10,6 +10,7 @@ import io.github.lingjiuu.transcript.item.CompactedTranscriptItem;
 import io.github.lingjiuu.transcript.item.EventTranscriptItem;
 import io.github.lingjiuu.transcript.item.MessageTranscriptItem;
 import io.github.lingjiuu.transcript.item.TurnContextItem;
+import io.github.lingjiuu.transcript.item.ToolResultReplacementTranscriptItem;
 import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.protocol.UiEventType;
 import junit.framework.TestCase;
@@ -102,6 +103,32 @@ public class TranscriptRestorerTest extends TestCase {
         assertEquals(11, reconstruction.lastEventSequence());
     }
 
+    public void testRestoreAppliesAppendOnlyToolResultReplacement() throws Exception {
+        String sessionId = UUID.randomUUID().toString();
+        TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-transcript-test"));
+        ToolResultMessage original = toolResult("message-1", "call-1", "batch-1", "raw output");
+        ToolResultMessage replacement = toolResult("message-1", "call-1", "batch-1", "preview output");
+
+        append(store, sessionId, MessageTranscriptItem.builder()
+                .message(original)
+                .build(), 1);
+        append(store, sessionId, ToolResultReplacementTranscriptItem.builder()
+                .messageId("message-1")
+                .toolCallId("call-1")
+                .toolBatchId("batch-1")
+                .replacementMessage(replacement)
+                .build(), 1);
+
+        TranscriptReconstruction reconstruction = new TranscriptRestorer(store).restore(sessionId);
+
+        assertEquals(1, reconstruction.messages().size());
+        assertTrue(reconstruction.messages().getFirst() instanceof ToolResultMessage);
+        ToolResultMessage restored = (ToolResultMessage) reconstruction.messages().getFirst();
+        assertEquals("message-1", restored.getId());
+        assertEquals("batch-1", restored.getToolBatchId());
+        assertEquals("preview output", MessageContents.text(restored));
+    }
+
     public void testRestoreSynthesizesInterruptedBoundaryForDanglingTurn() throws Exception {
         String sessionId = UUID.randomUUID().toString();
         TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-transcript-test"));
@@ -135,6 +162,18 @@ public class TranscriptRestorerTest extends TestCase {
 
     private UserMessage userMessage(String text) {
         return UserMessage.builder()
+                .contents(List.of(TextContent.builder()
+                        .text(text)
+                        .build()))
+                .build();
+    }
+
+    private ToolResultMessage toolResult(String id, String toolCallId, String toolBatchId, String text) {
+        return ToolResultMessage.builder()
+                .id(id)
+                .toolCallId(toolCallId)
+                .toolBatchId(toolBatchId)
+                .toolName("bash")
                 .contents(List.of(TextContent.builder()
                         .text(text)
                         .build()))

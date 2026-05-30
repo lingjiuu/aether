@@ -22,6 +22,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Consumer;
 
 final class ToolScope implements AutoCloseable {
 
@@ -74,22 +75,27 @@ final class ToolScope implements AutoCloseable {
 
     List<ToolOutcome> drain() {
         List<ToolOutcome> outcomes = new ArrayList<>();
+        drainOrdered(outcomes::add);
+        return List.copyOf(outcomes);
+    }
+
+    void drainOrdered(Consumer<ToolOutcome> consumer) {
         for (ToolTask task : tasks) {
             if (context.isCancelled()) {
                 task.future().cancel(true);
-                outcomes.add(abortedOutcome(task));
+                emitOutcome(consumer, abortedOutcome(task));
                 continue;
             }
             try {
-                outcomes.add(task.future().get());
+                emitOutcome(consumer, task.future().get());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 close();
-                outcomes.add(abortedOutcome(task));
-                appendAbortedOutcomesAfter(outcomes, task);
+                emitOutcome(consumer, abortedOutcome(task));
+                appendAbortedOutcomesAfter(consumer, task);
                 break;
             } catch (ExecutionException e) {
-                outcomes.add(new ToolOutcome(
+                emitOutcome(consumer, new ToolOutcome(
                         task.toolCallRef(),
                         ToolExecutionResult.errorText("Tool execution failed: " + exceptionMessage(e.getCause())),
                         "FAILED",
@@ -98,14 +104,13 @@ final class ToolScope implements AutoCloseable {
                 ));
             }
         }
-        return List.copyOf(outcomes);
     }
 
-    private void appendAbortedOutcomesAfter(List<ToolOutcome> outcomes, ToolTask currentTask) {
+    private void appendAbortedOutcomesAfter(Consumer<ToolOutcome> consumer, ToolTask currentTask) {
         boolean append = false;
         for (ToolTask task : tasks) {
             if (append) {
-                outcomes.add(abortedOutcome(task));
+                emitOutcome(consumer, abortedOutcome(task));
             } else if (task == currentTask) {
                 append = true;
             }
@@ -114,13 +119,17 @@ final class ToolScope implements AutoCloseable {
 
     List<ToolOutcome> abortAndDrain() {
         List<ToolOutcome> outcomes = new ArrayList<>();
+        abortAndDrainOrdered(outcomes::add);
+        return List.copyOf(outcomes);
+    }
+
+    void abortAndDrainOrdered(Consumer<ToolOutcome> consumer) {
         for (ToolTask task : tasks) {
             if (!task.future().isDone()) {
                 task.future().cancel(true);
             }
-            outcomes.add(outcomeOrAborted(task));
+            emitOutcome(consumer, outcomeOrAborted(task));
         }
-        return List.copyOf(outcomes);
     }
 
     @Override
@@ -381,6 +390,12 @@ final class ToolScope implements AutoCloseable {
             return "unknown error";
         }
         return throwable.getMessage();
+    }
+
+    private void emitOutcome(Consumer<ToolOutcome> consumer, ToolOutcome outcome) {
+        if (consumer != null && outcome != null) {
+            consumer.accept(outcome);
+        }
     }
 
     private record ToolTask(ToolCallRef toolCallRef, Future<ToolOutcome> future, long startedAtNanos) {

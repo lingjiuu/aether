@@ -27,6 +27,7 @@ public class ContextBuilder {
                 : result;
         return ToolResultMessage.builder()
                 .toolCallId(toolCall.getToolCallId())
+                .toolBatchId(toolCall.getToolBatchId())
                 .toolName(toolCall.getToolName())
                 .details(safeResult.getDetails())
                 .isError(safeResult.isError())
@@ -74,6 +75,7 @@ public class ContextBuilder {
                 partial,
                 List.of(ToolCallContent.builder()
                         .toolCallId(toolCall.getToolCallId())
+                        .toolBatchId(toolCall.getToolBatchId())
                         .toolName(toolCall.getToolName())
                         .argumentsJson(toolCall.getArgumentsJson())
                         .arguments(toolCall.getArguments())

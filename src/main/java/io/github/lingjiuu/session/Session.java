@@ -48,6 +48,9 @@ import io.github.lingjiuu.tool.permission.DenyAllApprovalHandler;
 import io.github.lingjiuu.tool.permission.PermissionManager;
 import io.github.lingjiuu.tool.permission.PermissionPreset;
 import io.github.lingjiuu.tool.result.ToolArtifactStore;
+import io.github.lingjiuu.tool.result.ToolResultPolicy;
+import io.github.lingjiuu.tool.result.ToolResultProcessor;
+import io.github.lingjiuu.tool.result.ToolResultReplacement;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 import io.github.lingjiuu.trace.TraceContext;
 import io.github.lingjiuu.trace.TracePayloads;
@@ -56,6 +59,7 @@ import io.github.lingjiuu.transcript.TranscriptRecorder;
 import io.github.lingjiuu.transcript.TranscriptReconstruction;
 import io.github.lingjiuu.transcript.TranscriptRecord;
 import io.github.lingjiuu.transcript.item.SessionMetaItem;
+import io.github.lingjiuu.transcript.item.ToolResultReplacementTranscriptItem;
 import io.github.lingjiuu.transcript.item.TurnContextItem;
 
 import java.io.IOException;
@@ -180,6 +184,11 @@ public class Session implements AutoCloseable {
             registry.register(tool);
         }
         return registry;
+    }
+
+    private ToolResultPolicy toolResultPolicy(String toolName) {
+        Tool tool = toolRegistry.findTool(toolName);
+        return tool == null ? ToolResultPolicy.defaultPolicy() : tool.resultPolicy();
     }
 
     public void submitAsync(TurnInput input) {
@@ -443,6 +452,26 @@ public class Session implements AutoCloseable {
             record = transcriptRecorder.record(message, turnContext.turn());
         }
         return record;
+    }
+
+    public synchronized List<ToolResultReplacement> applyToolResultBudgetForModel(TurnContext turnContext) {
+        ToolResultProcessor processor = new ToolResultProcessor(contextBuilder, toolArtifactStore);
+        List<ToolResultReplacement> replacements = contextManager.applyToolResultBudgetForModel(
+                batch -> processor.applyAggregateBudgetForModel(batch, this::toolResultPolicy)
+        );
+        if (replacements.isEmpty() || transcriptRecorder == null) {
+            return replacements;
+        }
+        int turn = turnContext == null ? 0 : turnContext.turn();
+        for (ToolResultReplacement replacement : replacements) {
+            transcriptRecorder.recordToolResultReplacement(ToolResultReplacementTranscriptItem.builder()
+                    .messageId(replacement.messageId())
+                    .toolCallId(replacement.toolCallId())
+                    .toolBatchId(replacement.toolBatchId())
+                    .replacementMessage(replacement.replacementMessage())
+                    .build(), turn);
+        }
+        return replacements;
     }
 
     public synchronized void replaceCompactedHistory(
