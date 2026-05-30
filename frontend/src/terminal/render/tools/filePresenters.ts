@@ -78,9 +78,9 @@ export const editPresenter: ToolPresenter = {
 };
 
 export const fileToolPresentations: ToolPresentationDefinition[] = [
-  { names: ['read'], presenter: readPresenter },
-  { names: ['write'], presenter: writePresenter },
-  { names: ['edit'], presenter: editPresenter },
+  { names: ['Read', 'read'], presenter: readPresenter },
+  { names: ['Write', 'write'], presenter: writePresenter },
+  { names: ['Edit', 'edit'], presenter: editPresenter },
 ];
 
 function diffTone(line: string): ToolLineTone {

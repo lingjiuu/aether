@@ -23,10 +23,11 @@ import io.github.lingjiuu.session.Session;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolExecutionResult;
-import io.github.lingjiuu.tool.ToolInvocation;
+import io.github.lingjiuu.tool.ToolCallResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.permission.PermissionPreset;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolResultContext;
 import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.result.ToolResultProcessor;
 import io.github.lingjiuu.transcript.TranscriptRecord;
@@ -715,7 +716,7 @@ public class RegularTaskStreamRetryTest extends TestCase {
         }
     }
 
-    private record RetryableTool(AtomicInteger executions) implements Tool {
+    private record RetryableTool(AtomicInteger executions) implements Tool<Object, String> {
         @Override
         public String name() {
             return "retryable";
@@ -732,7 +733,7 @@ public class RegularTaskStreamRetryTest extends TestCase {
         }
 
         @Override
-        public Map<String, Object> parametersSchema() {
+        public Map<String, Object> inputSchema() {
             return Map.of(
                     "type", "object",
                     "properties", Map.of()
@@ -745,13 +746,23 @@ public class RegularTaskStreamRetryTest extends TestCase {
         }
 
         @Override
-        public ToolExecutionResult execute(ToolInvocation context) {
+        public Object parseInput(String argumentsJson) {
+            return new Object();
+        }
+
+        @Override
+        public ToolCallResult<String> call(Object input, io.github.lingjiuu.tool.ToolUseContext context) {
             executions.incrementAndGet();
-            return ToolExecutionResult.text("tool-ok");
+            return ToolCallResult.success("tool-ok");
+        }
+
+        @Override
+        public ModelToolResult toModelResult(String output, ToolResultContext<Object, String> context) {
+            return ModelToolResult.text(output);
         }
     }
 
-    private static final class LargeResultTool implements Tool {
+    private static final class LargeResultTool implements Tool<Object, String> {
         private static final String LARGE_OUTPUT = "large-result\n" + "x".repeat(60_000);
 
         @Override
@@ -770,7 +781,7 @@ public class RegularTaskStreamRetryTest extends TestCase {
         }
 
         @Override
-        public Map<String, Object> parametersSchema() {
+        public Map<String, Object> inputSchema() {
             return Map.of(
                     "type", "object",
                     "properties", Map.of()
@@ -788,12 +799,22 @@ public class RegularTaskStreamRetryTest extends TestCase {
         }
 
         @Override
-        public ToolExecutionResult execute(ToolInvocation context) {
-            return ToolExecutionResult.text(LARGE_OUTPUT);
+        public Object parseInput(String argumentsJson) {
+            return new Object();
+        }
+
+        @Override
+        public ToolCallResult<String> call(Object input, io.github.lingjiuu.tool.ToolUseContext context) {
+            return ToolCallResult.success(LARGE_OUTPUT);
+        }
+
+        @Override
+        public ModelToolResult toModelResult(String output, ToolResultContext<Object, String> context) {
+            return ModelToolResult.text(output);
         }
     }
 
-    private static final class MediumResultTool implements Tool {
+    private static final class MediumResultTool implements Tool<Object, String> {
         @Override
         public String name() {
             return "medium-result";
@@ -810,7 +831,7 @@ public class RegularTaskStreamRetryTest extends TestCase {
         }
 
         @Override
-        public Map<String, Object> parametersSchema() {
+        public Map<String, Object> inputSchema() {
             return Map.of(
                     "type", "object",
                     "properties", Map.of()
@@ -823,13 +844,23 @@ public class RegularTaskStreamRetryTest extends TestCase {
         }
 
         @Override
-        public ToolExecutionResult execute(ToolInvocation context) {
+        public Object parseInput(String argumentsJson) {
+            return new Object();
+        }
+
+        @Override
+        public ToolCallResult<String> call(Object input, io.github.lingjiuu.tool.ToolUseContext context) {
             String suffix = context == null ? "unknown" : context.toolCallId();
-            return ToolExecutionResult.text((suffix + "\n").repeat(3_000));
+            return ToolCallResult.success((suffix + "\n").repeat(3_000));
+        }
+
+        @Override
+        public ModelToolResult toModelResult(String output, ToolResultContext<Object, String> context) {
+            return ModelToolResult.text(output);
         }
     }
 
-    private static final class OrderedFlushTool implements Tool {
+    private static final class OrderedFlushTool implements Tool<Object, String> {
         private final CountDownLatch firstDone;
         private final CountDownLatch secondStarted;
         private final CountDownLatch releaseSecond;
@@ -860,7 +891,7 @@ public class RegularTaskStreamRetryTest extends TestCase {
         }
 
         @Override
-        public Map<String, Object> parametersSchema() {
+        public Map<String, Object> inputSchema() {
             return Map.of(
                     "type", "object",
                     "properties", Map.of()
@@ -873,19 +904,29 @@ public class RegularTaskStreamRetryTest extends TestCase {
         }
 
         @Override
-        public ToolExecutionResult execute(ToolInvocation context) {
+        public Object parseInput(String argumentsJson) {
+            return new Object();
+        }
+
+        @Override
+        public ToolCallResult<String> call(Object input, io.github.lingjiuu.tool.ToolUseContext context) {
             if ("call-second".equals(context.toolCallId())) {
                 secondStarted.countDown();
                 try {
                     releaseSecond.await(5, TimeUnit.SECONDS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    return ToolExecutionResult.errorText("interrupted");
+                    return ToolCallResult.failedOutput("interrupted");
                 }
-                return ToolExecutionResult.text("second");
+                return ToolCallResult.success("second");
             }
             firstDone.countDown();
-            return ToolExecutionResult.text("first");
+            return ToolCallResult.success("first");
+        }
+
+        @Override
+        public ModelToolResult toModelResult(String output, ToolResultContext<Object, String> context) {
+            return ModelToolResult.text(output);
         }
     }
 }

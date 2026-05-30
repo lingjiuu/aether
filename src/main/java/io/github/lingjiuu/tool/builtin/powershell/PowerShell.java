@@ -29,7 +29,7 @@ public final class PowerShell {
     }
 
     static Optional<List<String>> commandLine(String command) {
-        if (command == null || command.isBlank()) {
+        if (command == null) {
             return Optional.empty();
         }
         return command().map(path -> List.of(

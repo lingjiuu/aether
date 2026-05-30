@@ -31,5 +31,7 @@ public class UiToolResult {
 
     private Object details;
 
+    private Object display;
+
     private Boolean truncated;
 }

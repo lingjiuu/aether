@@ -11,27 +11,34 @@ import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.wire.WireReplayData;
 import io.github.lingjiuu.skill.Skill;
 import io.github.lingjiuu.skill.SkillInjection;
-import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolDisplayResult;
 
 import java.nio.file.Path;
 import java.util.List;
 
 public class ContextBuilder {
 
-    public ToolResultMessage toolResultMessage(ToolCallContent toolCall, ToolExecutionResult result) {
+    public ToolResultMessage toolResultMessage(
+            ToolCallContent toolCall,
+            ModelToolResult modelResult,
+            ToolDisplayResult displayResult
+    ) {
         if (toolCall == null) {
             throw new IllegalArgumentException("tool call must not be null");
         }
-        ToolExecutionResult safeResult = result == null
-                ? ToolExecutionResult.errorText("Tool returned no result.")
-                : result;
+        ModelToolResult safeResult = modelResult == null
+                ? ModelToolResult.errorText("Tool returned no result.")
+                : modelResult;
+        Object details = displayResult == null ? null : displayResult.data();
         return ToolResultMessage.builder()
                 .toolCallId(toolCall.getToolCallId())
                 .toolBatchId(toolCall.getToolBatchId())
                 .toolName(toolCall.getToolName())
-                .details(safeResult.getDetails())
-                .isError(safeResult.isError())
-                .contents(safeResult.getContents() == null ? List.of() : safeResult.getContents())
+                .details(details)
+                .display(displayResult)
+                .isError(safeResult.error())
+                .contents(safeResult.contents())
                 .build();
     }
 

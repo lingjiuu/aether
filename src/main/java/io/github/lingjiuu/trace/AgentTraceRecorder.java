@@ -8,7 +8,7 @@ import io.github.lingjiuu.protocol.UiEvent;
 import io.github.lingjiuu.session.SessionConfig;
 import io.github.lingjiuu.session.task.TaskKind;
 import io.github.lingjiuu.session.turn.TurnContext;
-import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.ToolCallResult;
 import io.github.lingjiuu.tool.result.ToolResultArtifactRef;
 import io.github.lingjiuu.transcript.TranscriptRecord;
 
@@ -232,7 +232,7 @@ public class AgentTraceRecorder implements AutoCloseable {
 
     public void recordToolExecutionOutput(
             TraceSpan span,
-            ToolExecutionResult result,
+            ToolCallResult<?> result,
             String status,
             Long durationMs
     ) {

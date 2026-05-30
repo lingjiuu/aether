@@ -361,13 +361,20 @@ public class RegularTask implements SessionTask {
         if (toolCallRef == null || toolCallRef.toolCall() == null) {
             return;
         }
-        Tool tool = session.toolRegistry().findTool(
-                toolCallRef.toolCall().getToolName()
-        );
+        Tool tool = outcome.tool() == null
+                ? session.toolRegistry().findTool(toolCallRef.toolCall().getToolName())
+                : outcome.tool();
         ProcessedToolResult processedResult = new ToolResultProcessor(
                 session.contextBuilder(),
                 session.toolArtifactStore()
-        ).processForRecording(new ToolResultInput(toolCallRef.toolCall(), tool, outcome.executionResult()));
+        ).processForRecording(new ToolResultInput(
+                toolCallRef.toolCall(),
+                tool,
+                outcome.input(),
+                outcome.callResult(),
+                outcome.status(),
+                outcome.durationMs()
+        ));
         if (processedResult == null) {
             return;
         }

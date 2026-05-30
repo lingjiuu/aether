@@ -10,7 +10,8 @@ import io.github.lingjiuu.message.content.MessageContent;
 import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.message.content.ToolCallContent;
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolExecutionResult;
+import io.github.lingjiuu.tool.ToolCallResult;
+import io.github.lingjiuu.tool.ToolFailure;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -128,16 +129,69 @@ public class ToolResultProcessor {
 
     private Processed processOne(ToolResultInput input) {
         List<ToolResultArtifactRef> artifactRefs = new ArrayList<>();
-        ToolExecutionResult result = input.executionResult() == null
-                ? ToolExecutionResult.errorText("Tool returned no result.")
-                : input.executionResult();
-        ToolResultMessage message = contextBuilder.toolResultMessage(input.toolCall(), result);
+        MappedResult mapped = mapResult(input);
+        ToolResultMessage message = contextBuilder.toolResultMessage(input.toolCall(), mapped.model(), mapped.display());
         ToolResultPolicy policy = policy(input.tool());
         message = ensureNonEmptyContent(message);
         message = maybePersistContent(input, message, policy, "output", policy.effectiveThreshold(), artifactRefs);
-        Object sanitizedDetails = sanitizeDetails(message.getDetails(), safeToolCallId(input), "details", artifactRefs);
-        message = copy(message, message.messageContents(), sanitizedDetails);
+        ToolDisplayResult sanitizedDisplay = sanitizeDisplay(message.getDisplay(), safeToolCallId(input), artifactRefs);
+        message = copy(message, message.messageContents(), sanitizedDisplay);
         return new Processed(input, policy, message, artifactRefs);
+    }
+
+    private MappedResult mapResult(ToolResultInput input) {
+        ToolCallResult<?> result = input.callResult() == null
+                ? ToolCallResult.failure(ToolFailure.runtime("Tool returned no result."))
+                : input.callResult();
+        if (result.hasFailure()) {
+            String message = result.failure().message();
+            ToolDisplayResult display = ToolDisplayResult.text(
+                    toolKind(input),
+                    message,
+                    Map.of(
+                            "kind", toolKind(input),
+                            "failureKind", result.failure().kind().name(),
+                            "message", message
+                    )
+            );
+            return new MappedResult(ModelToolResult.errorText(toolUseError(message)), display);
+        }
+        if (input.tool() == null) {
+            String message = "Tool is not available.";
+            return new MappedResult(
+                    ModelToolResult.errorText(toolUseError(message)),
+                    ToolDisplayResult.text(toolKind(input), message, null)
+            );
+        }
+        return mapSuccessfulResult(input.tool(), input.input(), result, input);
+    }
+
+    @SuppressWarnings("unchecked")
+    private <I, O> MappedResult mapSuccessfulResult(
+            Tool<?, ?> tool,
+            Object rawInput,
+            ToolCallResult<?> rawResult,
+            ToolResultInput input
+    ) {
+        Tool<I, O> typedTool = (Tool<I, O>) tool;
+        I typedInput = (I) rawInput;
+        O output = (O) rawResult.output();
+        ToolResultContext<I, O> context = new ToolResultContext<>(
+                input.toolCall(),
+                typedInput,
+                rawResult.status(),
+                input.durationMs()
+        );
+        ModelToolResult model = typedTool.toModelResult(output, context);
+        ToolDisplayResult display = typedTool.toDisplayResult(output, context);
+        if (rawResult.isError() && model != null && !model.error()) {
+            model = new ModelToolResult(model.contents(), true);
+        }
+        return new MappedResult(model, display);
+    }
+
+    private String toolUseError(String message) {
+        return "<tool_use_error>" + (message == null ? "Tool execution failed." : message) + "</tool_use_error>";
     }
 
     private void applyAggregateBudget(List<Processed> processed) {
@@ -210,10 +264,10 @@ public class ToolResultProcessor {
         if (text.isBlank() || isPersistedOutput(text) || text.length() <= threshold) {
             return message;
         }
-        PersistedToolOutput persisted = persistMainOutput(input, text, policy, suffix);
+        PersistedToolOutput persisted = persistMainOutput(input, message.getDisplay(), text, policy, suffix);
         artifactRefs.add(artifactRef("tool_result_output", suffix, persisted));
         String replacement = buildPersistedOutputMessage(persisted, policy.previewMode());
-        return copy(message, textContents(replacement), message.getDetails());
+        return copy(message, textContents(replacement), message.getDisplay());
     }
 
     private ToolResultMessage maybePersistExistingContent(
@@ -222,7 +276,7 @@ public class ToolResultProcessor {
             String suffix,
             List<ToolResultArtifactRef> artifactRefs
     ) {
-        if (message == null || !policy.persistLargeText() || hasImage(message.messageContents())) {
+        if (message == null || policy == null || !policy.persistLargeText() || hasImage(message.messageContents())) {
             return message;
         }
         String text = MessageContents.text(message);
@@ -232,7 +286,7 @@ public class ToolResultProcessor {
         PersistedToolOutput persisted = persistExistingOutput(message, text, policy, suffix);
         artifactRefs.add(artifactRef("tool_result_output", suffix, persisted));
         String replacement = buildPersistedOutputMessage(persisted, policy.previewMode());
-        return copy(message, textContents(replacement), message.getDetails());
+        return copy(message, textContents(replacement), message.getDisplay());
     }
 
     private PersistedToolOutput persistExistingOutput(
@@ -241,7 +295,10 @@ public class ToolResultProcessor {
             ToolResultPolicy policy,
             String suffix
     ) {
-        Path sourcePath = mainOutputSourcePath(message.getDetails());
+        Path sourcePath = mainOutputSourcePath(message.getDisplay() == null ? null : message.getDisplay().data());
+        if (sourcePath == null) {
+            sourcePath = mainOutputSourcePath(message.getDetails());
+        }
         if (sourcePath != null && Files.isRegularFile(sourcePath)) {
             return artifactStore.persistTextFile(
                     safeToolCallId(message),
@@ -260,11 +317,12 @@ public class ToolResultProcessor {
 
     private PersistedToolOutput persistMainOutput(
             ToolResultInput input,
+            ToolDisplayResult display,
             String text,
             ToolResultPolicy policy,
             String suffix
     ) {
-        Path sourcePath = mainOutputSourcePath(input.executionResult() == null ? null : input.executionResult().getDetails());
+        Path sourcePath = mainOutputSourcePath(display == null ? null : display.data());
         if (sourcePath != null && Files.isRegularFile(sourcePath)) {
             return artifactStore.persistTextFile(
                     safeToolCallId(input),
@@ -355,6 +413,18 @@ public class ToolResultProcessor {
         return detailReference(persisted);
     }
 
+    private ToolDisplayResult sanitizeDisplay(
+            ToolDisplayResult display,
+            String toolCallId,
+            List<ToolResultArtifactRef> artifactRefs
+    ) {
+        if (display == null) {
+            return null;
+        }
+        Object sanitizedData = sanitizeDetails(display.data(), toolCallId, "display", artifactRefs);
+        return new ToolDisplayResult(display.kind(), display.text(), sanitizedData);
+    }
+
     private Map<String, Object> detailReference(PersistedToolOutput output) {
         Map<String, Object> reference = new LinkedHashMap<>();
         reference.put("persisted", true);
@@ -389,7 +459,7 @@ public class ToolResultProcessor {
         String toolName = message.getToolName() == null || message.getToolName().isBlank()
                 ? "tool"
                 : message.getToolName();
-        return copy(message, textContents("(" + toolName + " completed with no output)"), message.getDetails());
+        return copy(message, textContents("(" + toolName + " completed with no output)"), message.getDisplay());
     }
 
     public static String buildPersistedOutputMessage(PersistedToolOutput output, ToolResultPreviewMode previewMode) {
@@ -422,8 +492,9 @@ public class ToolResultProcessor {
     private ToolResultMessage copy(
             ToolResultMessage message,
             List<MessageContent> contents,
-            Object details
+            ToolDisplayResult display
     ) {
+        Object details = display == null ? message.getDetails() : display.data();
         return ToolResultMessage.builder()
                 .id(message.getId())
                 .timestamp(message.getTimestamp())
@@ -432,6 +503,7 @@ public class ToolResultProcessor {
                 .toolBatchId(message.getToolBatchId())
                 .toolName(message.getToolName())
                 .details(details)
+                .display(display)
                 .isError(message.isError())
                 .build();
     }
@@ -440,7 +512,7 @@ public class ToolResultProcessor {
         return List.of(TextContent.builder().text(text == null ? "" : text).build());
     }
 
-    private ToolResultPolicy policy(Tool tool) {
+    private ToolResultPolicy policy(Tool<?, ?> tool) {
         return tool == null ? ToolResultPolicy.defaultPolicy() : tool.resultPolicy();
     }
 
@@ -450,6 +522,16 @@ public class ToolResultProcessor {
         }
         ToolResultPolicy policy = policyByToolName.apply(toolName);
         return policy == null ? ToolResultPolicy.defaultPolicy() : policy;
+    }
+
+    private String toolKind(ToolResultInput input) {
+        if (input != null && input.tool() != null && input.tool().name() != null && !input.tool().name().isBlank()) {
+            return input.tool().name();
+        }
+        ToolCallContent toolCall = input == null ? null : input.toolCall();
+        return toolCall == null || toolCall.getToolName() == null || toolCall.getToolName().isBlank()
+                ? "tool"
+                : toolCall.getToolName();
     }
 
     private String safeToolCallId(ToolResultInput input) {
@@ -494,5 +576,8 @@ public class ToolResultProcessor {
     }
 
     private record ModelCandidate(int index, long size, ToolResultPolicy policy) {
+    }
+
+    private record MappedResult(ModelToolResult model, ToolDisplayResult display) {
     }
 }

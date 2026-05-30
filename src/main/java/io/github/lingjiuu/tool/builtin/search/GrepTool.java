@@ -1,9 +1,13 @@
 package io.github.lingjiuu.tool.builtin.search;
 
 import io.github.lingjiuu.tool.Tool;
-import io.github.lingjiuu.tool.ToolExecutionResult;
-import io.github.lingjiuu.tool.ToolInvocation;
+import io.github.lingjiuu.tool.ToolCallResult;
+import io.github.lingjiuu.tool.ToolFailure;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.ToolUseContext;
+import io.github.lingjiuu.tool.result.ModelToolResult;
+import io.github.lingjiuu.tool.result.ToolDisplayResult;
+import io.github.lingjiuu.tool.result.ToolResultContext;
 import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
@@ -23,7 +27,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-public class GrepTool implements Tool {
+public class GrepTool implements Tool<GrepTool.Input, GrepTool.Output> {
 
     private static final String MODE_FILES_WITH_MATCHES = "files_with_matches";
     private static final String MODE_CONTENT = "content";
@@ -42,12 +46,12 @@ public class GrepTool implements Tool {
 
     @Override
     public String name() {
-        return "grep";
+        return "Grep";
     }
 
     @Override
     public String label() {
-        return "grep";
+        return "Grep";
     }
 
     @Override
@@ -60,53 +64,67 @@ public class GrepTool implements Tool {
                   - Supports full regex syntax (e.g., "log.*Error", "function\\\\s+\\\\w+")
                   - Filter files with glob parameter (e.g., "*.js", "**/*.tsx") or type parameter (e.g., "js", "py", "rust")
                   - Output modes: "content" shows matching lines, "files_with_matches" shows only file paths (default), "count" shows match counts
-                  - Use Agent tool for open-ended searches requiring multiple rounds
                   - Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use `interface\\\\{\\\\}` to find `interface{}` in Go code)
                   - Multiline matching: By default patterns match within single lines only. For cross-line patterns like `struct \\\\{[\\\\s\\\\S]*?field`, use `multiline: true`
                 """;
     }
 
     @Override
-    public Map<String, Object> parametersSchema() {
+    public Map<String, Object> inputSchema() {
         return Map.of(
                 "type", "object",
                 "properties", Map.ofEntries(
                         Map.entry("pattern", Map.of(
                                 "type", "string",
-                                "description", "Regular expression pattern to search for."
+                                "description", "The regular expression pattern to search for in file contents"
                         )),
                         Map.entry("path", Map.of(
                                 "type", "string",
-                                "description", "Directory or file to search (default: current directory)."
+                                "description", "File or directory to search in (rg PATH). Defaults to current working directory."
                         )),
                         Map.entry("glob", Map.of(
                                 "type", "string",
-                                "description", "Glob filter for files, e.g. '*.java' or '*.{ts,tsx}'."
+                                "description", "Glob pattern to filter files (e.g. \"*.js\", \"*.{ts,tsx}\") - maps to rg --glob"
                         )),
                         Map.entry("output_mode", Map.of(
                                 "type", "string",
                                 "enum", List.of(MODE_CONTENT, MODE_FILES_WITH_MATCHES, MODE_COUNT),
-                                "description", "Result mode: files_with_matches (default), content, or count."
+                                "description", "Output mode: \"content\" shows matching lines (supports -A/-B/-C context, -n line numbers, head_limit), \"files_with_matches\" shows file paths (supports head_limit), \"count\" shows match counts (supports head_limit). Defaults to \"files_with_matches\"."
                         )),
-                        Map.entry("-B", Map.of("type", "integer", "minimum", 0, "description", "Number of lines to show before each match (rg -B). Requires output_mode: \"content\", ignored otherwise.")),
-                        Map.entry("-A", Map.of("type", "integer", "minimum", 0, "description", "Number of lines to show after each match (rg -A). Requires output_mode: \"content\", ignored otherwise.")),
-                        Map.entry("-C", Map.of("type", "integer", "minimum", 0, "description", "Alias for context.\n" +
-                                "context: Number of lines to show before and after each match (rg -C). Requires output_mode: \"content\", ignored otherwise.")),
-                        Map.entry("context", Map.of("type", "integer", "minimum", 0, "description", "Number of lines to show before and after each match (rg -C). Requires output_mode: \"content\", ignored otherwise.")),
+                        Map.entry("-B", Map.of("type", "number", "description", "Number of lines to show before each match (rg -B). Requires output_mode: \"content\", ignored otherwise.")),
+                        Map.entry("-A", Map.of("type", "number", "description", "Number of lines to show after each match (rg -A). Requires output_mode: \"content\", ignored otherwise.")),
+                        Map.entry("-C", Map.of("type", "number", "description", "Alias for context.")),
+                        Map.entry("context", Map.of("type", "number", "description", "Number of lines to show before and after each match (rg -C). Requires output_mode: \"content\", ignored otherwise.")),
                         Map.entry("-n", Map.of("type", "boolean", "description", "Show line numbers in output (rg -n). Requires output_mode: \"content\", ignored otherwise. Defaults to true.")),
                         Map.entry("-i", Map.of("type", "boolean", "description", "Case insensitive search (rg -i)")),
                         Map.entry("type", Map.of("type", "string", "description", "File type to search (rg --type). Common types: js, py, rust, go, java, etc. More efficient than include for standard file types.")),
                         Map.entry("head_limit", Map.of(
-                                "type", "integer",
-                                "minimum", 0,
-                                "description", "Limit output to first N lines/entries, equivalent to \"| head -N\". Works across all output modes: content (limits output lines), files_with_matches (limits file paths), count (limits count entries). Defaults to 250 when unspecified. Pass 0 for unlimited (use sparingly — large result sets waste context).\n" +
-                                        "offset: Skip first N lines/entries before applying head_limit, equivalent to \"| tail -n +N | head -N\". Works across all output modes. Defaults to 0."
+                                "type", "number",
+                                "description", "Limit output to first N lines/entries, equivalent to \"| head -N\". Works across all output modes: content (limits output lines), files_with_matches (limits file paths), count (limits count entries). Defaults to 250 when unspecified. Pass 0 for unlimited (use sparingly — large result sets waste context)."
                         )),
-                        Map.entry("offset", Map.of("type", "integer", "minimum", 0, "description", "Number of results to skip.")),
+                        Map.entry("offset", Map.of("type", "number", "description", "Skip first N lines/entries before applying head_limit, equivalent to \"| tail -n +N | head -N\". Works across all output modes. Defaults to 0.")),
                         Map.entry("multiline", Map.of("type", "boolean", "description", "Enable multiline mode where . matches newlines and patterns can span lines (rg -U --multiline-dotall). Default: false."))
                 ),
                 "required", List.of("pattern"),
                 "additionalProperties", false
+        );
+    }
+
+    @Override
+    public Map<String, Object> outputSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "mode", Map.of("type", "string", "enum", List.of(MODE_CONTENT, MODE_FILES_WITH_MATCHES, MODE_COUNT)),
+                        "numFiles", Map.of("type", "number"),
+                        "filenames", Map.of("type", "array", "items", Map.of("type", "string")),
+                        "content", Map.of("type", "string"),
+                        "numLines", Map.of("type", "number"),
+                        "numMatches", Map.of("type", "number"),
+                        "appliedLimit", Map.of("type", "number"),
+                        "appliedOffset", Map.of("type", "number")
+                ),
+                "required", List.of("numFiles", "filenames")
         );
     }
 
@@ -116,33 +134,60 @@ public class GrepTool implements Tool {
     }
 
     @Override
+    public Object prepareInput(Object arguments) {
+        if (!(arguments instanceof Map<?, ?> map)) {
+            return arguments;
+        }
+        Map<String, Object> prepared = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            String key = String.valueOf(entry.getKey());
+            prepared.put(key, prepareSemanticArgument(key, entry.getValue()));
+        }
+        return prepared;
+    }
+
+    @Override
     public ToolResultPolicy resultPolicy() {
         return ToolResultPolicy.withMaxResultSizeChars(20_000);
     }
 
     @Override
-    public ToolExecutionResult execute(ToolInvocation context) {
+    public Input parseInput(String argumentsJson) {
+        return Input.from(validateInputJson(argumentsJson));
+    }
+
+    @Override
+    public ToolCallResult<Output> call(Input input, ToolUseContext context) {
         try {
             context.throwIfCancellationRequested();
-            Args args = Args.from(context.getArguments());
-            Path resolvedPath = accessPolicy.resolveReadablePath(args.path());
+            Path resolvedPath = accessPolicy.resolveReadablePath(input.path());
             if (!Files.exists(resolvedPath)) {
-                throw new IOException("Path not found: " + args.path());
+                throw new IOException("Path not found: " + input.path());
             }
 
             var rgPath = Ripgrep.command();
             if (rgPath.isEmpty()) {
-                return ToolExecutionResult.errorText("grep failed: ripgrep (rg) is unavailable");
+                return ToolCallResult.failure(ToolFailure.runtime("ripgrep (rg) is unavailable"));
             }
 
-            return grep(context, rgPath.get(), args.pattern(), args.path(), resolvedPath, args.options());
+            return ToolCallResult.success(grep(context, rgPath.get(), input.pattern(), input.path(), resolvedPath, input.options()));
         } catch (Exception e) {
-            return ToolExecutionResult.errorText("grep failed: " + e.getMessage());
+            return ToolCallResult.failure(ToolFailure.runtime(e.getMessage()));
         }
     }
 
-    private ToolExecutionResult grep(
-            ToolInvocation context,
+    @Override
+    public ModelToolResult toModelResult(Output output, ToolResultContext<Input, Output> context) {
+        return ModelToolResult.text(modelText(output));
+    }
+
+    @Override
+    public ToolDisplayResult toDisplayResult(Output output, ToolResultContext<Input, Output> context) {
+        return ToolDisplayResult.of("grep", output.details());
+    }
+
+    private Output grep(
+            ToolUseContext context,
             String rgPath,
             String pattern,
             String requestedPath,
@@ -219,7 +264,7 @@ public class GrepTool implements Tool {
             args.add("-n");
         }
         addContextArgs(args, options);
-        if (options.type() != null) {
+        if (options.type() != null && !options.type().isBlank()) {
             args.add("--type");
             args.add(options.type());
         }
@@ -241,22 +286,22 @@ public class GrepTool implements Tool {
         if (!MODE_CONTENT.equals(options.outputMode())) {
             return;
         }
-        if (options.contextLines() > 0) {
+        if (options.contextLines() != null) {
             args.add("-C");
-            args.add(String.valueOf(options.contextLines()));
+            args.add(formatNumber(options.contextLines()));
             return;
         }
-        if (options.beforeLines() > 0) {
+        if (options.beforeLines() != null) {
             args.add("-B");
-            args.add(String.valueOf(options.beforeLines()));
+            args.add(formatNumber(options.beforeLines()));
         }
-        if (options.afterLines() > 0) {
+        if (options.afterLines() != null) {
             args.add("-A");
-            args.add(String.valueOf(options.afterLines()));
+            args.add(formatNumber(options.afterLines()));
         }
     }
 
-    private ToolExecutionResult renderFilesWithMatches(
+    private Output renderFilesWithMatches(
             String pattern,
             String requestedPath,
             Path resolvedPath,
@@ -271,22 +316,29 @@ public class GrepTool implements Tool {
                 .sorted(modifiedTimeDescending())
                 .toList();
         Page<String> page = page(filenames, options);
-        String output = page.items().isEmpty()
-                ? "No files found"
-                : "Found " + filenames.size() + " " + plural(filenames.size(), "file", "files")
-                + "\n" + String.join("\n", page.items());
-        output = appendPagination(output, page);
-
-        Map<String, Object> details = baseDetails(pattern, requestedPath, resolvedPath, options);
-        details.put("mode", MODE_FILES_WITH_MATCHES);
-        details.put("numFiles", page.items().size());
-        details.put("totalFiles", filenames.size());
-        details.put("filenames", List.copyOf(page.items()));
-        details.put("truncated", page.truncated());
-        return result(output, details);
+        return new Output(
+                MODE_FILES_WITH_MATCHES,
+                page.items().size(),
+                List.copyOf(page.items()),
+                null,
+                null,
+                null,
+                page.appliedLimit(),
+                page.appliedOffset(),
+                pattern,
+                requestedPath,
+                options.glob() == null ? "" : options.glob(),
+                resolvedPath.toString(),
+                options.outputMode(),
+                displayHeadLimit(options),
+                options.offset(),
+                filenames.size(),
+                null,
+                page.truncated()
+        );
     }
 
-    private ToolExecutionResult renderContent(
+    private Output renderContent(
             String pattern,
             String requestedPath,
             Path resolvedPath,
@@ -297,103 +349,128 @@ public class GrepTool implements Tool {
                 .map(this::displayLine)
                 .toList();
         Page<String> page = page(lines, options);
-        String rawOutput = page.items().isEmpty() ? "No matches found" : String.join("\n", page.items());
-        String output = appendPagination(rawOutput, page);
-
-        Map<String, Object> details = baseDetails(pattern, requestedPath, resolvedPath, options);
-        details.put("mode", MODE_CONTENT);
-        details.put("numLines", page.items().size());
-        details.put("totalLines", lines.size());
-        details.put("content", List.copyOf(page.items()));
-        details.put("truncated", page.truncated());
-        return result(output, details);
+        return new Output(
+                MODE_CONTENT,
+                0,
+                List.of(),
+                String.join("\n", page.items()),
+                page.items().size(),
+                null,
+                page.appliedLimit(),
+                page.appliedOffset(),
+                pattern,
+                requestedPath,
+                options.glob() == null ? "" : options.glob(),
+                resolvedPath.toString(),
+                options.outputMode(),
+                displayHeadLimit(options),
+                options.offset(),
+                null,
+                lines.size(),
+                page.truncated()
+        );
     }
 
-    private ToolExecutionResult renderCount(
+    private Output renderCount(
             String pattern,
             String requestedPath,
             Path resolvedPath,
             SearchOptions options,
             List<String> stdout
     ) {
-        List<CountLine> counts = stdout.stream()
+        List<String> lines = stdout.stream()
+                .map(this::displayCountLine)
+                .toList();
+        Page<String> page = page(lines, options);
+        List<CountLine> counts = page.items().stream()
                 .map(this::parseCountLine)
                 .filter(count -> count.count() > 0)
                 .toList();
-        List<String> lines = counts.stream()
-                .map(count -> count.path() + ":" + count.count())
-                .toList();
         int totalMatches = counts.stream().mapToInt(CountLine::count).sum();
-        Page<String> page = page(lines, options);
-        String output = page.items().isEmpty()
-                ? "No matches found"
-                : String.join("\n", page.items())
-                + "\n\nFound " + totalMatches + " " + plural(totalMatches, "occurrence", "occurrences")
-                + " across " + counts.size() + " " + plural(counts.size(), "file", "files") + ".";
-        output = appendPagination(output, page);
-
-        Map<String, Object> details = baseDetails(pattern, requestedPath, resolvedPath, options);
-        details.put("mode", MODE_COUNT);
-        details.put("numMatches", totalMatches);
-        details.put("numFiles", counts.size());
-        details.put("content", List.copyOf(page.items()));
-        details.put("truncated", page.truncated());
-        return result(output, details);
+        return new Output(
+                MODE_COUNT,
+                counts.size(),
+                List.of(),
+                String.join("\n", page.items()),
+                null,
+                totalMatches,
+                page.appliedLimit(),
+                page.appliedOffset(),
+                pattern,
+                requestedPath,
+                options.glob() == null ? "" : options.glob(),
+                resolvedPath.toString(),
+                options.outputMode(),
+                displayHeadLimit(options),
+                options.offset(),
+                null,
+                null,
+                page.truncated()
+        );
     }
 
-    private Map<String, Object> baseDetails(
-            String pattern,
-            String requestedPath,
-            Path resolvedPath,
-            SearchOptions options
-    ) {
-        Map<String, Object> details = new LinkedHashMap<>();
-        details.put("kind", "grep");
-        details.put("pattern", pattern);
-        details.put("path", requestedPath);
-        details.put("glob", options.glob() == null ? "" : options.glob());
-        details.put("resolvedPath", resolvedPath.toString());
-        details.put("outputMode", options.outputMode());
-        details.put("headLimit", options.headLimit());
-        details.put("offset", options.offset());
-        return details;
-    }
-
-    private ToolExecutionResult result(String output, Map<String, Object> details) {
-        return ToolExecutionResult.builder()
-                .contents(ToolExecutionResult.text(output).getContents())
-                .details(details)
-                .error(false)
-                .build();
-    }
-
-    private String appendPagination(String output, Page<?> page) {
-        if (page.offset() <= 0 && page.limit() == 0 && !page.truncated()) {
-            return output;
+    private String modelText(Output output) {
+        if (MODE_CONTENT.equals(output.mode())) {
+            String limitInfo = formatLimitInfo(output.appliedLimit(), output.appliedOffset());
+            String resultContent = output.content() == null || output.content().isBlank()
+                    ? "No matches found"
+                    : output.content();
+            return limitInfo.isBlank()
+                    ? resultContent
+                    : resultContent + "\n\n[Showing results with pagination = " + limitInfo + "]";
         }
+
+        if (MODE_COUNT.equals(output.mode())) {
+            String limitInfo = formatLimitInfo(output.appliedLimit(), output.appliedOffset());
+            String rawContent = output.content() == null || output.content().isBlank()
+                    ? "No matches found"
+                    : output.content();
+            int matches = output.numMatches() == null ? 0 : output.numMatches();
+            int files = output.numFiles();
+            String summary = "\n\nFound " + matches + " total " + plural(matches, "occurrence", "occurrences")
+                    + " across " + files + " " + plural(files, "file", "files") + "."
+                    + (limitInfo.isBlank() ? "" : " with pagination = " + limitInfo);
+            return rawContent + summary;
+        }
+
+        String limitInfo = formatLimitInfo(output.appliedLimit(), output.appliedOffset());
+        if (output.numFiles() == 0) {
+            return "No files found";
+        }
+        return "Found " + output.numFiles() + " " + plural(output.numFiles(), "file", "files")
+                + (limitInfo.isBlank() ? "" : " " + limitInfo)
+                + "\n" + String.join("\n", output.filenames());
+    }
+
+    private String formatLimitInfo(Integer appliedLimit, Integer appliedOffset) {
         List<String> parts = new ArrayList<>();
-        if (page.limit() > 0) {
-            parts.add("limit: " + page.limit());
+        if (appliedLimit != null) {
+            parts.add("limit: " + appliedLimit);
         }
-        if (page.offset() > 0) {
-            parts.add("offset: " + page.offset());
+        if (appliedOffset != null) {
+            parts.add("offset: " + appliedOffset);
         }
-        if (page.truncated()) {
-            parts.add("more results available");
-        }
-        return output + "\n\n[Showing results with pagination = " + String.join(", ", parts) + "]";
+        return String.join(", ", parts);
     }
 
     private <T> Page<T> page(List<T> items, SearchOptions options) {
-        int offset = Math.min(options.offset(), items.size());
+        int offset = Math.max(0, Math.min(options.offset(), items.size()));
         int end = items.size();
-        if (options.headLimit() > 0) {
-            end = Math.min(items.size(), offset + options.headLimit());
+        Integer appliedLimit = null;
+        Integer limit = options.headLimit();
+        if (limit == null) {
+            limit = DEFAULT_HEAD_LIMIT;
+        }
+        if (limit != 0) {
+            end = Math.min(items.size(), Math.max(offset, offset + limit));
+            if (items.size() - offset > limit) {
+                appliedLimit = limit;
+            }
         }
         return new Page<>(
                 List.copyOf(items.subList(offset, end)),
-                offset,
-                options.headLimit(),
+                appliedLimit,
+                options.offset() > 0 ? options.offset() : null,
                 end < items.size()
         );
     }
@@ -426,6 +503,11 @@ public class GrepTool implements Tool {
         }
         String path = cleaned.substring(0, index);
         return displayPath(path) + cleaned.substring(index);
+    }
+
+    private String displayCountLine(String line) {
+        CountLine count = parseCountLine(line);
+        return count.path() + ":" + count.count();
     }
 
     private CountLine parseCountLine(String line) {
@@ -520,8 +602,8 @@ public class GrepTool implements Tool {
 
     private static String requiredString(Map<String, Object> arguments, String name) {
         Object value = arguments.get(name);
-        if (!(value instanceof String stringValue) || stringValue.isBlank()) {
-            throw new IllegalArgumentException(name + " must be a non-blank string");
+        if (!(value instanceof String stringValue)) {
+            throw new IllegalArgumentException(name + " must be a string");
         }
         return stringValue;
     }
@@ -537,7 +619,33 @@ public class GrepTool implements Tool {
         return stringValue.isBlank() ? defaultValue : stringValue;
     }
 
-    private static int optionalNonNegativeInt(Map<String, Object> arguments, String name, int defaultValue) {
+    private static String optionalOutputMode(Map<String, Object> arguments) {
+        Object value = arguments.get("output_mode");
+        if (value == null) {
+            return MODE_FILES_WITH_MATCHES;
+        }
+        if (!(value instanceof String stringValue)) {
+            throw new IllegalArgumentException("output_mode must be a string");
+        }
+        return stringValue;
+    }
+
+    private static Number optionalNumber(Map<String, Object> arguments, String name) {
+        Object value = arguments.get(name);
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number;
+        }
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(name + " must be a number");
+        }
+    }
+
+    private static Integer optionalInteger(Map<String, Object> arguments, String name, Integer defaultValue) {
         Object value = arguments.get(name);
         if (value == null) {
             return defaultValue;
@@ -549,11 +657,8 @@ public class GrepTool implements Tool {
             try {
                 parsed = Integer.parseInt(String.valueOf(value));
             } catch (NumberFormatException e) {
-                throw new IllegalArgumentException(name + " must be a non-negative integer");
+                throw new IllegalArgumentException(name + " must be a number");
             }
-        }
-        if (parsed < 0) {
-            throw new IllegalArgumentException(name + " must be a non-negative integer");
         }
         return parsed;
     }
@@ -569,9 +674,47 @@ public class GrepTool implements Tool {
         throw new IllegalArgumentException(name + " must be a boolean");
     }
 
-    private record Args(String pattern, String path, SearchOptions options) {
-        static Args from(Map<String, Object> arguments) {
-            return new Args(
+    private static Object prepareSemanticArgument(String key, Object value) {
+        if (!(value instanceof String stringValue)) {
+            return value;
+        }
+        if (Set.of("-B", "-A", "-C", "context", "head_limit", "offset").contains(key)
+                && stringValue.matches("-?\\d+(\\.\\d+)?")) {
+            double parsed = Double.parseDouble(stringValue);
+            if (parsed == Math.rint(parsed) && parsed >= Integer.MIN_VALUE && parsed <= Integer.MAX_VALUE) {
+                return (int) parsed;
+            }
+            return parsed;
+        }
+        if (Set.of("-n", "-i", "multiline").contains(key)) {
+            if ("true".equals(stringValue)) {
+                return true;
+            }
+            if ("false".equals(stringValue)) {
+                return false;
+            }
+        }
+        return value;
+    }
+
+    private static String formatNumber(Number value) {
+        if (value == null) {
+            return "";
+        }
+        double parsed = value.doubleValue();
+        if (parsed == Math.rint(parsed) && parsed >= Long.MIN_VALUE && parsed <= Long.MAX_VALUE) {
+            return String.valueOf((long) parsed);
+        }
+        return value.toString();
+    }
+
+    private static int displayHeadLimit(SearchOptions options) {
+        return options.headLimit() == null ? DEFAULT_HEAD_LIMIT : options.headLimit();
+    }
+
+    public record Input(String pattern, String path, SearchOptions options) {
+        static Input from(Map<String, Object> arguments) {
+            return new Input(
                     requiredString(arguments, "pattern"),
                     optionalString(arguments, "path", "."),
                     SearchOptions.from(arguments)
@@ -579,45 +722,111 @@ public class GrepTool implements Tool {
         }
     }
 
+    public record Output(
+            String mode,
+            int numFiles,
+            List<String> filenames,
+            String content,
+            Integer numLines,
+            Integer numMatches,
+            Integer appliedLimit,
+            Integer appliedOffset,
+            String pattern,
+            String path,
+            String glob,
+            String resolvedPath,
+            String outputMode,
+            int headLimit,
+            int offset,
+            Integer totalFiles,
+            Integer totalLines,
+            boolean truncated
+    ) {
+        public Output {
+            filenames = filenames == null ? List.of() : List.copyOf(filenames);
+        }
+
+        Map<String, Object> details() {
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("kind", "grep");
+            details.put("pattern", pattern);
+            details.put("path", path);
+            details.put("glob", glob == null ? "" : glob);
+            details.put("resolvedPath", resolvedPath);
+            details.put("outputMode", outputMode);
+            details.put("headLimit", headLimit);
+            details.put("offset", offset);
+            details.put("mode", mode);
+            details.put("numFiles", numFiles);
+            details.put("filenames", filenames);
+            if (content != null) {
+                details.put("content", content);
+            }
+            if (numLines != null) {
+                details.put("numLines", numLines);
+            }
+            if (numMatches != null) {
+                details.put("numMatches", numMatches);
+            }
+            if (appliedLimit != null) {
+                details.put("appliedLimit", appliedLimit);
+            }
+            if (appliedOffset != null) {
+                details.put("appliedOffset", appliedOffset);
+            }
+            if (totalFiles != null) {
+                details.put("totalFiles", totalFiles);
+            }
+            if (totalLines != null) {
+                details.put("totalLines", totalLines);
+            }
+            details.put("truncated", truncated);
+            return details;
+        }
+    }
+
     private record SearchOptions(
             String outputMode,
             String glob,
-            int beforeLines,
-            int afterLines,
-            int contextLines,
+            Number beforeLines,
+            Number afterLines,
+            Number contextLines,
             boolean lineNumbers,
             boolean ignoreCase,
             String type,
-            int headLimit,
+            Integer headLimit,
             int offset,
             boolean multiline
     ) {
         private static SearchOptions from(Map<String, Object> arguments) {
-            String outputMode = optionalString(arguments, "output_mode", MODE_FILES_WITH_MATCHES);
+            String outputMode = optionalOutputMode(arguments);
             return new SearchOptions(
                     outputMode,
                     optionalString(arguments, "glob", null),
-                    optionalNonNegativeInt(arguments, "-B", 0),
-                    optionalNonNegativeInt(arguments, "-A", 0),
+                    optionalNumber(arguments, "-B"),
+                    optionalNumber(arguments, "-A"),
                     contextLines(arguments),
-                    optionalBoolean(arguments, "-n", false),
+                    optionalBoolean(arguments, "-n", true),
                     optionalBoolean(arguments, "-i", false),
                     optionalString(arguments, "type", null),
-                    optionalNonNegativeInt(arguments, "head_limit", DEFAULT_HEAD_LIMIT),
-                    optionalNonNegativeInt(arguments, "offset", 0),
+                    optionalInteger(arguments, "head_limit", null),
+                    optionalInteger(arguments, "offset", 0),
                     optionalBoolean(arguments, "multiline", false)
             );
         }
 
-        private static int contextLines(Map<String, Object> arguments) {
+        private static Number contextLines(Map<String, Object> arguments) {
             if (arguments.containsKey("context")) {
-                return optionalNonNegativeInt(arguments, "context", 0);
+                return optionalNumber(arguments, "context");
             }
-            return optionalNonNegativeInt(arguments, "-C", 0);
+            if (arguments.containsKey("-C")) {
+                return optionalNumber(arguments, "-C");
+            }
+            return null;
         }
     }
 
-    private record Page<T>(List<T> items, int offset, int limit, boolean truncated) {
+    private record Page<T>(List<T> items, Integer appliedLimit, Integer appliedOffset, boolean truncated) {
     }
 
     private record CountLine(String path, int count) {

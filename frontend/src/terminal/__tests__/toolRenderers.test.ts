@@ -248,6 +248,29 @@ describe('tool renderers', () => {
     expect(text).toContain('⎿  Done 50ms');
   });
 
+  it('renders PowerShell with shell presenter', () => {
+    const state = toolHistoryState({
+      id: 'powershell-1',
+      toolCall: {
+        toolName: 'PowerShell',
+        arguments: { command: 'Get-ChildItem' },
+        argumentsJson: JSON.stringify({ command: 'Get-ChildItem' }),
+        displayName: 'PowerShell',
+        displaySummary: 'Get-ChildItem',
+      },
+      toolResult: {
+        toolName: 'PowerShell',
+        text: '',
+        durationMs: 50,
+        details: { kind: 'powershell', command: 'Get-ChildItem', stdout: '', stderr: '', durationMs: 50 },
+      },
+    });
+
+    const text = renderText(state);
+    expect(text).toContain('● PowerShell(Get-ChildItem)');
+    expect(text).toContain('⎿  Done 50ms');
+  });
+
   it('renders multiline bash commands as a single compact summary', () => {
     const command = [
       "wc -c big_doc.txt && python3 - <<'PY'",

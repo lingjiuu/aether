@@ -321,9 +321,9 @@ public class OpenAiRequestMapper {
 
     private FunctionTool toOpenAiTool(Tool tool) {
         FunctionTool.Parameters.Builder parametersBuilder = FunctionTool.Parameters.builder();
-        Map<String, Object> parametersSchema = tool.parametersSchema();
-        if (parametersSchema != null) {
-            for (Map.Entry<String, Object> entry : parametersSchema.entrySet()) {
+        Map<String, Object> inputSchema = tool.inputSchema();
+        if (inputSchema != null) {
+            for (Map.Entry<String, Object> entry : inputSchema.entrySet()) {
                 parametersBuilder.putAdditionalProperty(entry.getKey(), JsonValue.from(entry.getValue()));
             }
         }

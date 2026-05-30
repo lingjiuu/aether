@@ -13,17 +13,33 @@ public final class ReadFileState {
     private final Map<Path, Snapshot> snapshots = new ConcurrentHashMap<>();
 
     public void recordFull(Path path, String content, FileTime modifiedAt) {
+        recordFull(path, content, modifiedAt, null, null);
+    }
+
+    public void recordFullRead(Path path, String content, FileTime modifiedAt, int offset, Integer limit) {
+        recordFull(path, content, modifiedAt, offset, limit);
+    }
+
+    private void recordFull(Path path, String content, FileTime modifiedAt, Integer offset, Integer limit) {
         Path normalized = normalize(path);
-        snapshots.put(normalized, new Snapshot(normalized, content == null ? "" : content, modifiedAt, false));
+        snapshots.put(normalized, new Snapshot(normalized, content == null ? "" : content, modifiedAt, false, offset, limit));
     }
 
     public void recordPartial(Path path, FileTime modifiedAt) {
+        recordPartial(path, modifiedAt, null, null);
+    }
+
+    public void recordPartialRead(Path path, FileTime modifiedAt, int offset, Integer limit) {
+        recordPartial(path, modifiedAt, offset, limit);
+    }
+
+    private void recordPartial(Path path, FileTime modifiedAt, Integer offset, Integer limit) {
         Path normalized = normalize(path);
         Snapshot existing = snapshots.get(normalized);
         if (existing != null && !existing.partial() && existing.sameModifiedAt(modifiedAt)) {
             return;
         }
-        snapshots.put(normalized, new Snapshot(normalized, null, modifiedAt, true));
+        snapshots.put(normalized, new Snapshot(normalized, null, modifiedAt, true, offset, limit));
     }
 
     public Snapshot get(Path path) {
@@ -55,7 +71,9 @@ public final class ReadFileState {
             Path path,
             String content,
             FileTime modifiedAt,
-            boolean partial
+            boolean partial,
+            Integer offset,
+            Integer limit
     ) {
         public boolean matchesCurrent(String currentContent, FileTime currentModifiedAt) {
             if (partial) {

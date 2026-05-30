@@ -379,6 +379,7 @@ public class ContextManager {
                 .toolBatchId(message.getToolBatchId())
                 .toolName(message.getToolName())
                 .details(message.getDetails())
+                .display(message.getDisplay())
                 .isError(message.isError())
                 .build();
     }

@@ -26,7 +26,7 @@ public class ToolRouter {
             ToolCancellationToken cancellationToken,
             Instant deadline,
             ReadFileState readFileState,
-            BiConsumer<Tool, ToolExecutionResult> updateSink
+            BiConsumer<Tool<?, ?>, io.github.lingjiuu.tool.result.ToolDisplayResult> updateSink
     ) {
         if (toolCall == null) {
             throw new IllegalArgumentException("toolCall must not be null");
@@ -39,35 +39,34 @@ public class ToolRouter {
                 case UNSUPPORTED -> "Unsupported tool: ";
                 case FOUND -> throw new IllegalStateException("found tool resolution must include a tool");
             };
-            return PreparedToolCall.failed(ToolExecutionResult.errorText(prefix + safeToolName(toolCall)));
+            return PreparedToolCall.failed(ToolCallResult.failure(ToolFailure.validation(prefix + safeToolName(toolCall))));
         }
 
-        Tool tool = resolution.tool();
-        Map<String, Object> arguments;
+        Tool<?, ?> tool = resolution.tool();
+        Object input;
         try {
-            arguments = tool.validateArguments(toolCall.getArgumentsJson());
+            input = parseInput(tool, toolCall.getArgumentsJson());
         } catch (IllegalArgumentException e) {
-            return PreparedToolCall.failed(ToolExecutionResult.errorText(
+            return PreparedToolCall.failed(ToolCallResult.failure(ToolFailure.schema(
                     "Invalid tool arguments for " + safeToolName(toolCall) + ": " + e.getMessage()
-            ));
+            )));
         }
 
-        Consumer<ToolExecutionResult> invocationUpdateSink = updateSink == null
+        Consumer<io.github.lingjiuu.tool.result.ToolDisplayResult> invocationUpdateSink = updateSink == null
                 ? null
                 : partialResult -> updateSink.accept(tool, partialResult);
-        ToolInvocation invocation = ToolInvocation.builder()
+        ToolUseContext context = ToolUseContext.builder()
                 .tool(tool)
                 .toolCall(toolCall)
-                .arguments(arguments == null ? Map.of() : arguments)
                 .cancellationToken(cancellationToken == null ? ToolCancellationToken.none() : cancellationToken)
                 .deadline(deadline)
                 .readFileState(readFileState)
                 .updateSink(invocationUpdateSink)
                 .build();
-        return PreparedToolCall.ready(tool, invocation);
+        return PreparedToolCall.ready(tool, input, permissionArguments(tool, input), context);
     }
 
-    public ToolExecutionResult dispatch(PreparedToolCall prepared) {
+    public ToolCallResult<?> dispatch(PreparedToolCall prepared) {
         if (prepared == null) {
             throw new IllegalArgumentException("prepared tool call must not be null");
         }
@@ -75,24 +74,56 @@ public class ToolRouter {
             return prepared.failureResult();
         }
 
-        ToolInvocation invocation = prepared.invocation();
+        ToolUseContext context = prepared.context();
         try {
-            checkRuntimeBoundary(invocation);
-            ToolExecutionResult result = prepared.tool().execute(invocation);
-            checkRuntimeBoundary(invocation);
-            return result == null ? ToolExecutionResult.errorText("Tool returned no result.") : result;
+            checkRuntimeBoundary(context);
+            ToolCallResult<?> result = dispatchTyped(prepared.tool(), prepared.input(), context);
+            checkRuntimeBoundary(context);
+            return result == null ? ToolCallResult.failure(ToolFailure.runtime("Tool returned no result.")) : result;
         } catch (ToolCancelledException e) {
-            return ToolExecutionResult.errorText(e.getMessage());
+            return ToolCallResult.failure(ToolFailure.cancellation(e.getMessage()), ToolCallStatus.ABORTED);
         } catch (ToolTimedOutException e) {
-            return ToolExecutionResult.errorText(e.getMessage());
+            return ToolCallResult.failure(ToolFailure.timeout(e.getMessage()));
         } catch (RuntimeException e) {
-            return ToolExecutionResult.errorText("Tool execution failed: " + e.getMessage());
+            return ToolCallResult.failure(ToolFailure.runtime("Tool execution failed: " + e.getMessage()));
         }
     }
 
-    private void checkRuntimeBoundary(ToolInvocation invocation) {
-        invocation.throwIfCancellationRequested();
-        if (invocation.remainingTimeout().isPresent() && invocation.remainingTimeout().get().isZero()) {
+    @SuppressWarnings("unchecked")
+    private <I, O> I parseInput(Tool<?, ?> tool, String argumentsJson) {
+        return ((Tool<I, O>) tool).parseInput(argumentsJson);
+    }
+
+    @SuppressWarnings("unchecked")
+    private <I, O> Map<String, Object> permissionArguments(Tool<?, ?> tool, Object input) {
+        Map<String, Object> arguments = ((Tool<I, O>) tool).permissionArguments((I) input);
+        return arguments == null ? Map.of() : arguments;
+    }
+
+    @SuppressWarnings("unchecked")
+    private <I, O> ToolCallResult<O> dispatchTyped(Tool<?, ?> tool, Object input, ToolUseContext context) {
+        Tool<I, O> typedTool = (Tool<I, O>) tool;
+        I typedInput = (I) input;
+        ValidationResult validation = typedTool.validateInput(typedInput, context);
+        if (validation != null && !validation.valid()) {
+            return ToolCallResult.failure(ToolFailure.validation(validation.message()));
+        }
+        ToolCallResult<O> result = typedTool.call(typedInput, context);
+        if (result != null && !result.hasFailure()) {
+            try {
+                typedTool.validateOutput(result.output());
+            } catch (IllegalArgumentException e) {
+                return ToolCallResult.failure(ToolFailure.schema(
+                        "Tool output did not match outputSchema for " + safeToolName(context.getToolCall()) + ": " + e.getMessage()
+                ));
+            }
+        }
+        return result;
+    }
+
+    private void checkRuntimeBoundary(ToolUseContext context) {
+        context.throwIfCancellationRequested();
+        if (context.remainingTimeout().isPresent() && context.remainingTimeout().get().isZero()) {
             throw new ToolTimedOutException();
         }
     }
@@ -104,30 +135,37 @@ public class ToolRouter {
     }
 
     public record PreparedToolCall(
-            Tool tool,
-            ToolInvocation invocation,
-            ToolExecutionResult failureResult
+            Tool<?, ?> tool,
+            Object input,
+            Map<String, Object> permissionArguments,
+            ToolUseContext context,
+            ToolCallResult<?> failureResult
     ) {
 
-        public static PreparedToolCall ready(Tool tool, ToolInvocation invocation) {
+        public static PreparedToolCall ready(
+                Tool<?, ?> tool,
+                Object input,
+                Map<String, Object> permissionArguments,
+                ToolUseContext context
+        ) {
             if (tool == null) {
                 throw new IllegalArgumentException("tool must not be null");
             }
-            if (invocation == null) {
-                throw new IllegalArgumentException("invocation must not be null");
+            if (context == null) {
+                throw new IllegalArgumentException("context must not be null");
             }
-            return new PreparedToolCall(tool, invocation, null);
+            return new PreparedToolCall(tool, input, permissionArguments == null ? Map.of() : Map.copyOf(permissionArguments), context, null);
         }
 
-        public static PreparedToolCall failed(ToolExecutionResult failureResult) {
+        public static PreparedToolCall failed(ToolCallResult<?> failureResult) {
             if (failureResult == null) {
                 throw new IllegalArgumentException("failureResult must not be null");
             }
-            return new PreparedToolCall(null, null, failureResult);
+            return new PreparedToolCall(null, null, Map.of(), null, failureResult);
         }
 
         public boolean ready() {
-            return tool != null && invocation != null;
+            return tool != null && context != null;
         }
     }
 

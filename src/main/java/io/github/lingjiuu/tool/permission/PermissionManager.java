@@ -1,6 +1,6 @@
 package io.github.lingjiuu.tool.permission;
 
-import io.github.lingjiuu.tool.ToolInvocation;
+import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolRiskLevel;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
 
@@ -34,8 +34,8 @@ public class PermissionManager {
         this.preset = preset == null ? PermissionPreset.DEFAULT : preset;
     }
 
-    public PermissionDecision decide(ToolInvocation invocation) {
-        if (invocation == null || invocation.getTool() == null) {
+    public PermissionDecision decide(Tool<?, ?> tool, String toolName, Map<String, Object> arguments) {
+        if (tool == null) {
             return PermissionDecision.deny("Tool is not available.");
         }
 
@@ -45,24 +45,24 @@ public class PermissionManager {
             return PermissionDecision.allow();
         }
 
-        String toolName = invocation.toolName();
-        if (toolName == null || toolName.isBlank()) {
-            toolName = invocation.getTool().name();
+        String resolvedToolName = toolName;
+        if (resolvedToolName == null || resolvedToolName.isBlank()) {
+            resolvedToolName = tool.name();
         }
-        if (toolName == null || toolName.isBlank()) {
-            return decideByRiskLevel(invocation);
+        if (resolvedToolName == null || resolvedToolName.isBlank()) {
+            return decideByRiskLevel(tool);
         }
 
-        return switch (toolName) {
-            case "read", "glob", "grep" -> PermissionDecision.allow();
-            case "write", "edit" -> decideWorkspaceWrite(invocation);
-            case "bash", "powershell" -> PermissionDecision.ask("Tool can execute commands.");
-            default -> decideByRiskLevel(invocation);
+        return switch (resolvedToolName) {
+            case "Read", "read", "Glob", "glob", "Grep", "grep" -> PermissionDecision.allow();
+            case "Write", "write", "Edit", "edit" -> decideWorkspaceWrite(arguments);
+            case "Bash", "bash", "PowerShell", "powershell" -> PermissionDecision.ask("Tool can execute commands.");
+            default -> decideByRiskLevel(tool);
         };
     }
 
-    private PermissionDecision decideWorkspaceWrite(ToolInvocation invocation) {
-        String path = stringArgument(invocation.getArguments(), "file_path");
+    private PermissionDecision decideWorkspaceWrite(Map<String, Object> arguments) {
+        String path = stringArgument(arguments, "file_path");
         if (path == null) {
             return PermissionDecision.ask("Tool write path is unknown.");
         }
@@ -72,8 +72,8 @@ public class PermissionManager {
         return PermissionDecision.ask("Tool writes outside the workspace.");
     }
 
-    private PermissionDecision decideByRiskLevel(ToolInvocation invocation) {
-        ToolRiskLevel riskLevel = invocation.getTool().riskLevel();
+    private PermissionDecision decideByRiskLevel(Tool<?, ?> tool) {
+        ToolRiskLevel riskLevel = tool.riskLevel();
         if (riskLevel == null || riskLevel == ToolRiskLevel.UNKNOWN) {
             return PermissionDecision.ask("Tool risk is unknown.");
         }
