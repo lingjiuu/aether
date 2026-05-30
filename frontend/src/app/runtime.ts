@@ -8,20 +8,6 @@ import { selectIsRunning } from '../state/selectors.js';
 export async function boot(client: AetherClient, dispatch: (action: AppAction) => void): Promise<void> {
   client.start();
   client.onEvent(event => dispatch({ type: 'event', event }));
-  let suppressInterruptedStackTrace = false;
-  client.onStderr(text => {
-    for (const line of text.split(/\r?\n/)) {
-      if (shouldSuppressBackendStderrLine(line, suppressInterruptedStackTrace)) {
-        suppressInterruptedStackTrace = true;
-        continue;
-      }
-      suppressInterruptedStackTrace = false;
-      const trimmed = line.trim();
-      if (trimmed) {
-        dispatch({ type: 'notice', message: trimmed });
-      }
-    }
-  });
 
   const initialized = await client.initialize();
   dispatch({ type: 'connected', session: initialized.session });
@@ -36,17 +22,6 @@ export async function boot(client: AetherClient, dispatch: (action: AppAction) =
   } catch {
   }
   await client.initialized();
-}
-
-function shouldSuppressBackendStderrLine(line: string, suppressingInterruptedStackTrace: boolean): boolean {
-  if (/^Exception in thread "aether-/.test(line)) {
-    return true;
-  }
-  if (line.includes('java.lang.InterruptedException')) {
-    return true;
-  }
-  return suppressingInterruptedStackTrace
-    && (/^\s+at\s/.test(line) || /^\s*Caused by:/.test(line) || /^\s*\.\.\.\s+\d+\s+more/.test(line) || line.trim() === '');
 }
 
 export type TurnSubmission = {
@@ -139,6 +114,7 @@ export async function handleInput(
           catalog,
           selectedIndex: selectedModelIndex(catalog),
           reasoningIndex: selectedReasoningIndex(catalog),
+          customModel: customModelValue(catalog),
         },
       });
       break;
@@ -203,7 +179,15 @@ function selectedModelIndex(catalog: ModelCatalog): number {
     model.current
     || (model.providerId === current?.providerId && model.modelId === current?.modelId),
   );
-  return Math.max(0, index);
+  if (index >= 0) {
+    return index;
+  }
+  return current?.modelId?.trim() ? models.length : 0;
+}
+
+function customModelValue(catalog: ModelCatalog): string {
+  const models = catalog.models ?? [];
+  return selectedModelIndex(catalog) === models.length ? catalog.current?.modelId?.trim() ?? '' : '';
 }
 
 function selectedReasoningIndex(catalog: ModelCatalog): number {

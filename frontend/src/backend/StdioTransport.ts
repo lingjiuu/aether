@@ -54,10 +54,10 @@ export class StdioTransport {
       this.events.emit('stderr', String(chunk));
     });
 
-    this.child.on('error', error => this.failAll(error));
+    this.child.on('error', () => this.failAll(backendStartupError()));
     this.child.on('exit', (code, signal) => {
       this.closed = true;
-      this.failAll(new Error(`Aether backend exited with code ${code ?? 'null'} signal ${signal ?? 'null'}`));
+      this.failAll(backendStartupError());
       this.events.emit('exit', { code, signal });
     });
   }
@@ -119,7 +119,6 @@ export class StdioTransport {
     try {
       message = JSON.parse(line);
     } catch {
-      this.events.emit('stderr', `Ignoring non-JSON backend output: ${line}\n`);
       return;
     }
 
@@ -164,4 +163,8 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function backendStartupError(): Error {
+  return new Error('Aether backend failed to start.');
 }

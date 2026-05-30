@@ -76,6 +76,7 @@ export type CommandPanel =
       catalog: UiModelCatalog;
       selectedIndex: number;
       reasoningIndex: number;
+      customModel: string;
     }
   | {
       kind: 'permissions';
@@ -108,6 +109,7 @@ export type AppAction =
   | { type: 'commandPanelSelectionMoved'; delta: -1 | 1; count: number }
   | { type: 'commandPanelReasoningMoved'; delta: -1 | 1; count: number }
   | { type: 'commandPanelQueryChanged'; query: string }
+  | { type: 'commandPanelCustomModelChanged'; customModel: string }
   | { type: 'commandPanelClosed'; output: string }
   | { type: 'localCommandCompleted'; id: string; command: string; output: string }
   | { type: 'notice'; message: string };

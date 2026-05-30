@@ -256,6 +256,7 @@ public class CommandManager implements AutoCloseable {
                 input.modelId(),
                 input.reasoningEffort()
         );
+        sessionFactory.rememberModel(selection);
         boolean changed = session.setActiveModelSelection(selection);
         String label = modelLabel(selection);
         if (!changed) {

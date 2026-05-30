@@ -188,6 +188,7 @@ describe('bottom renderer', () => {
         },
         selectedIndex: 1,
         reasoningIndex: 2,
+        customModel: '',
       },
     });
 
@@ -196,10 +197,14 @@ describe('bottom renderer', () => {
 
     expect(text).toContain('❯ /model');
     expect(text).toContain('Select model');
-    expect(text).toContain('❯ 2. fake/second ✔');
+    expect(text).toContain('Provider: fake');
+    expect(text).toContain('❯ 2. second ✔');
+    expect(text).not.toContain('fake/second');
+    expect(text).toContain('Custom model');
+    expect(text).toContain('model id');
     expect(text).toContain('xHigh effort ←/→ to adjust');
     expect(text).not.toContain('None effort');
-    expect(text).toContain('Enter to confirm · Esc to cancel');
+    expect(text).toContain('↑/↓ select · Type custom · Enter confirm · Esc cancel');
   });
 
   it('renders the permissions panel in the Claude-style command area', () => {

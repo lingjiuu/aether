@@ -3,6 +3,7 @@ package io.github.lingjiuu.session;
 import io.github.lingjiuu.infra.config.AetherConfig;
 import io.github.lingjiuu.infra.config.AetherConfigException;
 import io.github.lingjiuu.infra.config.AetherConfigLoader;
+import io.github.lingjiuu.infra.config.AetherConfigUpdater;
 import io.github.lingjiuu.infra.config.AetherPaths;
 import io.github.lingjiuu.instructions.AgentsMdInstructions;
 import io.github.lingjiuu.instructions.InstructionsManager;
@@ -38,6 +39,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.StringJoiner;
 import java.util.UUID;
 
@@ -46,7 +48,8 @@ public class SessionFactory {
     private final SessionConfig config;
     private final SkillsManager skillsManager;
     private final Path agentDir;
-    private final AetherConfig aetherConfig;
+    private final Path configPath;
+    private AetherConfig aetherConfig;
 
     public SessionFactory(SessionConfig config) {
         this(config, null);
@@ -62,6 +65,16 @@ public class SessionFactory {
             Path agentDir,
             AetherConfig aetherConfig
     ) {
+        this(config, skillsManager, agentDir, aetherConfig, null);
+    }
+
+    private SessionFactory(
+            SessionConfig config,
+            SkillsManager skillsManager,
+            Path agentDir,
+            AetherConfig aetherConfig,
+            Path configPath
+    ) {
         if (config == null) {
             throw new IllegalArgumentException("config must not be null");
         }
@@ -69,6 +82,7 @@ public class SessionFactory {
         this.skillsManager = skillsManager == null ? SkillsManager.empty(config.cwd()) : skillsManager;
         this.agentDir = agentDir == null ? null : agentDir.toAbsolutePath().normalize();
         this.aetherConfig = aetherConfig;
+        this.configPath = configPath == null ? null : configPath.toAbsolutePath().normalize();
     }
 
     public static SessionFactory createDefault() {
@@ -121,7 +135,10 @@ public class SessionFactory {
         AgentTraceRecorder traceRecorder = new AgentTraceRecorder(
                 new SqliteTraceStore(AetherPaths.getTraceDbPath())
         );
-        AetherConfig aetherConfig = new AetherConfigLoader().load(configPath, provider, modelId);
+        Path resolvedConfigPath = configPath == null
+                ? AetherPaths.getConfigPath()
+                : configPath.toAbsolutePath().normalize();
+        AetherConfig aetherConfig = new AetherConfigLoader().load(resolvedConfigPath, provider, modelId);
         ModelSelection modelSelection = aetherConfig.modelSelection();
         ModelClient modelClient = new ModelClient();
         Path defaultCwd = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();
@@ -137,7 +154,7 @@ public class SessionFactory {
                 resolvedAgentDir
         );
 
-        return new SessionFactory(config, new SkillsManager(config.cwd(), resolvedAgentDir), resolvedAgentDir, aetherConfig);
+        return new SessionFactory(config, new SkillsManager(config.cwd(), resolvedAgentDir), resolvedAgentDir, aetherConfig, resolvedConfigPath);
     }
 
     private static SessionConfig buildWorkspaceConfig(
@@ -243,6 +260,22 @@ public class SessionFactory {
             return aetherConfig.selectModel(explicitProvider, explicitModel, explicitReasoningEffort);
         }
         return configOnlyModelSelection(explicitProvider, explicitModel, explicitReasoningEffort);
+    }
+
+    public void rememberModel(ModelSelection selection) {
+        if (aetherConfig == null || configPath == null || selection == null || selection.model() == null || selection.endpoint() == null) {
+            return;
+        }
+        String providerId = selection.endpoint().providerId();
+        String modelId = selection.model().getId();
+        if (aetherConfig.modelOptions().stream()
+                .anyMatch(option -> Objects.equals(option.providerId(), providerId) && Objects.equals(option.modelId(), modelId))) {
+            return;
+        }
+        boolean updated = new AetherConfigUpdater().addModelIfMissing(configPath, providerId, modelId);
+        if (updated) {
+            aetherConfig = new AetherConfigLoader().load(configPath);
+        }
     }
 
     private SessionConfig sessionConfig(SessionOptions options) {

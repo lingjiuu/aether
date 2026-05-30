@@ -64,6 +64,7 @@ describe('CommandPanelController', () => {
         },
         selectedIndex: 1,
         reasoningIndex: 0,
+        customModel: '',
       },
     });
     const setModel = vi.fn<(_: string | undefined, __: string, ___?: string) => Promise<void>>().mockResolvedValue(undefined);
@@ -76,6 +77,81 @@ describe('CommandPanelController', () => {
     });
 
     expect(setModel).toHaveBeenCalledWith('fake', 'second', 'LOW');
+  });
+
+  it('types and submits a custom model with the current provider', async () => {
+    const controller = new CommandPanelController();
+    const state = reducer(initialState, {
+      type: 'commandPanelOpened',
+      panel: {
+        kind: 'model',
+        id: 'model-1',
+        command: '/model',
+        catalog: {
+          current: { providerId: 'fake', modelId: 'first', reasoningEffort: 'HIGH' },
+          models: [{ providerId: 'fake', modelId: 'first', current: true }],
+          reasoningEfforts: ['LOW', 'HIGH'],
+        },
+        selectedIndex: 0,
+        reasoningIndex: 0,
+        customModel: '',
+      },
+    });
+    const actions: AppAction[] = [];
+
+    await controller.handleKey({ kind: 'text', value: 'g' }, state, {
+      dispatch: action => actions.push(action),
+      resumeSession: vi.fn(),
+      setModel: vi.fn(),
+      setPermissionMode: vi.fn(),
+    });
+
+    expect(actions).toEqual([{ type: 'commandPanelCustomModelChanged', customModel: 'g' }]);
+
+    const action = actions[0];
+    if (!action) {
+      throw new Error('expected custom model action');
+    }
+    const nextState = reducer(state, action);
+    const setModel = vi.fn<(_: string | undefined, __: string, ___?: string) => Promise<void>>().mockResolvedValue(undefined);
+
+    await controller.handleKey({ kind: 'return' }, nextState, {
+      dispatch: vi.fn(),
+      resumeSession: vi.fn(),
+      setModel,
+      setPermissionMode: vi.fn(),
+    });
+
+    expect(setModel).toHaveBeenCalledWith('fake', 'g', 'LOW');
+  });
+
+  it('submits a slash-containing custom model under the current provider', async () => {
+    const state = reducer(initialState, {
+      type: 'commandPanelOpened',
+      panel: {
+        kind: 'model',
+        id: 'model-1',
+        command: '/model',
+        catalog: {
+          current: { providerId: 'fake', modelId: 'first', reasoningEffort: 'HIGH' },
+          models: [{ providerId: 'fake', modelId: 'first', current: true }],
+          reasoningEfforts: ['LOW', 'HIGH'],
+        },
+        selectedIndex: 1,
+        reasoningIndex: 0,
+        customModel: 'family/custom-model',
+      },
+    });
+    const setModel = vi.fn<(_: string | undefined, __: string, ___?: string) => Promise<void>>().mockResolvedValue(undefined);
+
+    await new CommandPanelController().handleKey({ kind: 'return' }, state, {
+      dispatch: vi.fn(),
+      resumeSession: vi.fn(),
+      setModel,
+      setPermissionMode: vi.fn(),
+    });
+
+    expect(setModel).toHaveBeenCalledWith('fake', 'family/custom-model', 'LOW');
   });
 
   it('moves reasoning effort to a larger value with the right arrow', async () => {
@@ -92,6 +168,7 @@ describe('CommandPanelController', () => {
         },
         selectedIndex: 0,
         reasoningIndex: 2,
+        customModel: '',
       },
     });
     const actions: AppAction[] = [];
@@ -120,6 +197,7 @@ describe('CommandPanelController', () => {
         },
         selectedIndex: 0,
         reasoningIndex: 0,
+        customModel: '',
       },
     });
     const actions: AppAction[] = [];

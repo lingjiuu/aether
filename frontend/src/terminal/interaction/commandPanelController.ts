@@ -71,13 +71,15 @@ export class CommandPanelController {
 
   private async handleModelKey(key: Key, panel: Extract<CommandPanel, { kind: 'model' }>, callbacks: CommandPanelCallbacks): Promise<boolean> {
     const models = panel.catalog.models ?? [];
+    const customIndex = models.length;
+    const rowCount = customIndex + 1;
     const efforts = selectableReasoningEfforts(panel.catalog.reasoningEfforts);
     switch (key.kind) {
       case 'up':
-        callbacks.dispatch({ type: 'commandPanelSelectionMoved', delta: -1, count: models.length });
+        callbacks.dispatch({ type: 'commandPanelSelectionMoved', delta: -1, count: rowCount });
         return true;
       case 'down':
-        callbacks.dispatch({ type: 'commandPanelSelectionMoved', delta: 1, count: models.length });
+        callbacks.dispatch({ type: 'commandPanelSelectionMoved', delta: 1, count: rowCount });
         return true;
       case 'left':
         callbacks.dispatch({ type: 'commandPanelReasoningMoved', delta: -1, count: efforts.length });
@@ -85,17 +87,36 @@ export class CommandPanelController {
       case 'right':
         callbacks.dispatch({ type: 'commandPanelReasoningMoved', delta: 1, count: efforts.length });
         return true;
+      case 'backspace':
+        callbacks.dispatch({ type: 'commandPanelCustomModelChanged', customModel: panel.customModel.slice(0, -1) });
+        return true;
       case 'return': {
-        const selected = models[clampIndex(panel.selectedIndex, models.length)];
+        const selectedIndex = clampIndex(panel.selectedIndex, rowCount);
+        const effort = efforts[clampIndex(panel.reasoningIndex, efforts.length)];
+        if (selectedIndex === customIndex) {
+          const customModel = panel.customModel.trim();
+          if (customModel) {
+            await callbacks.setModel(
+              customProviderId(panel),
+              customModel,
+              effort,
+            );
+          }
+          return true;
+        }
+        const selected = models[selectedIndex];
         if (selected?.modelId) {
           await callbacks.setModel(
             selected.providerId ?? undefined,
             selected.modelId,
-            efforts[clampIndex(panel.reasoningIndex, efforts.length)],
+            effort,
           );
         }
         return true;
       }
+      case 'text':
+        callbacks.dispatch({ type: 'commandPanelCustomModelChanged', customModel: `${panel.customModel}${key.value}` });
+        return true;
       default:
         return true;
     }
@@ -172,6 +193,14 @@ function modelSelectionLabel(selection: Extract<CommandPanel, { kind: 'model' }>
   const provider = selection?.providerId?.trim();
   const model = selection?.modelId?.trim();
   return [provider, model].filter(Boolean).join('/') || model || 'current model';
+}
+
+function customProviderId(panel: Extract<CommandPanel, { kind: 'model' }>): string | undefined {
+  const currentProvider = panel.catalog.current?.providerId?.trim();
+  if (currentProvider) {
+    return currentProvider;
+  }
+  return panel.catalog.models?.find(model => model.providerId?.trim())?.providerId?.trim() || undefined;
 }
 
 function permissionModeLabel(mode: Extract<CommandPanel, { kind: 'permissions' }>['catalog']['current']): string {

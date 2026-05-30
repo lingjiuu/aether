@@ -4,16 +4,12 @@ import { initialState, type AppAction } from '../../state/reducer.js';
 import { boot, handleInput } from '../runtime.js';
 
 describe('runtime boot', () => {
-  it('does not surface normal Java interruption stack traces as notices', async () => {
-    let stderrHandler: ((text: string) => void) | undefined;
+  it('does not subscribe backend stderr to UI notices', async () => {
     const dispatch = vi.fn<(action: AppAction) => void>();
     const client = {
       start: vi.fn(),
       onEvent: vi.fn(() => () => {}),
-      onStderr: vi.fn(handler => {
-        stderrHandler = handler;
-        return () => {};
-      }),
+      onStderr: vi.fn(() => () => {}),
       initialize: vi.fn().mockResolvedValue({
         protocolVersion: 'test',
         sessionId: 'session-1',
@@ -23,8 +19,8 @@ describe('runtime boot', () => {
     } as unknown as AetherClient;
 
     await boot(client, dispatch);
-    stderrHandler?.('Exception in thread "aether-regular-turn-1"\njava.lang.InterruptedException\n        at java.base/java.lang.VirtualThread.sleepNanos(VirtualThread.java:782)\n');
 
+    expect(client.onStderr).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({
       type: 'notice',
     }));

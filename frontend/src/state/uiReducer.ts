@@ -88,6 +88,20 @@ export function commandPanelQueryChanged(state: AppState, query: string): AppSta
     : state;
 }
 
+export function commandPanelCustomModelChanged(state: AppState, customModel: string): AppState {
+  if (state.commandPanel?.kind !== 'model') {
+    return state;
+  }
+  return {
+    ...state,
+    commandPanel: {
+      ...state.commandPanel,
+      customModel,
+      selectedIndex: state.commandPanel.catalog.models?.length ?? 0,
+    },
+  };
+}
+
 export function commandPanelClosed(state: AppState, output: string): AppState {
   const panel = state.commandPanel;
   if (!panel) {

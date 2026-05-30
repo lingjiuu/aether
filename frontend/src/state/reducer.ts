@@ -2,6 +2,7 @@ import { sessionViewFromWire } from '../domain/session.js';
 import { applyEvent, applyHistory } from './timelineReducer.js';
 import {
   appendLocalCommand,
+  commandPanelCustomModelChanged,
   commandPanelClosed,
   commandPanelOpened,
   commandPanelReasoningMoved,
@@ -73,6 +74,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return commandPanelReasoningMoved(state, action.delta, action.count);
     case 'commandPanelQueryChanged':
       return commandPanelQueryChanged(state, action.query);
+    case 'commandPanelCustomModelChanged':
+      return commandPanelCustomModelChanged(state, action.customModel);
     case 'commandPanelClosed':
       return commandPanelClosed(state, action.output);
     case 'localCommandCompleted':

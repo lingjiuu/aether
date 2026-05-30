@@ -135,11 +135,14 @@ public record AetherConfig(
     ) {
         String providerId = blankToNull(explicitProvider);
         String modelId = blankToNull(explicitModel);
+        boolean explicitModelRequested = modelId != null;
         if (modelId != null) {
-            int slash = modelId.indexOf('/');
-            if (slash > 0 && slash < modelId.length() - 1) {
-                providerId = modelId.substring(0, slash);
-                modelId = modelId.substring(slash + 1);
+            if (providerId == null) {
+                int slash = modelId.indexOf('/');
+                if (slash > 0 && slash < modelId.length() - 1) {
+                    providerId = modelId.substring(0, slash);
+                    modelId = modelId.substring(slash + 1);
+                }
             }
         } else if (providerId != null) {
             throw new AetherConfigException("A model id is required when provider \"" + providerId + "\" is specified.");
@@ -154,7 +157,10 @@ public record AetherConfig(
         }
         ModelDefinition modelDefinition = findModel(provider, modelId);
         if (modelDefinition == null) {
-            throw new AetherConfigException("Model \"" + providerId + "/" + modelId + "\" is not configured.");
+            if (!explicitModelRequested) {
+                throw new AetherConfigException("Model \"" + providerId + "/" + modelId + "\" is not configured.");
+            }
+            modelDefinition = customModelDefinition(modelId);
         }
 
         String api = firstNonBlank(modelDefinition.api(), provider.api());
@@ -270,6 +276,24 @@ public record AetherConfig(
             }
         }
         return null;
+    }
+
+    private static ModelDefinition customModelDefinition(String modelId) {
+        return new ModelDefinition(
+                modelId,
+                modelId,
+                null,
+                null,
+                null,
+                null,
+                Map.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
     }
 
     private static ProviderAuth requestAuth(

@@ -243,6 +243,35 @@ public class SessionFactoryTest extends TestCase {
         }
     }
 
+    public void testExplicitCustomModelUsesConfiguredProvider() throws Exception {
+        Path root = Files.createTempDirectory("aether-session-custom-model");
+        Path agentDir = root.resolve("agent");
+        Path configPath = root.resolve("config.toml");
+        Files.createDirectories(agentDir);
+        writeConfig(configPath, "fake", "fake-model", true);
+        SessionFactory factory = SessionFactory.createDefault(
+                null,
+                null,
+                configPath,
+                agentDir,
+                new TranscriptStore(root.resolve("transcripts"))
+        );
+
+        var selection = factory.selectModel("fake", "family/custom-model", "LOW");
+        factory.rememberModel(selection);
+
+        assertEquals("fake", selection.endpoint().providerId());
+        assertEquals("family/custom-model", selection.model().getId());
+        assertEquals("family/custom-model", selection.model().getName());
+        assertEquals("http://localhost", selection.endpoint().baseUrl());
+        assertEquals("LOW", selection.reasoning().getReasoningEffort().name());
+        assertTrue(factory.modelOptions().stream()
+                .anyMatch(option -> option.providerId().equals("fake") && option.modelId().equals("family/custom-model")));
+        String config = Files.readString(configPath, StandardCharsets.UTF_8);
+        assertTrue(config.contains("[[model_providers.fake.models]]"));
+        assertTrue(config.contains("id = \"family/custom-model\""));
+    }
+
     public void testDefaultToolsAreSelectedForHostShellEnvironment() throws Exception {
         Path cwd = Files.createTempDirectory("aether-session-tools");
 
