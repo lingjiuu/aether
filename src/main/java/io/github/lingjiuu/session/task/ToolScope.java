@@ -363,7 +363,7 @@ final class ToolScope implements AutoCloseable {
     }
 
     private String abortMessage(ToolCallContent toolCall, double elapsedSeconds) {
-        if (toolCall != null && ("Bash".equals(toolCall.getToolName()) || "bash".equals(toolCall.getToolName()) || "powershell".equals(toolCall.getToolName()))) {
+        if (toolCall != null && ("Bash".equals(toolCall.getToolName()) || "bash".equals(toolCall.getToolName()) || "PowerShell".equals(toolCall.getToolName()) || "powershell".equals(toolCall.getToolName()))) {
             return String.format("Wall time: %.1f seconds\naborted by user", elapsedSeconds);
         }
         return genericAbortMessage(elapsedSeconds);

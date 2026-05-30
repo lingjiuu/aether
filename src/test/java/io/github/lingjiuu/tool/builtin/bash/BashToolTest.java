@@ -10,6 +10,7 @@ import junit.framework.TestCase;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 
 public class BashToolTest extends TestCase {
@@ -29,7 +30,7 @@ public class BashToolTest extends TestCase {
         String text = ((TextContent) result.getContents().getFirst()).getText();
         assertTrue(text.contains("out"));
         assertTrue(text.contains("err"));
-        assertTrue(text.contains("Command exited with code 7"));
+        assertTrue(text.contains("Exit code 7"));
 
         assertTrue(result.getDetails() instanceof Map);
         @SuppressWarnings("unchecked")
@@ -60,6 +61,9 @@ public class BashToolTest extends TestCase {
                 .build());
 
         assertFalse(result.isError());
+        assertEquals(1, result.getContents().size());
+        assertTrue(result.getContents().getFirst() instanceof TextContent);
+        assertEquals("", ((TextContent) result.getContents().getFirst()).getText());
         assertTrue(result.getDetails() instanceof Map);
         @SuppressWarnings("unchecked")
         Map<String, Object> details = (Map<String, Object>) result.getDetails();
@@ -74,7 +78,19 @@ public class BashToolTest extends TestCase {
 
         assertEquals("Bash", tool.name());
         assertEquals("Bash", tool.label());
-        assertTrue(String.valueOf(tool.inputSchema()).contains("maximum=600000"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> inputProperties = (Map<String, Object>) tool.inputSchema().get("properties");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> commandSchema = (Map<String, Object>) inputProperties.get("command");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> timeoutSchema = (Map<String, Object>) inputProperties.get("timeout");
+        assertEquals("The command to execute", commandSchema.get("description"));
+        assertEquals("Optional timeout in milliseconds (max 600000)", timeoutSchema.get("description"));
+        assertEquals(600000, ((Number) timeoutSchema.get("maximum")).intValue());
+
+        Map<String, Object> parsed = tool.validateInputJson("{\"command\":\"true\",\"timeout\":\"1000\"}");
+        assertEquals(1000, ((Number) parsed.get("timeout")).intValue());
 
         try {
             tool.validateInputJson("{\"command\":\"true\",\"timeout\":600001}");
@@ -82,6 +98,27 @@ public class BashToolTest extends TestCase {
         } catch (IllegalArgumentException e) {
             assertTrue(e.getMessage().contains("timeout"));
         }
+    }
+
+    public void testBashUsesClaudeStyleOutputSchema() throws Exception {
+        BashTool tool = new BashTool(Files.createTempDirectory("aether-bash-tool-test"));
+
+        Map<String, Object> outputSchema = tool.outputSchema();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> outputProperties = (Map<String, Object>) outputSchema.get("properties");
+
+        assertTrue(outputProperties.containsKey("stdout"));
+        assertTrue(outputProperties.containsKey("stderr"));
+        assertTrue(outputProperties.containsKey("rawOutputPath"));
+        assertTrue(outputProperties.containsKey("interrupted"));
+        assertTrue(outputProperties.containsKey("isImage"));
+        assertTrue(outputProperties.containsKey("returnCodeInterpretation"));
+        assertTrue(outputProperties.containsKey("noOutputExpected"));
+        assertTrue(outputProperties.containsKey("structuredContent"));
+        assertTrue(outputProperties.containsKey("persistedOutputPath"));
+        assertTrue(outputProperties.containsKey("persistedOutputSize"));
+        assertEquals(List.of("stdout", "stderr", "interrupted"), outputSchema.get("required"));
+        assertFalse(outputSchema.containsKey("additionalProperties"));
     }
 
     public void testShellOutputCaptureKeepsTailAndPersistsFullOutput() throws Exception {

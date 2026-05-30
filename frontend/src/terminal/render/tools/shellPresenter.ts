@@ -4,7 +4,7 @@ import type { Details, ToolLine, ToolPresentationDefinition, ToolPresenter, Tool
 import { booleanField, numberField, splitOutputLines, stringField } from './utils.js';
 
 export const bashPresenter: ToolPresenter = {
-  userFacingName: () => 'Bash',
+  userFacingName: toolName => (toolName.toLowerCase() === 'powershell' ? 'PowerShell' : 'Bash'),
   useSummary: args => bashSummary(args),
   progressView(details): ToolResultView | undefined {
     const output = bashOutputLines(details);
@@ -14,7 +14,7 @@ export const bashPresenter: ToolPresenter = {
 };
 
 export const shellToolPresentations: ToolPresentationDefinition[] = [
-  { names: ['Bash', 'bash'], presenter: bashPresenter },
+  { names: ['Bash', 'bash', 'PowerShell', 'powershell'], presenter: bashPresenter },
 ];
 
 function bashResultView(details: Details, result: UiToolResult): ToolResultView {

@@ -76,7 +76,7 @@ public class PermissionManagerTest extends TestCase {
         Path workspace = Files.createTempDirectory("aether-permission-workspace");
         PermissionManager manager = defaultManager(workspace);
 
-        PermissionDecision decision = decide(manager, tool("powershell", ToolRiskLevel.EXEC), Map.of(
+        PermissionDecision decision = decide(manager, tool("PowerShell", ToolRiskLevel.EXEC), Map.of(
                 "command", "Get-ChildItem"
         ));
 

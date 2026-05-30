@@ -64,7 +64,7 @@ public class GlobTool implements Tool<GlobTool.Input, GlobTool.Output> {
                 "properties", Map.of(
                         "pattern", Map.of(
                                 "type", "string",
-                                "description", "The glob pattern to match files against."
+                                "description", "The glob pattern to match files against"
                         ),
                         "path", Map.of(
                                 "type", "string",
@@ -73,6 +73,33 @@ public class GlobTool implements Tool<GlobTool.Input, GlobTool.Output> {
                 ),
                 "required", List.of("pattern"),
                 "additionalProperties", false
+        );
+    }
+
+    @Override
+    public Map<String, Object> outputSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "durationMs", Map.of(
+                                "type", "number",
+                                "description", "Time taken to execute the search in milliseconds"
+                        ),
+                        "numFiles", Map.of(
+                                "type", "number",
+                                "description", "Total number of files found"
+                        ),
+                        "filenames", Map.of(
+                                "type", "array",
+                                "items", Map.of("type", "string"),
+                                "description", "Array of file paths that match the pattern"
+                        ),
+                        "truncated", Map.of(
+                                "type", "boolean",
+                                "description", "Whether results were truncated (limited to 100 files)"
+                        )
+                ),
+                "required", List.of("durationMs", "numFiles", "filenames", "truncated")
         );
     }
 
@@ -109,7 +136,7 @@ public class GlobTool implements Tool<GlobTool.Input, GlobTool.Output> {
 
     @Override
     public ModelToolResult toModelResult(Output output, ToolResultContext<Input, Output> context) {
-        return ModelToolResult.text(output.text());
+        return ModelToolResult.text(modelText(output));
     }
 
     @Override
@@ -125,6 +152,7 @@ public class GlobTool implements Tool<GlobTool.Input, GlobTool.Output> {
             SearchTarget searchTarget
     ) throws IOException, InterruptedException {
         context.throwIfCancellationRequested();
+        long startedAt = System.currentTimeMillis();
         Path resolvedPath = searchTarget.directory();
         if (!Files.exists(resolvedPath)) {
             throw new IOException("Path not found: " + requestedPath);
@@ -185,29 +213,29 @@ public class GlobTool implements Tool<GlobTool.Input, GlobTool.Output> {
             List<String> returned = filenames.size() <= DEFAULT_RESULT_LIMIT
                     ? filenames
                     : filenames.subList(0, DEFAULT_RESULT_LIMIT);
-            String rawOutput = returned.isEmpty() ? "No files found" : String.join("\n", returned);
-            String output = rawOutput;
-            List<String> notices = new ArrayList<>();
-            if (resultLimitReached) {
-                notices.add("Results are truncated. Consider using a more specific path or pattern");
-            }
-            if (!notices.isEmpty()) {
-                output += "\n\n[" + String.join(". ", notices) + "]";
-            }
-
-            Map<String, Object> details = new LinkedHashMap<>();
-            details.put("kind", "glob");
-            details.put("pattern", pattern);
-            details.put("path", requestedPath);
-            details.put("resolvedPath", resolvedPath.toString());
-            details.put("numFiles", returned.size());
-            details.put("filenames", List.copyOf(returned));
-            details.put("truncated", resultLimitReached);
-
-            return new Output(output, details);
+            return new Output(
+                    Math.max(0, System.currentTimeMillis() - startedAt),
+                    returned.size(),
+                    List.copyOf(returned),
+                    resultLimitReached,
+                    pattern,
+                    requestedPath,
+                    resolvedPath.toString()
+            );
         } finally {
             closeQuietly(cancelRegistration);
         }
+    }
+
+    private String modelText(Output output) {
+        if (output.filenames().isEmpty()) {
+            return "No files found";
+        }
+        List<String> lines = new ArrayList<>(output.filenames());
+        if (output.truncated()) {
+            lines.add("(Results are truncated. Consider using a more specific path or pattern.)");
+        }
+        return String.join("\n", lines);
     }
 
     private List<String> readLines(java.io.InputStream inputStream) throws IOException {
@@ -297,8 +325,8 @@ public class GlobTool implements Tool<GlobTool.Input, GlobTool.Output> {
 
     private static String requiredString(Map<String, Object> arguments, String name) {
         Object value = arguments.get(name);
-        if (!(value instanceof String stringValue) || stringValue.isBlank()) {
-            throw new IllegalArgumentException(name + " must be a non-blank string");
+        if (!(value instanceof String stringValue)) {
+            throw new IllegalArgumentException(name + " must be a string");
         }
         return stringValue;
     }
@@ -323,7 +351,31 @@ public class GlobTool implements Tool<GlobTool.Input, GlobTool.Output> {
         }
     }
 
-    public record Output(String text, Map<String, Object> details) {
+    public record Output(
+            long durationMs,
+            int numFiles,
+            List<String> filenames,
+            boolean truncated,
+            String pattern,
+            String path,
+            String resolvedPath
+    ) {
+        public Output {
+            filenames = filenames == null ? List.of() : List.copyOf(filenames);
+        }
+
+        Map<String, Object> details() {
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("kind", "glob");
+            details.put("pattern", pattern);
+            details.put("path", path);
+            details.put("resolvedPath", resolvedPath);
+            details.put("durationMs", durationMs);
+            details.put("numFiles", numFiles);
+            details.put("filenames", filenames);
+            details.put("truncated", truncated);
+            return details;
+        }
     }
 
     private record SearchTarget(String pattern, Path directory) {

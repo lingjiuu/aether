@@ -10,6 +10,7 @@ import junit.framework.TestCase;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 public class GrepToolTest extends TestCase {
@@ -74,8 +75,8 @@ public class GrepToolTest extends TestCase {
                 .build());
 
         assertFalse(result.isError());
-        assertToolTextContains(result, "Found 3 occurrences across 2 files.");
-        assertToolTextContains(result, "[Showing results with pagination = limit: 1");
+        assertToolTextContains(result, "Found 2 total occurrences across 1 file.");
+        assertToolTextContains(result, "with pagination = limit: 1");
     }
 
     public void testGrepCountModeSummarizesOccurrences() throws Exception {
@@ -92,7 +93,7 @@ public class GrepToolTest extends TestCase {
         )));
 
         assertFalse(result.isError());
-        assertToolTextContains(result, "Found 3 occurrences across 2 files.");
+        assertToolTextContains(result, "Found 3 total occurrences across 2 files.");
         @SuppressWarnings("unchecked")
         Map<String, Object> details = (Map<String, Object>) result.getDetails();
         assertEquals("count", details.get("mode"));
@@ -113,6 +114,42 @@ public class GrepToolTest extends TestCase {
 
         assertNotNull(error);
         assertTrue(error.getMessage().contains("Unknown tool argument: ignoreCase"));
+    }
+
+    public void testGrepUsesClaudeStyleOutputSchema() throws Exception {
+        Path root = Files.createTempDirectory("aether-grep-schema-test");
+        GrepTool tool = new GrepTool(WorkspaceAccessPolicy.rootedAt(root));
+
+        Map<String, Object> outputSchema = tool.outputSchema();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> outputProperties = (Map<String, Object>) outputSchema.get("properties");
+
+        assertTrue(outputProperties.containsKey("mode"));
+        assertTrue(outputProperties.containsKey("numFiles"));
+        assertTrue(outputProperties.containsKey("filenames"));
+        assertTrue(outputProperties.containsKey("content"));
+        assertTrue(outputProperties.containsKey("numLines"));
+        assertTrue(outputProperties.containsKey("numMatches"));
+        assertTrue(outputProperties.containsKey("appliedLimit"));
+        assertTrue(outputProperties.containsKey("appliedOffset"));
+        assertEquals(List.of("numFiles", "filenames"), outputSchema.get("required"));
+        assertFalse(outputSchema.containsKey("additionalProperties"));
+    }
+
+    public void testGrepRejectsBlankOutputModeAndAllowsBlankPattern() throws Exception {
+        Path root = Files.createTempDirectory("aether-grep-schema-test");
+        GrepTool tool = new GrepTool(WorkspaceAccessPolicy.rootedAt(root));
+
+        IllegalArgumentException error = null;
+        try {
+            tool.validateInputJson("{\"pattern\":\"hello\",\"output_mode\":\"\"}");
+        } catch (IllegalArgumentException e) {
+            error = e;
+        }
+
+        assertNotNull(error);
+        assertTrue(error.getMessage().contains("output_mode"));
+        assertEquals("", tool.validateInputJson("{\"pattern\":\"\"}").get("pattern"));
     }
 
     private Path fixtureRoot() throws Exception {

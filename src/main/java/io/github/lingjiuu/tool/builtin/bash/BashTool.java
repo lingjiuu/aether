@@ -10,7 +10,6 @@ import io.github.lingjiuu.tool.builtin.ExecutableFinder;
 import io.github.lingjiuu.tool.builtin.shell.ShellOutputCapture;
 import io.github.lingjiuu.tool.result.ModelToolResult;
 import io.github.lingjiuu.tool.result.ToolDisplayResult;
-import io.github.lingjiuu.tool.result.ToolResultLimits;
 import io.github.lingjiuu.tool.result.ToolResultContext;
 import io.github.lingjiuu.tool.result.ToolResultPolicy;
 import io.github.lingjiuu.tool.workspace.WorkspaceAccessPolicy;
@@ -100,12 +99,50 @@ public class BashTool implements Tool<BashTool.Input, BashTool.Output> {
         return Map.of(
                 "type", "object",
                 "properties", Map.of(
-                        "command", Map.of("type", "string", "description", "The command to execute."),
-                        "timeout", Map.of("type", "number", "minimum", 1, "maximum", MAX_TIMEOUT_MS, "description", "Optional timeout in milliseconds (max 600000).")
+                        "command", Map.of("type", "string", "description", "The command to execute"),
+                        "timeout", Map.of("type", "number", "minimum", 1, "maximum", MAX_TIMEOUT_MS, "description", "Optional timeout in milliseconds (max 600000)")
                 ),
                 "required", List.of("command"),
                 "additionalProperties", false
         );
+    }
+
+    @Override
+    public Map<String, Object> outputSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.ofEntries(
+                        Map.entry("stdout", Map.of("type", "string", "description", "The standard output of the command")),
+                        Map.entry("stderr", Map.of("type", "string", "description", "The standard error output of the command")),
+                        Map.entry("rawOutputPath", Map.of("type", "string", "description", "Path to raw output file for large MCP tool outputs")),
+                        Map.entry("interrupted", Map.of("type", "boolean", "description", "Whether the command was interrupted")),
+                        Map.entry("isImage", Map.of("type", "boolean", "description", "Flag to indicate if stdout contains image data")),
+                        Map.entry("returnCodeInterpretation", Map.of("type", "string", "description", "Semantic interpretation for non-error exit codes with special meaning")),
+                        Map.entry("noOutputExpected", Map.of("type", "boolean", "description", "Whether the command is expected to produce no output on success")),
+                        Map.entry("structuredContent", Map.of("type", "array", "items", Map.of(), "description", "Structured content blocks")),
+                        Map.entry("persistedOutputPath", Map.of("type", "string", "description", "Path to the persisted full output in tool-results dir (set when output is too large for inline)")),
+                        Map.entry("persistedOutputSize", Map.of("type", "number", "description", "Total size of the output in bytes (set when output is too large for inline)"))
+                ),
+                "required", List.of("stdout", "stderr", "interrupted")
+        );
+    }
+
+    @Override
+    public Object prepareInput(Object arguments) {
+        if (!(arguments instanceof Map<?, ?> map)) {
+            return arguments;
+        }
+        Map<String, Object> prepared = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            String key = String.valueOf(entry.getKey());
+            Object value = entry.getValue();
+            if ("timeout".equals(key) && value instanceof String stringValue
+                    && stringValue.matches("-?\\d+(\\.\\d+)?")) {
+                value = Double.parseDouble(stringValue);
+            }
+            prepared.put(key, value);
+        }
+        return prepared;
     }
 
     @Override
@@ -185,7 +222,7 @@ public class BashTool implements Tool<BashTool.Input, BashTool.Output> {
                     readerDone.await(1, TimeUnit.SECONDS);
                     ShellOutputCapture.Snapshot snapshot = output.snapshot(true);
                     return ToolCallResult.failedOutput(result(command, null, startedAt, snapshot,
-                            "Command timed out after " + input.timeoutMs() + " milliseconds"));
+                            true, "Command timed out after " + input.timeoutMs() + " milliseconds"));
                 }
                 readerDone.await(1, TimeUnit.SECONDS);
                 if (readerError.get() != null) {
@@ -196,9 +233,9 @@ public class BashTool implements Tool<BashTool.Input, BashTool.Output> {
                 int exitCode = process.exitValue();
                 if (exitCode != 0) {
                     return ToolCallResult.failedOutput(result(command, exitCode, startedAt, snapshot,
-                            "Command exited with code " + exitCode));
+                            false, "Exit code " + exitCode));
                 }
-                return ToolCallResult.success(result(command, exitCode, startedAt, snapshot, null));
+                return ToolCallResult.success(result(command, exitCode, startedAt, snapshot, false, null));
             }
         } catch (ToolCancelledException e) {
             throw e;
@@ -219,7 +256,33 @@ public class BashTool implements Tool<BashTool.Input, BashTool.Output> {
 
     @Override
     public ModelToolResult toModelResult(Output output, ToolResultContext<Input, Output> context) {
-        return ModelToolResult.text(output.text());
+        List<String> parts = new ArrayList<>();
+        String stdout = output.stdout();
+        if (stdout != null && !stdout.isBlank()) {
+            parts.add(stdout.replaceFirst("^(\\s*\\n)+", "").stripTrailing());
+        }
+
+        StringBuilder errorMessage = new StringBuilder();
+        if (output.stderr() != null && !output.stderr().isBlank()) {
+            errorMessage.append(output.stderr().trim());
+        }
+        if (output.status() != null && !output.status().isBlank()) {
+            if (!errorMessage.isEmpty()) {
+                errorMessage.append('\n');
+            }
+            errorMessage.append(output.status().trim());
+        }
+        if (output.interrupted()) {
+            if (!errorMessage.isEmpty()) {
+                errorMessage.append('\n');
+            }
+            errorMessage.append("<error>Command was aborted before completion</error>");
+        }
+        if (!errorMessage.isEmpty()) {
+            parts.add(errorMessage.toString());
+        }
+
+        return ModelToolResult.text(String.join("\n", parts));
     }
 
     @Override
@@ -270,49 +333,41 @@ public class BashTool implements Tool<BashTool.Input, BashTool.Output> {
             Integer exitCode,
             Instant startedAt,
             ShellOutputCapture.Snapshot snapshot,
+            boolean interrupted,
             String status
     ) {
-        String text = snapshot.content() == null || snapshot.content().isBlank() ? "(no output)" : snapshot.content();
-        String notice = truncationNotice(snapshot);
-        if (!notice.isBlank()) {
-            text += "\n\n" + notice;
-        }
-        if (status != null && !status.isBlank()) {
-            text += "\n\n" + status;
-        }
-
-        Map<String, Object> details = new LinkedHashMap<>();
-        details.put("kind", "bash");
-        details.put("command", command);
-        if (exitCode != null) {
-            details.put("exitCode", exitCode);
-        }
-        details.put("durationMs", Duration.between(startedAt, Instant.now()).toMillis());
-        details.put("truncation", snapshot.truncationDetails());
-        details.put("stdout", snapshot.stdout().content());
-        details.put("stderr", snapshot.stderr().content());
-        details.put("aggregatedOutput", snapshot.content());
-        details.put("stdoutLineCount", snapshot.stdout().truncation().outputLines());
-        details.put("stderrLineCount", snapshot.stderr().truncation().outputLines());
-        details.put("stdoutTotalLines", snapshot.stdout().truncation().totalLines());
-        details.put("stderrTotalLines", snapshot.stderr().truncation().totalLines());
-        details.put("stdoutByteCount", snapshot.stdout().truncation().outputBytes());
-        details.put("stderrByteCount", snapshot.stderr().truncation().outputBytes());
-        details.put("stdoutTotalBytes", snapshot.stdout().truncation().totalBytes());
-        details.put("stderrTotalBytes", snapshot.stderr().truncation().totalBytes());
-        details.put("stdoutTruncated", snapshot.stdout().truncated());
-        details.put("stderrTruncated", snapshot.stderr().truncated());
-        details.put("truncated", snapshot.truncated());
-        if (snapshot.stdout().fullOutputPath() != null) {
-            details.put("stdoutFullOutputPath", snapshot.stdout().fullOutputPath().toString());
-        }
-        if (snapshot.stderr().fullOutputPath() != null) {
-            details.put("stderrFullOutputPath", snapshot.stderr().fullOutputPath().toString());
-        }
-        if (snapshot.aggregate().fullOutputPath() != null) {
-            details.put("aggregateFullOutputPath", snapshot.aggregate().fullOutputPath().toString());
-        }
-        return new Output(text, details);
+        return new Output(
+                snapshot.stdout().content(),
+                snapshot.stderr().content(),
+                snapshot.aggregate().fullOutputPath() == null ? null : snapshot.aggregate().fullOutputPath().toString(),
+                interrupted,
+                null,
+                exitCode != null && exitCode != 0 ? status : null,
+                null,
+                null,
+                null,
+                null,
+                status,
+                command,
+                exitCode,
+                Duration.between(startedAt, Instant.now()).toMillis(),
+                snapshot.truncationDetails(),
+                snapshot.content(),
+                snapshot.stdout().truncation().outputLines(),
+                snapshot.stderr().truncation().outputLines(),
+                snapshot.stdout().truncation().totalLines(),
+                snapshot.stderr().truncation().totalLines(),
+                snapshot.stdout().truncation().outputBytes(),
+                snapshot.stderr().truncation().outputBytes(),
+                snapshot.stdout().truncation().totalBytes(),
+                snapshot.stderr().truncation().totalBytes(),
+                snapshot.stdout().truncated(),
+                snapshot.stderr().truncated(),
+                snapshot.truncated(),
+                snapshot.stdout().fullOutputPath() == null ? null : snapshot.stdout().fullOutputPath().toString(),
+                snapshot.stderr().fullOutputPath() == null ? null : snapshot.stderr().fullOutputPath().toString(),
+                snapshot.aggregate().fullOutputPath() == null ? null : snapshot.aggregate().fullOutputPath().toString()
+        );
     }
 
     private Map<String, Object> partialDetails(
@@ -339,35 +394,6 @@ public class BashTool implements Tool<BashTool.Input, BashTool.Output> {
         details.put("truncated", snapshot.truncated());
         details.put("truncation", snapshot.truncationDetails());
         return details;
-    }
-
-    private String truncationNotice(ShellOutputCapture.Snapshot snapshot) {
-        List<String> notices = new ArrayList<>();
-        addTruncationNotice(notices, "stdout", snapshot.stdout());
-        addTruncationNotice(notices, "stderr", snapshot.stderr());
-        return String.join("\n", notices);
-    }
-
-    private void addTruncationNotice(
-            List<String> notices,
-            String streamName,
-            ShellOutputCapture.StreamSnapshot stream
-    ) {
-        if (!stream.truncated() || stream.fullOutputPath() == null) {
-            return;
-        }
-        ShellOutputCapture.StreamTruncation truncation = stream.truncation();
-        if (truncation.lastLinePartial()) {
-            int line = truncation.totalLines();
-            notices.add("[Showing last " + ToolResultLimits.formatSize(truncation.outputBytes())
-                    + " of " + streamName + " line " + line
-                    + ". Full output: " + stream.fullOutputPath() + "]");
-            return;
-        }
-        int startLine = Math.max(1, truncation.totalLines() - truncation.outputLines() + 1);
-        notices.add("[Showing " + streamName + " lines " + startLine + "-" + truncation.totalLines()
-                + " of " + truncation.totalLines()
-                + ". Full output: " + stream.fullOutputPath() + "]");
     }
 
     private static int optionalPositiveNumber(Map<String, Object> arguments, String name, int defaultValue, int maxValue) {
@@ -411,7 +437,82 @@ public class BashTool implements Tool<BashTool.Input, BashTool.Output> {
         }
     }
 
-    public record Output(String text, Map<String, Object> details) {
+    public record Output(
+            String stdout,
+            String stderr,
+            String rawOutputPath,
+            boolean interrupted,
+            Boolean isImage,
+            String returnCodeInterpretation,
+            Boolean noOutputExpected,
+            List<Object> structuredContent,
+            String persistedOutputPath,
+            Long persistedOutputSize,
+            String status,
+            String command,
+            Integer exitCode,
+            long durationMs,
+            Map<String, Object> truncation,
+            String aggregatedOutput,
+            int stdoutLineCount,
+            int stderrLineCount,
+            int stdoutTotalLines,
+            int stderrTotalLines,
+            int stdoutByteCount,
+            int stderrByteCount,
+            int stdoutTotalBytes,
+            int stderrTotalBytes,
+            boolean stdoutTruncated,
+            boolean stderrTruncated,
+            boolean truncated,
+            String stdoutFullOutputPath,
+            String stderrFullOutputPath,
+            String aggregateFullOutputPath
+    ) {
+        public Output {
+            stdout = stdout == null ? "" : stdout;
+            stderr = stderr == null ? "" : stderr;
+            aggregatedOutput = aggregatedOutput == null ? "" : aggregatedOutput;
+            truncation = truncation == null ? Map.of() : new LinkedHashMap<>(truncation);
+        }
+
+        Map<String, Object> details() {
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("kind", "bash");
+            details.put("command", command);
+            if (exitCode != null) {
+                details.put("exitCode", exitCode);
+            }
+            if (status != null && !status.isBlank()) {
+                details.put("status", status);
+            }
+            details.put("durationMs", durationMs);
+            details.put("truncation", truncation);
+            details.put("stdout", stdout);
+            details.put("stderr", stderr);
+            details.put("aggregatedOutput", aggregatedOutput);
+            details.put("stdoutLineCount", stdoutLineCount);
+            details.put("stderrLineCount", stderrLineCount);
+            details.put("stdoutTotalLines", stdoutTotalLines);
+            details.put("stderrTotalLines", stderrTotalLines);
+            details.put("stdoutByteCount", stdoutByteCount);
+            details.put("stderrByteCount", stderrByteCount);
+            details.put("stdoutTotalBytes", stdoutTotalBytes);
+            details.put("stderrTotalBytes", stderrTotalBytes);
+            details.put("stdoutTruncated", stdoutTruncated);
+            details.put("stderrTruncated", stderrTruncated);
+            details.put("truncated", truncated);
+            if (stdoutFullOutputPath != null) {
+                details.put("stdoutFullOutputPath", stdoutFullOutputPath);
+            }
+            if (stderrFullOutputPath != null) {
+                details.put("stderrFullOutputPath", stderrFullOutputPath);
+            }
+            if (aggregateFullOutputPath != null) {
+                details.put("aggregateFullOutputPath", aggregateFullOutputPath);
+            }
+            return details;
+        }
     }
 
     public static boolean isAvailable() {
