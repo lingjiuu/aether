@@ -120,6 +120,7 @@ describe('tool renderers', () => {
   });
 
   it('renders failed write results as errors', () => {
+    const message = 'File has not been read yet. Read it first before writing to it.';
     const state = toolHistoryState({
       id: 'write-error-1',
       toolCall: {
@@ -131,16 +132,76 @@ describe('tool renderers', () => {
       },
       toolResult: {
         toolName: 'write',
-        text: 'write failed: File has not been read yet',
+        text: `<tool_use_error>${message}</tool_use_error>`,
+        error: true,
+        details: null,
+        display: {
+          kind: 'write',
+          text: message,
+          data: { kind: 'write', failureKind: 'RUNTIME', message },
+        },
+      },
+    });
+
+    const text = renderText(state);
+    expect(text).toContain('● Write(foo.txt)');
+    expect(text).toContain(message);
+    expect(text).not.toContain('<tool_use_error>');
+    expect(text).not.toContain('Wrote file');
+  });
+
+  it('strips tool protocol tags from generic tool errors without display metadata', () => {
+    const state = toolHistoryState({
+      id: 'unknown-error-1',
+      toolCall: {
+        toolName: 'CustomTool',
+        arguments: {},
+        argumentsJson: '{}',
+        displayName: 'CustomTool',
+      },
+      toolResult: {
+        toolName: 'CustomTool',
+        text: '<tool_use_error>Something broke</tool_use_error>',
         error: true,
         details: null,
       },
     });
 
     const text = renderText(state);
-    expect(text).toContain('● Write(foo.txt)');
-    expect(text).toContain('write failed: File has not been read yet');
-    expect(text).not.toContain('Wrote file');
+    expect(text).toContain('● CustomTool');
+    expect(text).toContain('Something broke');
+    expect(text).not.toContain('<tool_use_error>');
+  });
+
+  it('renders grep failures through the error presenter', () => {
+    const message = 'Invalid regular expression.';
+    const state = toolHistoryState({
+      id: 'grep-error-1',
+      toolCall: {
+        toolName: 'grep',
+        arguments: { pattern: '[' },
+        argumentsJson: JSON.stringify({ pattern: '[' }),
+        displayName: 'grep',
+        displaySummary: '[',
+      },
+      toolResult: {
+        toolName: 'grep',
+        text: `<tool_use_error>${message}</tool_use_error>`,
+        error: true,
+        details: null,
+        display: {
+          kind: 'grep',
+          text: message,
+          data: { kind: 'grep', failureKind: 'RUNTIME', message },
+        },
+      },
+    });
+
+    const text = renderText(state);
+    expect(text).toContain('● Search(pattern: "[")');
+    expect(text).toContain(message);
+    expect(text).not.toContain('Search completed');
+    expect(text).not.toContain('<tool_use_error>');
   });
 
   it('renders edit summaries and diffs', () => {
@@ -246,6 +307,37 @@ describe('tool renderers', () => {
     const text = renderText(state);
     expect(text).toContain('● Bash(mkdir tmp)');
     expect(text).toContain('⎿  Done 50ms');
+  });
+
+  it('renders shell failures without raw tool protocol tags', () => {
+    const message = 'Command timed out after 120000 milliseconds';
+    const state = toolHistoryState({
+      id: 'bash-error-1',
+      toolCall: {
+        toolName: 'bash',
+        arguments: { command: 'sleep 999' },
+        argumentsJson: JSON.stringify({ command: 'sleep 999' }),
+        displayName: 'bash',
+        displaySummary: 'sleep 999',
+      },
+      toolResult: {
+        toolName: 'bash',
+        text: `<tool_use_error>${message}</tool_use_error>`,
+        error: true,
+        durationMs: 120000,
+        details: { kind: 'bash', command: 'sleep 999', stdout: '', stderr: '', durationMs: 120000 },
+        display: {
+          kind: 'bash',
+          text: message,
+          data: { kind: 'bash', failureKind: 'TIMEOUT', message },
+        },
+      },
+    });
+
+    const text = renderText(state);
+    expect(text).toContain('● Bash(sleep 999)');
+    expect(text).toContain(message);
+    expect(text).not.toContain('<tool_use_error>');
   });
 
   it('renders PowerShell with shell presenter', () => {

@@ -1,5 +1,4 @@
 import type { ToolLine, ToolLineTone, ToolPresentationDefinition, ToolPresenter, ToolResultView } from './types.js';
-import { fallbackResultView } from './fallbackPresenter.js';
 import {
   displayPath,
   formatBytes,
@@ -13,7 +12,7 @@ import {
 export const readPresenter: ToolPresenter = {
   userFacingName: () => 'Read',
   useSummary: pathSummary,
-  resultView(details, result): ToolResultView {
+  resultView(details): ToolResultView {
     const fileType = stringField(details, 'fileType');
     if (fileType === 'image') {
       const bytes = numberField(details, 'bytes');
@@ -25,18 +24,14 @@ export const readPresenter: ToolPresenter = {
       return { lines: [{ text: `Read ${lineCount} ${plural(lineCount, 'line', 'lines')}`, tone: 'dim' }] };
     }
 
-    const fallback = fallbackResultView(result);
-    return fallback.lines.length ? fallback : { lines: [{ text: 'Read file', tone: 'dim' }] };
+    return { lines: [{ text: 'Read file', tone: 'dim' }] };
   },
 };
 
 export const writePresenter: ToolPresenter = {
   userFacingName: () => 'Write',
   useSummary: pathSummary,
-  resultView(details, result, cwd): ToolResultView {
-    if (result.error) {
-      return fallbackResultView(result);
-    }
+  resultView(details, _result, cwd): ToolResultView {
     const path = displayPath(stringField(details, 'path'), cwd) ?? 'file';
     const lineCount = numberField(details, 'lineCount');
     if (lineCount != null) {
@@ -54,10 +49,7 @@ export const writePresenter: ToolPresenter = {
 export const editPresenter: ToolPresenter = {
   userFacingName: () => 'Update',
   useSummary: pathSummary,
-  resultView(details, result, cwd): ToolResultView {
-    if (result.error) {
-      return fallbackResultView(result);
-    }
+  resultView(details, _result, cwd): ToolResultView {
     const path = displayPath(stringField(details, 'path'), cwd) ?? 'file';
     const editCount = numberField(details, 'editCount');
     const diffLines = compactDiffLines(splitOutputLines(stringField(details, 'diffText')));

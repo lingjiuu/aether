@@ -7,6 +7,8 @@ public record ToolResultContext<I, O>(
         ToolCallContent toolCall,
         I input,
         ToolCallStatus status,
-        Long durationMs
+        Long durationMs,
+        Long approvalWaitMs,
+        Long executionDurationMs
 ) {
 }

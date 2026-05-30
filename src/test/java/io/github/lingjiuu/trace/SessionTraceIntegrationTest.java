@@ -70,10 +70,13 @@ public class SessionTraceIntegrationTest extends TestCase {
         assertTrue(detail.spans().stream().anyMatch(span -> "model".equals(span.kind())));
         assertTrue(detail.spans().stream().anyMatch(span -> "tool".equals(span.kind())
                 && span.outputJson() != null
-                && span.outputJson().contains("\"status\":\"COMPLETED\"")));
+                && span.outputJson().contains("\"status\":\"COMPLETED\"")
+                && span.outputJson().contains("executionDurationMs")));
         assertTrue(detail.events().stream().anyMatch(event -> "conversation.tool_result".equals(event.type())
                 && event.payloadJson() != null
                 && event.payloadJson().contains("transcriptRecordId")
+                && event.payloadJson().contains("approvalWaitMs")
+                && event.payloadJson().contains("executionDurationMs")
                 && event.payloadJson().contains("artifactRefs")
                 && event.payloadJson().contains("tool_result_output")
                 && event.payloadJson().contains(ToolResultProcessor.PERSISTED_OUTPUT_TAG)));

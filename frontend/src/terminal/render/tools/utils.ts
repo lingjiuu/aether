@@ -75,6 +75,25 @@ export function displayDetails(source: UiToolResult | UiToolUpdate | undefined):
   return detailsRecord(display?.data) ?? detailsRecord(source?.details);
 }
 
+export function displayText(source: UiToolResult | UiToolUpdate | undefined): string | undefined {
+  const display = detailsRecord(source?.display);
+  const displayData = detailsRecord(display?.data);
+  const sourceDetails = detailsRecord(source?.details);
+  return stringField(display, 'text')
+    ?? stringField(displayData, 'message')
+    ?? stringField(sourceDetails, 'message');
+}
+
+export function effectiveDurationMs(source: UiToolResult | UiToolUpdate | undefined): number | null | undefined {
+  return source?.executionDurationMs ?? source?.durationMs;
+}
+
+export function stripToolProtocolTags(text: string | null | undefined): string | undefined {
+  return clean((text ?? '')
+    .replace(/<\/?(tool_use_error|error)>/gi, '')
+    .replace(/&lt;\/?(tool_use_error|error)&gt;/gi, ''));
+}
+
 function displayKind(displayValue: unknown): string | undefined {
   const display = detailsRecord(displayValue);
   return stringField(display, 'kind');

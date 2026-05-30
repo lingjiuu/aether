@@ -180,7 +180,9 @@ public class ToolResultProcessor {
                 input.toolCall(),
                 typedInput,
                 rawResult.status(),
-                input.durationMs()
+                input.durationMs(),
+                input.approvalWaitMs(),
+                input.executionDurationMs()
         );
         ModelToolResult model = typedTool.toModelResult(output, context);
         ToolDisplayResult display = typedTool.toDisplayResult(output, context);

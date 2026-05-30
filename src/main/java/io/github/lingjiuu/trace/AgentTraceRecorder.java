@@ -166,7 +166,9 @@ public class AgentTraceRecorder implements AutoCloseable {
             TranscriptRecord transcriptRecord,
             List<ToolResultArtifactRef> artifactRefs,
             String status,
-            Long durationMs
+            Long durationMs,
+            Long approvalWaitMs,
+            Long executionDurationMs
     ) {
         if (!isEnabled(context)) {
             return;
@@ -183,7 +185,9 @@ public class AgentTraceRecorder implements AutoCloseable {
                         transcriptRecord == null ? null : transcriptRecord.getId(),
                         traceArtifacts,
                         status,
-                        durationMs
+                        durationMs,
+                        approvalWaitMs,
+                        executionDurationMs
                 ),
                 timestampMs
         );
@@ -234,12 +238,17 @@ public class AgentTraceRecorder implements AutoCloseable {
             TraceSpan span,
             ToolCallResult<?> result,
             String status,
-            Long durationMs
+            Long durationMs,
+            Long approvalWaitMs,
+            Long executionDurationMs
     ) {
         if (span == null || !span.enabled()) {
             return;
         }
-        span.finish(status == null ? "COMPLETED" : status, TracePayloads.toolOutput(result, status, durationMs));
+        span.finish(
+                status == null ? "COMPLETED" : status,
+                TracePayloads.toolOutput(result, status, durationMs, approvalWaitMs, executionDurationMs)
+        );
     }
 
     public AgentTraceStore store() {

@@ -16,7 +16,10 @@ import io.github.lingjiuu.model.client.ModelInvocationException;
 import io.github.lingjiuu.model.client.ModelClient;
 import io.github.lingjiuu.model.client.ModelRequest;
 import io.github.lingjiuu.model.client.ModelRetryOptions;
+import io.github.lingjiuu.protocol.UiEventPayloads;
 import io.github.lingjiuu.protocol.UiEventType;
+import io.github.lingjiuu.protocol.UiItemBodies;
+import io.github.lingjiuu.protocol.UiToolResult;
 import io.github.lingjiuu.provider.ProviderAuth;
 import io.github.lingjiuu.provider.ProviderEndpoint;
 import io.github.lingjiuu.session.Session;
@@ -25,6 +28,7 @@ import io.github.lingjiuu.session.SessionFactory;
 import io.github.lingjiuu.tool.Tool;
 import io.github.lingjiuu.tool.ToolCallResult;
 import io.github.lingjiuu.tool.ToolRiskLevel;
+import io.github.lingjiuu.tool.permission.ApprovalResponse;
 import io.github.lingjiuu.tool.permission.PermissionPreset;
 import io.github.lingjiuu.tool.result.ModelToolResult;
 import io.github.lingjiuu.tool.result.ToolResultContext;
@@ -270,6 +274,59 @@ public class RegularTaskStreamRetryTest extends TestCase {
         assertEquals(2, streamAttempts.get());
     }
 
+    public void testApprovalWaitDoesNotBlockIndependentToolUiCompletion() throws Exception {
+        AtomicInteger streamAttempts = new AtomicInteger();
+        CountDownLatch approvalRequested = new CountDownLatch(1);
+        CountDownLatch releaseApproval = new CountDownLatch(1);
+        Session session = new SessionFactory(sessionConfig(
+                new ApprovalParallelThenDoneProvider(streamAttempts),
+                List.of(new ApprovalGatedTool(), new FastReadOnlyTool()),
+                null,
+                FAST_RETRY_OPTIONS,
+                null,
+                PermissionPreset.DEFAULT
+        )).openSession();
+        session.setApprovalHandler(request -> {
+            approvalRequested.countDown();
+            try {
+                releaseApproval.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return ApprovalResponse.deny(request.id(), "interrupted");
+            }
+            return ApprovalResponse.approve(request.id());
+        });
+
+        try {
+            session.submitAsync(io.github.lingjiuu.input.TurnInput.ofText("run approval and fast tools"));
+            assertTrue(approvalRequested.await(2, TimeUnit.SECONDS));
+            assertTrue(waitForUiToolResult(session, "call-fast", Duration.ofSeconds(2)));
+            assertFalse(hasToolResult(session, "call-fast"));
+        } finally {
+            releaseApproval.countDown();
+        }
+
+        assertTrue(session.waitForIdle(Duration.ofSeconds(5)));
+        List<String> toolCallIds = session.messages()
+                .stream()
+                .filter(ToolResultMessage.class::isInstance)
+                .map(ToolResultMessage.class::cast)
+                .map(ToolResultMessage::getToolCallId)
+                .filter(id -> "call-approval".equals(id) || "call-fast".equals(id))
+                .toList();
+        assertEquals(List.of("call-approval", "call-fast"), toolCallIds);
+        UiToolResult approvalResult = findUiToolResult(session, "call-approval");
+        assertNotNull(approvalResult);
+        assertNotNull(approvalResult.getDurationMs());
+        assertNotNull(approvalResult.getApprovalWaitMs());
+        assertNotNull(approvalResult.getExecutionDurationMs());
+        assertTrue(approvalResult.getApprovalWaitMs() > 0);
+        assertTrue(approvalResult.getExecutionDurationMs() >= 0);
+        assertTrue(approvalResult.getDurationMs()
+                >= approvalResult.getApprovalWaitMs() + approvalResult.getExecutionDurationMs());
+        assertEquals(2, streamAttempts.get());
+    }
+
     public void testRequestFailureRetriesWithRequestBudget() throws Exception {
         AtomicInteger streamAttempts = new AtomicInteger();
         Tool tool = new RetryableTool(new AtomicInteger());
@@ -343,6 +400,24 @@ public class RegularTaskStreamRetryTest extends TestCase {
             ModelRetryOptions retryOptions,
             Long autoCompactTokenLimit
     ) {
+        return sessionConfig(
+                provider,
+                List.of(tool),
+                transcriptStore,
+                retryOptions,
+                autoCompactTokenLimit,
+                PermissionPreset.FULL_ACCESS
+        );
+    }
+
+    private SessionConfig sessionConfig(
+            WireAdapter provider,
+            List<Tool> tools,
+            TranscriptStore transcriptStore,
+            ModelRetryOptions retryOptions,
+            Long autoCompactTokenLimit,
+            PermissionPreset permissionPreset
+    ) {
         return new SessionConfig(
                 new ModelClient(new WireAdapterRegistry().register(provider)),
                 "You are a test agent.",
@@ -352,9 +427,9 @@ public class RegularTaskStreamRetryTest extends TestCase {
                 Path.of(".").toAbsolutePath().normalize(),
                 fakeSelection(retryOptions, autoCompactTokenLimit),
                 transcriptStore,
-                List.of(tool),
-                List.of(tool.name()),
-                PermissionPreset.FULL_ACCESS
+                tools,
+                tools.stream().map(Tool::name).toList(),
+                permissionPreset
         );
     }
 
@@ -403,6 +478,37 @@ public class RegularTaskStreamRetryTest extends TestCase {
                 .filter(ToolResultMessage.class::isInstance)
                 .map(ToolResultMessage.class::cast)
                 .anyMatch(message -> toolCallId.equals(message.getToolCallId()));
+    }
+
+    private boolean waitForUiToolResult(Session session, String toolCallId, Duration timeout) throws Exception {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (hasUiToolResult(session, toolCallId)) {
+                return true;
+            }
+            Thread.sleep(10);
+        }
+        return hasUiToolResult(session, toolCallId);
+    }
+
+    private boolean hasUiToolResult(Session session, String toolCallId) {
+        return findUiToolResult(session, toolCallId) != null;
+    }
+
+    private UiToolResult findUiToolResult(Session session, String toolCallId) {
+        return session.timelineEvents()
+                .stream()
+                .filter(event -> event.getType() == UiEventType.TOOL_RESULT)
+                .map(event -> event.getPayload())
+                .filter(UiEventPayloads.ToolResult.class::isInstance)
+                .map(UiEventPayloads.ToolResult.class::cast)
+                .map(UiEventPayloads.ToolResult::item)
+                .filter(item -> item.getBody() instanceof UiItemBodies.ToolResult)
+                .map(item -> (UiItemBodies.ToolResult) item.getBody())
+                .map(UiItemBodies.ToolResult::toolResult)
+                .filter(result -> result != null && toolCallId.equals(result.getToolCallId()))
+                .findFirst()
+                .orElse(null);
     }
 
     private record RetryableProvider(AtomicInteger streamAttempts) implements WireAdapter {
@@ -479,6 +585,24 @@ public class RegularTaskStreamRetryTest extends TestCase {
                 int attempt = streamAttempts.incrementAndGet();
                 if (attempt == 1) {
                     return new OrderedFlushToolCallStream();
+                }
+                return new RetryableSecondStream();
+            };
+        }
+    }
+
+    private record ApprovalParallelThenDoneProvider(AtomicInteger streamAttempts) implements WireAdapter {
+        @Override
+        public String name() {
+            return "fake";
+        }
+
+        @Override
+        public WireSession openSession(ModelSelection selection) {
+            return (request, cancellationToken) -> {
+                int attempt = streamAttempts.incrementAndGet();
+                if (attempt == 1) {
+                    return new ApprovalParallelToolCallStream();
                 }
                 return new RetryableSecondStream();
             };
@@ -586,6 +710,57 @@ public class RegularTaskStreamRetryTest extends TestCase {
                     .itemId(itemId)
                     .contentIndex(contentIndex)
                     .toolName("ordered-flush")
+                    .toolCall(toolCall)
+                    .partial(AssistantMessage.builder()
+                            .contents(partialToolCalls)
+                            .stopReason(AssistantMessage.StopReason.TOOLUSE)
+                            .build())
+                    .build();
+        }
+    }
+
+    private static final class ApprovalParallelToolCallStream extends AssistantStream {
+        private AssistantMessage result;
+
+        @Override
+        public AssistantMessage consume(Consumer<AssistantStreamEvent> consumer) {
+            ToolCallContent approval = ToolCallContent.builder()
+                    .toolCallId("call-approval")
+                    .toolBatchId("batch-approval-parallel")
+                    .toolName("approval-gated")
+                    .argumentsJson("{}")
+                    .build();
+            ToolCallContent fast = ToolCallContent.builder()
+                    .toolCallId("call-fast")
+                    .toolBatchId("batch-approval-parallel")
+                    .toolName("fast-read-only")
+                    .argumentsJson("{}")
+                    .build();
+            consumer.accept(toolCallEnd("item-approval", 0, approval, List.of(approval)));
+            consumer.accept(toolCallEnd("item-fast", 1, fast, List.of(approval, fast)));
+            result = AssistantMessage.builder()
+                    .stopReason(AssistantMessage.StopReason.TOOLUSE)
+                    .contents(List.of(approval, fast))
+                    .build();
+            return result;
+        }
+
+        @Override
+        public AssistantMessage result() {
+            return result;
+        }
+
+        private AssistantStreamEvent toolCallEnd(
+                String itemId,
+                int contentIndex,
+                ToolCallContent toolCall,
+                List<MessageContent> partialToolCalls
+        ) {
+            return AssistantStreamEvent.builder()
+                    .type(AssistantStreamEvent.Type.TOOLCALL_END)
+                    .itemId(itemId)
+                    .contentIndex(contentIndex)
+                    .toolName(toolCall.getToolName())
                     .toolCall(toolCall)
                     .partial(AssistantMessage.builder()
                             .contents(partialToolCalls)
@@ -922,6 +1097,96 @@ public class RegularTaskStreamRetryTest extends TestCase {
             }
             firstDone.countDown();
             return ToolCallResult.success("first");
+        }
+
+        @Override
+        public ModelToolResult toModelResult(String output, ToolResultContext<Object, String> context) {
+            return ModelToolResult.text(output);
+        }
+    }
+
+    private static final class ApprovalGatedTool implements Tool<Object, String> {
+        @Override
+        public String name() {
+            return "approval-gated";
+        }
+
+        @Override
+        public String label() {
+            return "approval gated";
+        }
+
+        @Override
+        public String description() {
+            return "A tool used for approval ordering tests.";
+        }
+
+        @Override
+        public Map<String, Object> inputSchema() {
+            return Map.of(
+                    "type", "object",
+                    "properties", Map.of()
+            );
+        }
+
+        @Override
+        public ToolRiskLevel riskLevel() {
+            return ToolRiskLevel.EXEC;
+        }
+
+        @Override
+        public Object parseInput(String argumentsJson) {
+            return new Object();
+        }
+
+        @Override
+        public ToolCallResult<String> call(Object input, io.github.lingjiuu.tool.ToolUseContext context) {
+            return ToolCallResult.success("approval-ok");
+        }
+
+        @Override
+        public ModelToolResult toModelResult(String output, ToolResultContext<Object, String> context) {
+            return ModelToolResult.text(output);
+        }
+    }
+
+    private static final class FastReadOnlyTool implements Tool<Object, String> {
+        @Override
+        public String name() {
+            return "fast-read-only";
+        }
+
+        @Override
+        public String label() {
+            return "fast read only";
+        }
+
+        @Override
+        public String description() {
+            return "A tool used for parallel UI completion tests.";
+        }
+
+        @Override
+        public Map<String, Object> inputSchema() {
+            return Map.of(
+                    "type", "object",
+                    "properties", Map.of()
+            );
+        }
+
+        @Override
+        public ToolRiskLevel riskLevel() {
+            return ToolRiskLevel.READ_ONLY;
+        }
+
+        @Override
+        public Object parseInput(String argumentsJson) {
+            return new Object();
+        }
+
+        @Override
+        public ToolCallResult<String> call(Object input, io.github.lingjiuu.tool.ToolUseContext context) {
+            return ToolCallResult.success("fast-ok");
         }
 
         @Override

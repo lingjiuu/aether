@@ -22,6 +22,7 @@ export type ToolPresenter = {
   userFacingName?: (toolName: string, toolCall: UiToolCall | undefined) => string;
   useSummary?: (args: Details | undefined, toolCall: UiToolCall | undefined, toolName: string, cwd?: string | null) => string | undefined;
   progressView?: (details: Details, update: UiToolUpdate | undefined) => ToolResultView | undefined;
+  errorView?: (details: Details, result: UiToolResult, cwd?: string | null) => ToolResultView;
   resultView?: (details: Details, result: UiToolResult, cwd?: string | null) => ToolResultView;
 };
 

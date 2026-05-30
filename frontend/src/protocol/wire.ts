@@ -67,6 +67,8 @@ export type UiToolResult = {
   error?: boolean;
   status?: string | null;
   durationMs?: number | null;
+  approvalWaitMs?: number | null;
+  executionDurationMs?: number | null;
   details?: unknown;
   display?: unknown;
   truncated?: boolean | null;
@@ -81,6 +83,8 @@ export type UiToolUpdate = {
   status?: string | null;
   text?: string | null;
   durationMs?: number | null;
+  approvalWaitMs?: number | null;
+  executionDurationMs?: number | null;
   details?: unknown;
   display?: unknown;
   truncated?: boolean | null;

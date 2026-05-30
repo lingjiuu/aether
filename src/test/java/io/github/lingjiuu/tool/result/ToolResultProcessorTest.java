@@ -213,6 +213,8 @@ public class ToolResultProcessorTest extends TestCase {
                 null,
                 ToolCallResult.success(output),
                 "COMPLETED",
+                null,
+                null,
                 null
         );
     }

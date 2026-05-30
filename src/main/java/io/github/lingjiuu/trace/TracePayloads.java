@@ -68,11 +68,15 @@ public final class TracePayloads {
     public static Map<String, Object> toolOutput(
             ToolCallResult<?> result,
             String status,
-            Long durationMs
+            Long durationMs,
+            Long approvalWaitMs,
+            Long executionDurationMs
     ) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("status", status);
         payload.put("durationMs", durationMs);
+        payload.put("approvalWaitMs", approvalWaitMs);
+        payload.put("executionDurationMs", executionDurationMs);
         if (result == null) {
             return payload;
         }
@@ -89,7 +93,9 @@ public final class TracePayloads {
             String transcriptRecordId,
             List<Map<String, Object>> artifactRefs,
             String status,
-            Long durationMs
+            Long durationMs,
+            Long approvalWaitMs,
+            Long executionDurationMs
     ) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("kind", "tool_result_model_visible");
@@ -98,6 +104,8 @@ public final class TracePayloads {
         payload.put("toolName", message == null ? null : message.getToolName());
         payload.put("status", status);
         payload.put("durationMs", durationMs);
+        payload.put("approvalWaitMs", approvalWaitMs);
+        payload.put("executionDurationMs", executionDurationMs);
         payload.put("details", message == null ? null : message.getDetails());
         payload.put("truncated", message == null ? null : truncated(message.getDetails()));
         payload.put("artifactRefs", artifactRefs == null ? List.of() : List.copyOf(artifactRefs));

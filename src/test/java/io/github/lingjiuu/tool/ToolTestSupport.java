@@ -41,6 +41,8 @@ public final class ToolTestSupport {
                 context.getToolCall(),
                 input,
                 callResult.status(),
+                null,
+                null,
                 null
         );
         ModelToolResult model = tool.toModelResult(callResult.output(), resultContext);

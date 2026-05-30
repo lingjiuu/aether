@@ -1,5 +1,5 @@
 import type { TimelineItem } from '../../domain/timeline.js';
-import { fallbackResultView } from './tools/fallbackPresenter.js';
+import { defaultToolErrorView, defaultToolResultView } from './tools/resultPresenter.js';
 import { presenterFor } from './tools/registry.js';
 import type { ToolResultView, ToolUseView } from './tools/types.js';
 import {
@@ -43,7 +43,7 @@ export function toolProgressView(item: TimelineItem): ToolResultView {
   }
 
   const updateText = clean(update?.text);
-  return { lines: [{ text: updateText || 'Running...', tone: 'dim' }] };
+  return { lines: [{ text: updateText || statusProgressText(update?.status), tone: 'dim' }] };
 }
 
 export function toolResultView(item: TimelineItem, cwd?: string | null): ToolResultView {
@@ -54,8 +54,13 @@ export function toolResultView(item: TimelineItem, cwd?: string | null): ToolRes
 
   const details = displayDetails(result) ?? {};
   const kind = detailsKind(details, result, item.toolCall);
-  return presenterFor(kind)?.resultView?.(details, result, cwd)
-    ?? fallbackResultView(result);
+  const presenter = presenterFor(kind);
+  if (result.error) {
+    return presenter?.errorView?.(details, result, cwd)
+      ?? defaultToolErrorView(result);
+  }
+  return presenter?.resultView?.(details, result, cwd)
+    ?? defaultToolResultView(result);
 }
 
 function normalizedToolName(item: TimelineItem): string {
@@ -64,4 +69,8 @@ function normalizedToolName(item: TimelineItem): string {
     ?? clean(item.toolUpdate?.toolName)
     ?? clean(item.toolCall?.displayName)
     ?? 'tool';
+}
+
+function statusProgressText(status?: string | null): string {
+  return status === 'WAITING_APPROVAL' ? 'Waiting for approval...' : 'Running...';
 }

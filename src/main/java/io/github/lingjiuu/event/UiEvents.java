@@ -228,6 +228,23 @@ public final class UiEvents {
                 .build();
     }
 
+    public static UiEvent toolExecutionWaitingApproval(
+            String itemId,
+            Integer contentIndex,
+            ToolCallContent toolCall,
+            Tool toolDefinition,
+            Long durationMs,
+            TurnContext turnContext
+    ) {
+        return event(UiEventType.TOOL_EXECUTION_UPDATE, turnContext)
+                .payload(new UiEventPayloads.ToolExecution(
+                        uiToolCall(itemId, contentIndex, toolCall, toolDefinition),
+                        uiToolUpdate(itemId, itemId, contentIndex, toolCall, null, "WAITING_APPROVAL", durationMs, durationMs, null),
+                        null
+                ))
+                .build();
+    }
+
     public static UiEvent toolExecutionEnd(
             String sourceItemId,
             Integer contentIndex,
@@ -236,6 +253,8 @@ public final class UiEvents {
             ToolResultMessage toolResult,
             String status,
             Long durationMs,
+            Long approvalWaitMs,
+            Long executionDurationMs,
             TurnContext turnContext
     ) {
         if (toolResult == null) {
@@ -244,8 +263,8 @@ public final class UiEvents {
         return event(UiEventType.TOOL_EXECUTION_END, turnContext)
                 .payload(new UiEventPayloads.ToolExecution(
                         uiToolCall(sourceItemId, contentIndex, toolCall, toolDefinition),
-                        uiToolUpdate(sourceItemId, sourceItemId, contentIndex, toolCall, null, status, durationMs),
-                        uiToolResult(toolResult, sourceItemId, contentIndex, status, durationMs)
+                        uiToolUpdate(sourceItemId, sourceItemId, contentIndex, toolCall, null, status, durationMs, approvalWaitMs, executionDurationMs),
+                        uiToolResult(toolResult, sourceItemId, contentIndex, status, durationMs, approvalWaitMs, executionDurationMs)
                 ))
                 .build();
     }
@@ -257,6 +276,8 @@ public final class UiEvents {
             ToolResultMessage toolResult,
             String status,
             Long durationMs,
+            Long approvalWaitMs,
+            Long executionDurationMs,
             TurnContext turnContext
     ) {
         if (toolResult == null) {
@@ -268,7 +289,9 @@ public final class UiEvents {
                         sourceItemId,
                         contentIndex,
                         status,
-                        durationMs
+                        durationMs,
+                        approvalWaitMs,
+                        executionDurationMs
                 )))
                 .build();
     }
@@ -413,7 +436,9 @@ public final class UiEvents {
             String sourceItemId,
             Integer contentIndex,
             String status,
-            Long durationMs
+            Long durationMs,
+            Long approvalWaitMs,
+            Long executionDurationMs
     ) {
         return UiItem.builder()
                 .itemId(toolResult.id())
@@ -424,7 +449,9 @@ public final class UiEvents {
                         sourceItemId,
                         contentIndex,
                         status,
-                        durationMs
+                        durationMs,
+                        approvalWaitMs,
+                        executionDurationMs
                 )))
                 .build();
     }
@@ -459,7 +486,9 @@ public final class UiEvents {
             String sourceItemId,
             Integer contentIndex,
             String status,
-            Long durationMs
+            Long durationMs,
+            Long approvalWaitMs,
+            Long executionDurationMs
     ) {
         if (message == null) {
             return null;
@@ -474,6 +503,8 @@ public final class UiEvents {
                 .error(message.isError())
                 .status(status == null ? (message.isError() ? "FAILED" : "COMPLETED") : status)
                 .durationMs(durationMs)
+                .approvalWaitMs(approvalWaitMs)
+                .executionDurationMs(executionDurationMs)
                 .details(normalizeToolDetails(message.getToolName(), message.getDetails()))
                 .display(message.getDisplay())
                 .truncated(truncated(message.getDetails()))
@@ -485,7 +516,9 @@ public final class UiEvents {
             String sourceItemId,
             Integer contentIndex,
             String status,
-            Long durationMs
+            Long durationMs,
+            Long approvalWaitMs,
+            Long executionDurationMs
     ) {
         if (message == null) {
             return null;
@@ -499,6 +532,8 @@ public final class UiEvents {
                 .text(MessageContents.text(message))
                 .status(status == null ? (message.isError() ? "FAILED" : "COMPLETED") : status)
                 .durationMs(durationMs)
+                .approvalWaitMs(approvalWaitMs)
+                .executionDurationMs(executionDurationMs)
                 .details(normalizeToolDetails(message.getToolName(), message.getDetails()))
                 .display(message.getDisplay())
                 .truncated(truncated(message.getDetails()))
@@ -514,6 +549,20 @@ public final class UiEvents {
             String status,
             Long durationMs
     ) {
+        return uiToolUpdate(itemId, sourceItemId, contentIndex, toolCall, result, status, durationMs, null, null);
+    }
+
+    private static UiToolUpdate uiToolUpdate(
+            String itemId,
+            String sourceItemId,
+            Integer contentIndex,
+            ToolCallContent toolCall,
+            ToolDisplayResult result,
+            String status,
+            Long durationMs,
+            Long approvalWaitMs,
+            Long executionDurationMs
+    ) {
         if (result == null) {
             return UiToolUpdate.builder()
                     .itemId(itemId)
@@ -523,6 +572,8 @@ public final class UiEvents {
                     .toolName(toolCall == null ? null : toolCall.getToolName())
                     .status(status)
                     .durationMs(durationMs)
+                    .approvalWaitMs(approvalWaitMs)
+                    .executionDurationMs(executionDurationMs)
                     .build();
         }
         String toolName = toolCall == null ? null : toolCall.getToolName();
@@ -535,6 +586,8 @@ public final class UiEvents {
                 .text(result.text())
                 .status(status)
                 .durationMs(durationMs)
+                .approvalWaitMs(approvalWaitMs)
+                .executionDurationMs(executionDurationMs)
                 .details(normalizeToolDetails(toolName, result.data()))
                 .display(result)
                 .truncated(truncated(result.data()))

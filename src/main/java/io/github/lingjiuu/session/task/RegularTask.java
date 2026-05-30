@@ -21,7 +21,11 @@ import io.github.lingjiuu.tool.result.ToolResultInput;
 import io.github.lingjiuu.tool.result.ToolResultProcessor;
 import io.github.lingjiuu.transcript.TranscriptRecord;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class RegularTask implements SessionTask {
 
@@ -82,7 +86,8 @@ public class RegularTask implements SessionTask {
                     messages,
                     session.activeTools()
             );
-            try (ToolScope toolScope = ToolScope.open(session, context, turnContext)) {
+            ToolOutcomeCoordinator toolOutcomes = new ToolOutcomeCoordinator(session, context, turnContext);
+            try (ToolScope toolScope = ToolScope.open(session, context, turnContext, toolOutcomes::emitUi)) {
                 AssistantMessage assistantMessage = session.sampleModelItems(
                         context.modelSession(),
                         request,
@@ -92,11 +97,11 @@ public class RegularTask implements SessionTask {
                         event -> handleStreamItem(session, context, turnContext, toolScope, event)
                 );
                 if (context.isCancelled() || assistantMessage.isAborted()) {
-                    toolScope.abortAndDrainOrdered(outcome -> recordToolOutcome(session, context, turnContext, outcome));
+                    toolScope.abortAndDrainOrdered(toolOutcomes::record);
                     return;
                 }
                 if (assistantMessage.isError()) {
-                    toolScope.drainOrdered(outcome -> recordToolOutcome(session, context, turnContext, outcome));
+                    toolScope.drainOrdered(toolOutcomes::record);
                     session.applyToolResultBudgetForModel(turnContext);
                     if (assistantMessage.isContextWindowExceeded()
                             && contextWindowRecoveries < MAX_CONTEXT_WINDOW_RECOVERIES) {
@@ -137,9 +142,9 @@ public class RegularTask implements SessionTask {
                 }
 
                 if (context.isCancelled() || Thread.currentThread().isInterrupted()) {
-                    toolScope.abortAndDrainOrdered(outcome -> recordToolOutcome(session, context, turnContext, outcome));
+                    toolScope.abortAndDrainOrdered(toolOutcomes::record);
                 } else {
-                    toolScope.drainOrdered(outcome -> recordToolOutcome(session, context, turnContext, outcome));
+                    toolScope.drainOrdered(toolOutcomes::record);
                 }
                 if (context.isCancelled() || Thread.currentThread().isInterrupted()) {
                     return;
@@ -348,18 +353,16 @@ public class RegularTask implements SessionTask {
         ));
     }
 
-    private void recordToolOutcome(
+    private ProcessedToolOutcome processToolOutcome(
             Session session,
-            TaskContext context,
-            TurnContext turnContext,
             ToolOutcome outcome
     ) {
         if (outcome == null) {
-            return;
+            return null;
         }
         ToolCallRef toolCallRef = outcome.toolCallRef();
         if (toolCallRef == null || toolCallRef.toolCall() == null) {
-            return;
+            return null;
         }
         Tool tool = outcome.tool() == null
                 ? session.toolRegistry().findTool(toolCallRef.toolCall().getToolName())
@@ -373,30 +376,40 @@ public class RegularTask implements SessionTask {
                 outcome.input(),
                 outcome.callResult(),
                 outcome.status(),
-                outcome.durationMs()
+                outcome.durationMs(),
+                outcome.approvalWaitMs(),
+                outcome.executionDurationMs()
         ));
         if (processedResult == null) {
+            return null;
+        }
+        return new ProcessedToolOutcome(outcome, tool, processedResult);
+    }
+
+    private void emitToolOutcomeUi(
+            Session session,
+            TurnContext turnContext,
+            ProcessedToolOutcome processedOutcome
+    ) {
+        if (processedOutcome == null || processedOutcome.processedResult() == null) {
             return;
         }
-        ToolResultMessage toolResult = processedResult.message();
-        TranscriptRecord record = session.recordConversationMessage(toolResult, turnContext);
-        session.config().traceRecorder().recordToolResult(
-                context.traceContext(),
-                outcome.traceSpanId(),
-                toolResult,
-                record,
-                processedResult.artifactRefs(),
-                outcome.status(),
-                outcome.durationMs()
-        );
+        ToolOutcome outcome = processedOutcome.outcome();
+        ToolCallRef toolCallRef = outcome.toolCallRef();
+        if (toolCallRef == null || toolCallRef.toolCall() == null) {
+            return;
+        }
+        ToolResultMessage toolResult = processedOutcome.processedResult().message();
         session.events().emit(UiEvents.toolExecutionEnd(
                 toolCallRef.itemId(),
                 toolCallRef.contentIndex(),
                 toolCallRef.toolCall(),
-                tool,
+                processedOutcome.tool(),
                 toolResult,
                 outcome.status(),
                 outcome.durationMs(),
+                outcome.approvalWaitMs(),
+                outcome.executionDurationMs(),
                 turnContext
         ));
         session.events().emit(UiEvents.toolResult(
@@ -406,8 +419,97 @@ public class RegularTask implements SessionTask {
                 toolResult,
                 outcome.status(),
                 outcome.durationMs(),
+                outcome.approvalWaitMs(),
+                outcome.executionDurationMs(),
                 turnContext
         ));
+    }
+
+    private void recordToolOutcomeForModel(
+            Session session,
+            TaskContext context,
+            TurnContext turnContext,
+            ProcessedToolOutcome processedOutcome
+    ) {
+        if (processedOutcome == null || processedOutcome.processedResult() == null) {
+            return;
+        }
+        ToolOutcome outcome = processedOutcome.outcome();
+        ToolCallRef toolCallRef = outcome.toolCallRef();
+        if (toolCallRef == null || toolCallRef.toolCall() == null) {
+            return;
+        }
+        ToolResultMessage toolResult = processedOutcome.processedResult().message();
+        TranscriptRecord record = session.recordConversationMessage(toolResult, turnContext);
+        session.config().traceRecorder().recordToolResult(
+                context.traceContext(),
+                outcome.traceSpanId(),
+                toolResult,
+                record,
+                processedOutcome.processedResult().artifactRefs(),
+                outcome.status(),
+                outcome.durationMs(),
+                outcome.approvalWaitMs(),
+                outcome.executionDurationMs()
+        );
+    }
+
+    private final class ToolOutcomeCoordinator {
+        private final Session session;
+        private final TaskContext context;
+        private final TurnContext turnContext;
+        private final Map<Integer, ProcessedToolOutcome> processedByOrder = new HashMap<>();
+        private final Set<Integer> uiEmitted = new HashSet<>();
+        private final Set<Integer> recorded = new HashSet<>();
+
+        private ToolOutcomeCoordinator(Session session, TaskContext context, TurnContext turnContext) {
+            this.session = session;
+            this.context = context;
+            this.turnContext = turnContext;
+        }
+
+        synchronized void emitUi(ToolOutcome outcome) {
+            ProcessedToolOutcome processed = processedOutcome(outcome);
+            emitUiIfNeeded(outcome, processed);
+        }
+
+        synchronized void record(ToolOutcome outcome) {
+            ProcessedToolOutcome processed = processedOutcome(outcome);
+            emitUiIfNeeded(outcome, processed);
+            int order = orderKey(outcome);
+            if (processed != null && recorded.add(order)) {
+                recordToolOutcomeForModel(session, context, turnContext, processed);
+            }
+        }
+
+        private ProcessedToolOutcome processedOutcome(ToolOutcome outcome) {
+            int order = orderKey(outcome);
+            if (processedByOrder.containsKey(order)) {
+                return processedByOrder.get(order);
+            }
+            ProcessedToolOutcome processed = processToolOutcome(session, outcome);
+            processedByOrder.put(order, processed);
+            return processed;
+        }
+
+        private void emitUiIfNeeded(ToolOutcome outcome, ProcessedToolOutcome processed) {
+            int order = orderKey(outcome);
+            if (processed != null && uiEmitted.add(order)) {
+                emitToolOutcomeUi(session, turnContext, processed);
+            }
+        }
+
+        private int orderKey(ToolOutcome outcome) {
+            int order = outcome == null ? -1 : outcome.order();
+            return order >= 0 ? order : System.identityHashCode(outcome);
+        }
+    }
+
+    private record ProcessedToolOutcome(
+            ToolOutcome outcome,
+            Tool tool,
+            ProcessedToolResult processedResult
+    ) {
     }
 
     private long runAutoCompactIfNeeded(

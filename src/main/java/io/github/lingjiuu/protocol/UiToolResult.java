@@ -29,6 +29,10 @@ public class UiToolResult {
 
     private Long durationMs;
 
+    private Long approvalWaitMs;
+
+    private Long executionDurationMs;
+
     private Object details;
 
     private Object display;

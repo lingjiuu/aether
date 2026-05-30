@@ -10,6 +10,8 @@ public record ToolResultInput(
         Object input,
         ToolCallResult<?> callResult,
         String status,
-        Long durationMs
+        Long durationMs,
+        Long approvalWaitMs,
+        Long executionDurationMs
 ) {
 }
