@@ -1,70 +1,85 @@
-# Terminal-Bench Adapter
+# Terminal-Bench 2.1
 
-This directory contains the Harbor adapter for running Aether on
-Terminal-Bench 2.1.
+## Setup
 
-The real adapter lives here:
+```sh
+cp evals/aether-eval.example.toml evals/aether-eval.toml
+```
+
+Edit `evals/aether-eval.toml`:
+
+```toml
+# Tips: Only for OpenAI Responses API.
+base_url = "https://api.openai.com/v1"
+model = "gpt-5.5"
+thinking_level = "xhigh"
+auto_compact_token_limit = 115200
+api_key = "sk-xxxxxx"
+```
+
+If `api_key = "$OPENAI_API_KEY"`, export the key:
+
+```sh
+export OPENAI_API_KEY=...
+```
+
+## Run
+
+Smoke test one dataset task:
+
+```sh
+evals/run-terminal-bench.sh --n-tasks 1
+```
+
+Run a specific task:
+
+```sh
+evals/run-terminal-bench.sh --task <task-name>
+```
+
+Run tasks matching a pattern:
+
+```sh
+evals/run-terminal-bench.sh --include '<pattern>' --n-tasks 5
+```
+
+Run the full dataset:
+
+```sh
+evals/run-terminal-bench.sh
+```
+
+## Script Options
 
 ```text
-evals/terminal-bench/aether_agent.py
+--task NAME         Run one named task. Can be repeated.
+--include PATTERN   Include task glob. Can be repeated.
+--exclude PATTERN   Exclude task glob. Can be repeated.
+--n-tasks N         Limit task count.
+--n-concurrent N    Concurrent trials. Defaults to 1.
+--jobs-dir PATH     Results root. Defaults to evals/results/terminal-bench.
+--job-name NAME     Harbor job name.
+--skip-build        Reuse the existing eval bundle.
+--dry-run           Print the Harbor command only.
 ```
 
-Because Python module names cannot contain `-`, Harbor should import the wrapper
-package:
+The script installs `harbor` with `uv` if missing, starts OrbStack/Docker if
+Docker is not ready, validates `evals/aether-eval.toml`, builds the eval bundle,
+and runs Harbor.
 
-```sh
-harbor run \
-  -d terminal-bench/terminal-bench-2-1 \
-  --agent-import-path evals.terminal_bench.aether_agent:AetherAgent \
-  --n-concurrent 1
-```
+## Results
 
-The adapter calls the shared runner:
+Host results:
 
 ```text
-evals/runner/runAetherTask.mjs
+evals/results/terminal-bench
 ```
 
-Inside a Harbor task container, the default runner path is:
+Collected Aether artifacts per trial:
 
 ```text
-/opt/aether/evals/runner/runAetherTask.mjs
+artifacts/aether-eval-summary.json
+artifacts/aether-home/logs/
+artifacts/aether-home/traces/
+artifacts/aether-home/transcripts/
 ```
-
-For local experimentation, either provide a cloned repo at `/opt/aether`, set
-`AETHER_REPO_URL` for the install script, or set `AETHER_BIN` to a prebuilt
-Aether binary. The future GraalVM distribution should only need:
-
-```sh
-AETHER_BIN=/usr/local/bin/aether
-```
-
-The runner creates an isolated Aether home inside the task container and writes
-`$AETHER_EVAL_HOME/.aether/config.toml` before launching Aether. Use either a
-full config:
-
-```sh
-harbor run ... \
-  --ae AETHER_CONFIG_TOML="$(cat ~/.aether/config.toml)"
-```
-
-or let the runner generate a minimal OpenAI-compatible config:
-
-```sh
-export AETHER_EVAL_MODEL_ID=gpt-5.5
-export AETHER_EVAL_DEFAULT_THINKING_LEVEL=medium
-
-harbor run ... \
-  --ae OPENAI_API_KEY="$OPENAI_API_KEY"
-```
-
-For OpenAI-compatible gateways, also set:
-
-```sh
-export AETHER_EVAL_PROVIDER_ID=your-provider
-export AETHER_EVAL_MODEL_BASE_URL=https://your-gateway.example/v1
-```
-
-The runner writes `/logs/artifacts/aether-eval-summary.json` and copies
-`~/.aether` into `/logs/artifacts/aether-home` so traces, transcripts, and logs
-can be collected by Harbor after each trial.

@@ -1,0 +1,6 @@
+# Tips: Only for OpenAI Responses API.
+base_url = "https://api.openai.com/v1"
+model = "gpt-5.5"
+thinking_level = "xhigh"
+auto_compact_token_limit = 115200
+api_key = "sk-xxxxxx"
