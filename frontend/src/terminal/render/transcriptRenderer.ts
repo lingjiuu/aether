@@ -70,9 +70,10 @@ function renderHeader(presentation: TerminalPresentation, width: number): Render
     : formatDirectory(presentation.session.cwd, Math.max(0, innerWidth - visualWidth(directoryPrefix)));
   const modelPrefix = `${'model:'.padEnd(labelWidth)} `;
   const version = formatAppVersion(presentation.session.appVersion);
-  const title = `>_ Aether${version ? ` (${version})` : ''}`;
+  const titleSuffix = ' ☆˶> x <˶.⁺';
+  const title = `>_ Aether${version ? ` (${version})` : ''}${titleSuffix}`;
   const rows = [
-    { raw: title, text: `${dim('>_ ')}${bold('Aether')}${version ? dim(` (${version})`) : ''}` },
+    { raw: title, text: `${dim('>_ ')}${bold('Aether')}${version ? dim(` (${version})`) : ''}${titleSuffix}` },
     { raw: '', text: '' },
     { raw: `${modelPrefix}${presentation.session.model ?? 'unknown'}`, text: `${dim(modelPrefix)}${presentation.session.model ?? 'unknown'}` },
     { raw: `${directoryPrefix}${directory}`, text: `${dim(directoryPrefix)}${directory}` },

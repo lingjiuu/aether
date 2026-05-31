@@ -18,7 +18,7 @@ describe('transcript renderer', () => {
     const text = historyLines(view).map(stripAnsi).join('\n');
 
     expect(text).toContain('╭');
-    expect(text).toContain('>_ Aether (v0.1.0)');
+    expect(text).toContain('>_ Aether (v0.1.0) ☆˶> x <˶.⁺');
     expect(text).toContain('model:     ikun-openai/gpt-5.4-mini');
     expect(text).toContain('directory: ~/code/MyProjects/test0');
     expect(text).not.toContain('Welcome back!');
