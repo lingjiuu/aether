@@ -28,15 +28,27 @@ public class CompactionTest extends TestCase {
         assertTrue(MessageContents.text(request.getMessages().getLast()).contains("CONTEXT CHECKPOINT COMPACTION"));
     }
 
-    public void testPreservedUserMessagesSkipsPriorSummaryAndTruncatesLatestUserMessage() {
+    public void testPreservedUserMessagesSkipsPriorSummaryAndTruncatesLatestUserMessageByTokenBudget() {
         List<UserMessage> preserved = Compaction.preservedUserMessages(List.of(
                 userMessage("older request"),
                 Compaction.summaryMessage("old summary", contextBuilder),
                 userMessage("recent request")
-        ), 6, contextBuilder);
+        ), 1, contextBuilder);
 
         assertEquals(1, preserved.size());
-        assertEquals("recent\n\n[user message truncated by compact policy]", MessageContents.text(preserved.getFirst()));
+        assertEquals("rece\n\n[user message truncated by compact policy]", MessageContents.text(preserved.getFirst()));
+    }
+
+    public void testPreservedUserMessagesKeepsRecentMessagesWithinTokenBudget() {
+        List<UserMessage> preserved = Compaction.preservedUserMessages(List.of(
+                userMessage("oldest request"),
+                userMessage("middle request"),
+                userMessage("newest request")
+        ), 8, contextBuilder);
+
+        assertEquals(2, preserved.size());
+        assertEquals("middle request", MessageContents.text(preserved.get(0)));
+        assertEquals("newest request", MessageContents.text(preserved.get(1)));
     }
 
     public void testReplacementMessagesInsertInitialContextBeforeLastUserMessage() {

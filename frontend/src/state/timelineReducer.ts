@@ -12,6 +12,8 @@ import type {
 } from '../protocol/wire.js';
 import type { AppState } from './types.js';
 
+const CONTEXT_COMPACTED_TEXT = 'Context compacted';
+
 export function applyHistory(state: AppState, history: UiHistory): AppState {
   const turns: Record<string, TimelineTurn> = {};
   const turnOrder: string[] = [];
@@ -210,9 +212,9 @@ function applyTimelineEvent(state: AppState, event: UiEvent): AppState {
       return item ? applyToolResultItem(state, event, item) : state;
     }
     case 'COMPACT_STARTED':
-      return addSystemItem(state, event, 'RUNNING', payload(event, 'compact')?.text ?? 'Compacting conversation...');
+      return state;
     case 'COMPACT_FINISHED':
-      return addSystemItem(state, event, 'COMPLETED', payload(event, 'compact')?.text ?? 'Conversation compacted.');
+      return addSystemItem(state, event, 'COMPLETED', CONTEXT_COMPACTED_TEXT);
     case 'COMPACT_SKIPPED':
       return addSystemItem(state, event, 'SKIPPED', payload(event, 'compact')?.text ?? 'Compact skipped.');
     case 'ERROR':

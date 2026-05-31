@@ -80,6 +80,26 @@ describe('runtime boot', () => {
     ]);
   });
 
+  it('submits compact commands without local command output', async () => {
+    const dispatch = vi.fn<(action: AppAction) => void>();
+    const client = {
+      compact: vi.fn().mockResolvedValue({ accepted: true }),
+    } as unknown as AetherClient;
+
+    await handleInput(
+      { text: '/compact', items: [{ type: 'text', text: '/compact' }] },
+      initialState,
+      client,
+      dispatch,
+      vi.fn(),
+    );
+
+    expect(client.compact).toHaveBeenCalledOnce();
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: 'localCommandCompleted',
+    }));
+  });
+
   it('opens the permissions panel from a slash command', async () => {
     const dispatch = vi.fn<(action: AppAction) => void>();
     const client = {

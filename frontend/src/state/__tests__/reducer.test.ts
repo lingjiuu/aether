@@ -87,4 +87,59 @@ describe('reducer command panels', () => {
     expect(abortedState.session.status).toBe('IDLE');
     expect(abortedState.turns['turn-1']?.status).toBe('ABORTED');
   });
+
+  it('renders compact completion like Codex without exposing trigger or summary text', () => {
+    const runningState = reducer(initialState, {
+      type: 'event',
+      event: {
+        type: 'TURN_STARTED',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        turn: 1,
+        sequence: 1,
+      },
+    });
+    const startedState = reducer(runningState, {
+      type: 'event',
+      event: {
+        type: 'COMPACT_STARTED',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        turn: 1,
+        sequence: 2,
+        payload: {
+          payloadType: 'compact',
+          text: 'manual',
+          originalMessageCount: 5,
+        },
+      },
+    });
+    const finishedState = reducer(startedState, {
+      type: 'event',
+      event: {
+        type: 'COMPACT_FINISHED',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        turn: 1,
+        sequence: 3,
+        payload: {
+          payloadType: 'compact',
+          text: 'raw compact summary',
+          originalMessageCount: 5,
+          replacementMessageCount: 2,
+        },
+      },
+    });
+
+    expect(startedState.turns['turn-1']?.items).toEqual([]);
+    expect(finishedState.turns['turn-1']?.items).toEqual([
+      expect.objectContaining({
+        kind: 'CONTEXT_MESSAGE',
+        status: 'COMPLETED',
+        text: 'Context compacted',
+      }),
+    ]);
+    expect(JSON.stringify(finishedState.turns['turn-1']?.items)).not.toContain('manual');
+    expect(JSON.stringify(finishedState.turns['turn-1']?.items)).not.toContain('raw compact summary');
+  });
 });

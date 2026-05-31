@@ -15,7 +15,7 @@ import java.util.List;
 
 public final class Compaction {
 
-    public static final int DEFAULT_MAX_PRESERVED_USER_MESSAGE_CHARS = 80_000;
+    public static final int DEFAULT_MAX_PRESERVED_USER_MESSAGE_TOKENS = 20_000;
 
     public static final String SUMMARY_PREFIX = "Another language model started to solve this problem and produced a summary of its thinking process. You also have access to the state of the tools that were used by that language model. Use this to build on the work that has already been done and avoid duplicating work. Here is the summary produced by the other language model, use the information in this summary to assist with your own analysis:";
 
@@ -104,17 +104,20 @@ public final class Compaction {
 
     public static List<UserMessage> preservedUserMessages(
             List<Message> messages,
-            int maxChars,
+            int maxTokens,
             ContextBuilder contextBuilder
     ) {
-        if (messages == null || messages.isEmpty() || maxChars <= 0) {
+        if (messages == null || messages.isEmpty() || maxTokens <= 0) {
             return List.of();
         }
 
         ContextBuilder builder = contextBuilder == null ? new ContextBuilder() : contextBuilder;
-        int remainingChars = maxChars;
+        int remainingTokens = maxTokens;
         List<UserMessage> selected = new ArrayList<>();
         for (int index = messages.size() - 1; index >= 0; index--) {
+            if (remainingTokens == 0) {
+                break;
+            }
             Message message = messages.get(index);
             if (!(message instanceof UserMessage userMessage) || isSummaryMessage(userMessage)) {
                 continue;
@@ -125,21 +128,34 @@ public final class Compaction {
                 continue;
             }
 
-            if (text.length() <= remainingChars) {
+            int tokens = approxTokenCount(text);
+            if (tokens <= remainingTokens) {
                 selected.add(builder.userMessage(text));
-                remainingChars -= text.length();
-                if (remainingChars == 0) {
-                    break;
-                }
+                remainingTokens -= tokens;
                 continue;
             }
 
-            selected.add(builder.userMessage(text.substring(0, remainingChars) + USER_MESSAGE_TRUNCATION_MARKER));
+            selected.add(builder.userMessage(truncateByApproxTokens(text, remainingTokens) + USER_MESSAGE_TRUNCATION_MARKER));
             break;
         }
 
         Collections.reverse(selected);
         return List.copyOf(selected);
+    }
+
+    private static int approxTokenCount(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        return Math.max(1, (text.length() + 3) / 4);
+    }
+
+    private static String truncateByApproxTokens(String text, int maxTokens) {
+        if (text == null || text.isEmpty() || maxTokens <= 0) {
+            return "";
+        }
+        int maxChars = Math.min(text.length(), maxTokens * 4);
+        return text.substring(0, maxChars);
     }
 
     public enum InitialContextInjection {

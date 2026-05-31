@@ -23,6 +23,7 @@ public final class UiHistoryState {
     private static final String RUNNING = "RUNNING";
     private static final String COMPLETED = "COMPLETED";
     private static final String ABORTED = "ABORTED";
+    private static final String CONTEXT_COMPACTED_TEXT = "Context compacted";
 
     private final String sessionId;
     private final Map<String, TurnState> turns = new LinkedHashMap<>();
@@ -57,8 +58,9 @@ public final class UiHistoryState {
             case TOOL_CALL -> applyToolCall(event);
             case TOOL_EXECUTION_BEGIN, TOOL_EXECUTION_UPDATE, TOOL_EXECUTION_END -> applyToolExecution(event);
             case TOOL_RESULT -> applyToolResult(event);
-            case COMPACT_STARTED -> addTextItem(event, "compact-" + safeSequence(event), UiItemKind.CONTEXT_MESSAGE, RUNNING, compactText(event));
-            case COMPACT_FINISHED -> addTextItem(event, "compact-" + safeSequence(event), UiItemKind.CONTEXT_MESSAGE, COMPLETED, compactText(event));
+            case COMPACT_STARTED -> {
+            }
+            case COMPACT_FINISHED -> addTextItem(event, "compact-" + safeSequence(event), UiItemKind.CONTEXT_MESSAGE, COMPLETED, CONTEXT_COMPACTED_TEXT);
             case COMPACT_SKIPPED -> addTextItem(event, "compact-" + safeSequence(event), UiItemKind.CONTEXT_MESSAGE, "SKIPPED", compactText(event));
             case ERROR -> addTextItem(event, "error-" + safeSequence(event), UiItemKind.CONTEXT_MESSAGE, "ERROR", errorText(event));
             default -> {

@@ -100,7 +100,7 @@ public class CompactTask implements SessionTask {
 
         List<UserMessage> preservedUserMessages = Compaction.preservedUserMessages(
                 originalMessages,
-                Compaction.DEFAULT_MAX_PRESERVED_USER_MESSAGE_CHARS,
+                Compaction.DEFAULT_MAX_PRESERVED_USER_MESSAGE_TOKENS,
                 session.contextBuilder()
         );
         List<ContextMessage> initialContextMessages = initialContextInjection.shouldInject()
