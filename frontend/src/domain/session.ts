@@ -4,6 +4,7 @@ export type ConnectionStatus = 'starting' | 'connected' | 'disconnected' | 'erro
 
 export type SessionView = {
   sessionId?: string;
+  appVersion?: string;
   status?: string;
   name?: string;
   cwd?: string;
@@ -21,6 +22,7 @@ export function sessionViewFromWire(session?: UiSessionState | null): Partial<Se
   const modelId = session?.summary?.modelId;
   return {
     sessionId: session?.sessionId ?? session?.summary?.sessionId ?? undefined,
+    appVersion: session?.appVersion ?? undefined,
     status: session?.status ?? undefined,
     name: session?.summary?.name ?? undefined,
     cwd: session?.summary?.cwd ?? undefined,

@@ -4,6 +4,7 @@ import java.util.List;
 
 public record UiSessionState(
         String sessionId,
+        String appVersion,
         String status,
         int messageCount,
         int availableSkillCount,

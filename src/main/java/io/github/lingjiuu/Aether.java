@@ -122,6 +122,7 @@ public class Aether implements AutoCloseable {
         );
         return new UiSessionState(
                 session.sessionId(),
+                AppVersion.current(),
                 session.status().name(),
                 session.messages().size(),
                 session.availableSkills().size(),

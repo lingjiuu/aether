@@ -69,15 +69,24 @@ function renderHeader(presentation: TerminalPresentation, width: number): Render
     ? formatDirectory(presentation.session.cwd)
     : formatDirectory(presentation.session.cwd, Math.max(0, innerWidth - visualWidth(directoryPrefix)));
   const modelPrefix = `${'model:'.padEnd(labelWidth)} `;
-  const title = '>_ Aether';
+  const version = formatAppVersion(presentation.session.appVersion);
+  const title = `>_ Aether${version ? ` (${version})` : ''}`;
   const rows = [
-    { raw: title, text: `${dim('>_ ')}${bold('Aether')}` },
+    { raw: title, text: `${dim('>_ ')}${bold('Aether')}${version ? dim(` (${version})`) : ''}` },
     { raw: '', text: '' },
     { raw: `${modelPrefix}${presentation.session.model ?? 'unknown'}`, text: `${dim(modelPrefix)}${presentation.session.model ?? 'unknown'}` },
     { raw: `${directoryPrefix}${directory}`, text: `${dim(directoryPrefix)}${directory}` },
   ];
 
   return [...borderedCard(rows, width, 'session-header'), blankLine()];
+}
+
+function formatAppVersion(version?: string): string | undefined {
+  const trimmed = version?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return trimmed === 'dev' || trimmed.startsWith('v') ? trimmed : `v${trimmed}`;
 }
 
 function formatDirectory(cwd?: string, maxWidth?: number): string {

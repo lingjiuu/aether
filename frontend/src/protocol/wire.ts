@@ -266,6 +266,7 @@ export type UiSessionSummary = {
 
 export type UiSessionState = {
   sessionId?: string | null;
+  appVersion?: string | null;
   status?: string | null;
   messageCount?: number | null;
   availableSkillCount?: number | null;

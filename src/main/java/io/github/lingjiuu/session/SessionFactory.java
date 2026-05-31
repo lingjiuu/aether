@@ -1,5 +1,6 @@
 package io.github.lingjiuu.session;
 
+import io.github.lingjiuu.AppVersion;
 import io.github.lingjiuu.infra.config.AetherConfig;
 import io.github.lingjiuu.infra.config.AetherConfigException;
 import io.github.lingjiuu.infra.config.AetherConfigLoader;
@@ -422,8 +423,7 @@ public class SessionFactory {
     }
 
     private String aetherVersion() {
-        String version = SessionFactory.class.getPackage().getImplementationVersion();
-        return version == null || version.isBlank() ? "dev" : version;
+        return AppVersion.current();
     }
 
     private static String sha256(String text) {

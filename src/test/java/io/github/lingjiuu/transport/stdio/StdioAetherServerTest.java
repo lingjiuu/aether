@@ -43,6 +43,7 @@ public class StdioAetherServerTest extends TestCase {
         assertEquals("1", initialize.get("id").asText());
         assertEquals(StdioAetherServer.PROTOCOL_VERSION, initialize.get("result").get("protocolVersion").asText());
         assertTrue(initialize.get("result").hasNonNull("sessionId"));
+        assertEquals("0.1.0", initialize.get("result").get("session").get("appVersion").asText());
         assertEquals("IDLE", initialize.get("result").get("session").get("status").asText());
         assertTrue(initialize.get("result").get("capabilities").get("sessionState").asBoolean());
         assertTrue(initialize.get("result").get("capabilities").get("permissionSelection").asBoolean());
