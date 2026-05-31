@@ -12,5 +12,3 @@ frontend/.vite/
 references
 AGENTS.md
 docs/*
-!docs/exec-plans/
-!docs/exec-plans/**
