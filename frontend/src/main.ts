@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { AetherClient } from './backend/AetherClient.js';
 import { backendOptions } from './app/bootstrap.js';
 import { ensureAetherConfig } from './setup/configSetup.js';

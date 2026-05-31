@@ -1,12 +1,19 @@
 {
-  "name": "@aether/cli",
+  "name": "@lingjiuu/aether",
   "version": "0.1.0",
-  "private": true,
+  "description": "Aether CLI",
   "type": "module",
+  "bin": {
+    "aether": "dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "dev": "tsx src/main.ts",
     "smoke": "tsx src/smoke/stdioSmoke.ts",
     "test": "vitest run",

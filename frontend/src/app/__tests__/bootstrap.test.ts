@@ -49,4 +49,17 @@ describe('backendOptions', () => {
     expect(options.args).not.toContain('-f');
     expect(options.args.at(-1)).toBe('-Dexec.args=--stdio');
   });
+
+  it('defaults explicit backend commands to stdio args', () => {
+    vi.stubEnv('AETHER_BACKEND_COMMAND', '/opt/aether/aether-backend');
+    vi.stubEnv('AETHER_SESSION_CWD', '/project/from-session-env');
+    vi.spyOn(process, 'cwd').mockReturnValue('/project/from-process');
+
+    expect(backendOptions()).toEqual({
+      command: '/opt/aether/aether-backend',
+      args: ['--stdio'],
+      cwd: '/project/from-process',
+      sessionCwd: '/project/from-session-env',
+    });
+  });
 });

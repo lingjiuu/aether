@@ -6,6 +6,7 @@ evals/aether-eval.toml
 evals/results/
 frontend/node_modules/
 frontend/.vite/
+frontend/dist/
 .idea/
 .DS_Store
 
