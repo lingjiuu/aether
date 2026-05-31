@@ -3,7 +3,7 @@ import { padPlain, truncatePlain, visualWidth } from '../terminal/shared/text.js
 import { block, line, type CardRow } from '../terminal/render/renderPrimitives.js';
 import type { RenderBlock, RenderedLine, TerminalView } from '../terminal/render/viewModel.js';
 
-export type ConfigSetupFieldId = 'providerId' | 'baseUrl' | 'apiKey' | 'modelId';
+export type ConfigSetupFieldId = 'providerId' | 'baseUrl' | 'apiKey' | 'modelId' | 'contextWindowK';
 
 export type ConfigSetupField = {
   id: ConfigSetupFieldId;
@@ -11,6 +11,7 @@ export type ConfigSetupField = {
   value: string;
   placeholder: string;
   masked?: boolean;
+  suffix?: string;
 };
 
 export type ConfigSetupRenderState = {
@@ -22,7 +23,6 @@ export type ConfigSetupRenderState = {
 };
 
 const CARD_INNER_WIDTH = 64;
-const VALUE_START = 11;
 
 export function renderConfigSetupView(
   state: ConfigSetupRenderState,
@@ -51,15 +51,15 @@ export function renderConfigCard(state: ConfigSetupRenderState, width: number): 
   ];
 
   const fieldRowsStart = rows.length;
+  const labelWidth = fieldLabelWidth(state.fields);
+  const valueStart = 3 + labelWidth;
   for (const [index, field] of state.fields.entries()) {
-    rows.push(renderFieldRow(field, index === state.activeIndex, innerWidth));
+    rows.push(renderFieldRow(field, index === state.activeIndex, innerWidth, labelWidth));
   }
 
   rows.push({ raw: '', text: '' });
   if (state.error) {
     rows.push({ raw: state.error, text: error(state.error) });
-  } else {
-    rows.push({ raw: 'API key is hidden while typing.', text: dim('API key is hidden while typing.') });
   }
   rows.push({
     raw: 'Enter next/save - Up/Down switch - Esc cancel',
@@ -69,31 +69,34 @@ export function renderConfigCard(state: ConfigSetupRenderState, width: number): 
   const lines = borderedRows(rows, width, innerWidth);
   const activeField = state.fields[state.activeIndex];
   const activeDisplayValue = activeField ? displayValue(activeField) : '';
-  const valueWidth = Math.max(0, innerWidth - VALUE_START);
+  const activeVisibleValue = activeDisplayValue || activeField?.placeholder || '';
+  const suffixWidth = activeField?.suffix ? visualWidth(fieldSuffix(activeField, activeVisibleValue)) : 0;
+  const valueWidth = Math.max(0, innerWidth - valueStart - suffixWidth);
   const cursorOffset = Math.min(
     visualWidth(activeDisplayValue),
     Math.max(0, state.cursorOffset),
     valueWidth,
   );
   const cursor = {
-    x: 2 + VALUE_START + cursorOffset,
+    x: 2 + valueStart + cursorOffset,
     y: 1 + fieldRowsStart + state.activeIndex,
   };
   return block('config-setup-card', lines, cursor);
 }
 
-function renderFieldRow(field: ConfigSetupField, active: boolean, innerWidth: number): CardRow {
+function renderFieldRow(field: ConfigSetupField, active: boolean, innerWidth: number, labelWidth: number): CardRow {
   const marker = active ? '>' : ' ';
-  const label = padPlain(field.label, 8);
+  const label = padPlain(field.label, labelWidth);
   const value = displayValue(field) || field.placeholder;
   const rawPrefix = `${marker} ${label} `;
-  const valueWidth = Math.max(0, innerWidth - visualWidth(rawPrefix));
+  const suffix = fieldSuffix(field, value);
+  const valueWidth = Math.max(0, innerWidth - visualWidth(rawPrefix) - visualWidth(suffix));
   const rawValue = truncatePlain(value, valueWidth);
-  const raw = `${rawPrefix}${rawValue}`;
+  const raw = `${rawPrefix}${rawValue}${suffix}`;
   const styledMarker = active ? accent(marker) : dim(marker);
   const styledLabel = active ? success(label) : label;
   const styledValue = displayValue(field) ? rawValue : dim(rawValue);
-  return { raw, text: `${styledMarker} ${styledLabel} ${styledValue}` };
+  return { raw, text: `${styledMarker} ${styledLabel} ${styledValue}${field.suffix ? dim(suffix) : ''}` };
 }
 
 function displayValue(field: ConfigSetupField): string {
@@ -101,6 +104,17 @@ function displayValue(field: ConfigSetupField): string {
     return field.value;
   }
   return field.value ? '*'.repeat(Math.min(field.value.length, 32)) : '';
+}
+
+function fieldLabelWidth(fields: ConfigSetupField[]): number {
+  return Math.max(8, ...fields.map(field => visualWidth(field.label)));
+}
+
+function fieldSuffix(field: ConfigSetupField, value: string): string {
+  if (!field.suffix) {
+    return '';
+  }
+  return value ? ` ${field.suffix}` : ` ${field.suffix}`;
 }
 
 function borderedRows(rows: CardRow[], width: number, innerWidth: number): RenderedLine[] {
