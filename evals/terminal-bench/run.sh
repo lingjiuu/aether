@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 dataset="${AETHER_TB_DATASET:-terminal-bench/terminal-bench-2-1}"
 jobs_dir="${AETHER_TB_RESULTS_DIR:-${repo_root}/evals/results/terminal-bench}"
 bundle_dir="${AETHER_EVAL_BUNDLE_DIR:-${repo_root}/evals/.bundle/aether-eval}"
@@ -20,7 +20,7 @@ harbor_args=()
 usage() {
   cat <<'EOF'
 Usage:
-  evals/run-terminal-bench.sh [options] [-- extra harbor args...]
+  evals/terminal-bench/run.sh [options] [-- extra harbor args...]
 
 Options:
   --dataset NAME           Harbor dataset. Defaults to terminal-bench/terminal-bench-2-1.

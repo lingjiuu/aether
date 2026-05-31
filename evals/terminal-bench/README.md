@@ -28,25 +28,25 @@ export OPENAI_API_KEY=...
 Smoke test one dataset task:
 
 ```sh
-evals/run-terminal-bench.sh --n-tasks 1
+evals/terminal-bench/run.sh --n-tasks 1
 ```
 
 Run a specific task:
 
 ```sh
-evals/run-terminal-bench.sh --task <task-name>
+evals/terminal-bench/run.sh --task <task-name>
 ```
 
 Run tasks matching a pattern:
 
 ```sh
-evals/run-terminal-bench.sh --include '<pattern>' --n-tasks 5
+evals/terminal-bench/run.sh --include '<pattern>' --n-tasks 5
 ```
 
 Run the full dataset:
 
 ```sh
-evals/run-terminal-bench.sh
+evals/terminal-bench/run.sh
 ```
 
 ## Script Options
