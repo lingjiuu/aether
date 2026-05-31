@@ -185,7 +185,11 @@ function writeJson(path, value) {
 }
 
 function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, stdio: 'inherit' });
+  const result = spawnSync(command, args, {
+    cwd,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
   if (result.error) {
     console.error(result.error.message);
     process.exit(1);
@@ -196,7 +200,7 @@ function run(command, args, cwd) {
 }
 
 function npmCommand() {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  return 'npm';
 }
 
 function fail(message) {
