@@ -5,7 +5,12 @@ import { line } from '../renderPrimitives.js';
 import type { RenderedLine } from '../viewModel.js';
 
 export function renderFooter(presentation: TerminalPresentation, width: number): RenderedLine[] {
-  if (presentation.commandPanel || presentation.composer.commandPaletteOpen || presentation.composer.popup) {
+  if (
+    presentation.commandPanel
+    || presentation.pendingApproval
+    || presentation.composer.commandPaletteOpen
+    || presentation.composer.popup
+  ) {
     return [];
   }
   const right = rightStatus(presentation);
@@ -20,9 +25,6 @@ function sessionStatus(presentation: TerminalPresentation): string {
 }
 
 function rightStatus(presentation: TerminalPresentation): string {
-  if (presentation.pendingApproval) {
-    return 'esc to deny';
-  }
   if (presentation.isRunning) {
     return 'esc to interrupt';
   }

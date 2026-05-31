@@ -31,6 +31,20 @@ describe('ApprovalController', () => {
     expect(respondToApproval).toHaveBeenCalledWith('approval-1', false);
     expect(actions).toEqual([]);
   });
+
+  it('accepts y/n and numeric approval shortcuts', async () => {
+    const respondToApproval = vi.fn().mockResolvedValue({ ok: true });
+    const client = clientStub({ respondToApproval });
+    const callbacks = { dispatch: vi.fn(), render: vi.fn() };
+    const controller = new ApprovalController();
+    const state = stateWithApproval('approval-1');
+
+    await controller.handleKey({ kind: 'text', value: 'y' }, state, client, callbacks);
+    await controller.handleKey({ kind: 'text', value: '2' }, state, client, callbacks);
+
+    expect(respondToApproval).toHaveBeenNthCalledWith(1, 'approval-1', true);
+    expect(respondToApproval).toHaveBeenNthCalledWith(2, 'approval-1', false);
+  });
 });
 
 function stateWithApproval(approvalId: string): AppState {
