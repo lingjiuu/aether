@@ -96,7 +96,7 @@ jobs:
 
       - name: Stage platform npm package
         run: |
-          scripts/stage-npm-packages.mjs \
+          node scripts/stage-npm-packages.mjs \
             --version "${{ steps.version.outputs.version }}" \
             --platform "${{ matrix.platform }}" \
             --backend "${{ steps.backend.outputs.path }}" \
@@ -153,7 +153,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
           cd ..
-          scripts/stage-npm-packages.mjs \
+          node scripts/stage-npm-packages.mjs \
             --version "${{ steps.version.outputs.version }}" \
             --package main \
             --pack

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync, chmodSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve, basename } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
@@ -104,7 +104,8 @@ function stagePlatformPackage(version, platformName, backendPath, root) {
     fail(`Unsupported platform: ${platformName}. Expected one of: ${Object.keys(platforms).join(', ')}`);
   }
 
-  const backend = resolve(repoRoot, backendPath);
+  const backend = resolveInputPath(backendPath);
+  console.error(`Staging ${platformName} backend from ${backend}`);
   if (!existsSync(backend)) {
     fail(`Backend executable does not exist: ${backend}`);
   }
@@ -169,6 +170,10 @@ function requireArg(args, name) {
     fail(`--${name} is required`);
   }
   return value;
+}
+
+function resolveInputPath(path) {
+  return isAbsolute(path) ? path : resolve(repoRoot, path);
 }
 
 function readJson(path) {
