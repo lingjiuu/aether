@@ -17,13 +17,14 @@ public class ContextBuilderTest extends TestCase {
 
     public void testEnvironmentContextMessageBuildsFullContext() {
         ContextBuilder builder = new ContextBuilder();
-        EnvironmentContext current = environmentContext("/tmp/aether", "2026-05-20", "UTC");
+        Path cwd = Path.of("/tmp/aether");
+        EnvironmentContext current = environmentContext(cwd, "2026-05-20", "UTC");
 
         ContextMessage message = builder.environmentContextMessage(current.fullFields());
 
         String text = MessageContents.text(message);
         assertTrue(text.startsWith("<environment_context>"));
-        assertTrue(text.contains("<cwd>/tmp/aether</cwd>"));
+        assertTrue(text.contains("<cwd>" + cwd + "</cwd>"));
         assertTrue(text.contains("<shell>zsh</shell>"));
         assertTrue(text.contains("<current_date>2026-05-20</current_date>"));
         assertTrue(text.contains("<timezone>UTC</timezone>"));
@@ -33,13 +34,14 @@ public class ContextBuilderTest extends TestCase {
     public void testEnvironmentContextMessageBuildsOnlyDiffFields() {
         ContextBuilder builder = new ContextBuilder();
         EnvironmentContext previous = environmentContext("/tmp/old", "2026-05-20", "UTC");
-        EnvironmentContext current = environmentContext("/tmp/new", "2026-05-20", "UTC");
+        Path cwd = Path.of("/tmp/new");
+        EnvironmentContext current = environmentContext(cwd, "2026-05-20", "UTC");
 
         ContextMessage message = builder.environmentContextMessage(current.diffFields(previous));
 
         String text = MessageContents.text(message);
         assertTrue(text.startsWith("<environment_context>"));
-        assertTrue(text.contains("<cwd>/tmp/new</cwd>"));
+        assertTrue(text.contains("<cwd>" + cwd + "</cwd>"));
         assertFalse(text.contains("current_date"));
         assertFalse(text.contains("timezone"));
         assertFalse(text.contains("<shell>"));
@@ -80,9 +82,10 @@ public class ContextBuilderTest extends TestCase {
 
     public void testSkillContextMessageUsesCodexStyleTemplate() {
         ContextBuilder builder = new ContextBuilder();
+        Path skillPath = Path.of("/tmp/demo/SKILL.md");
         SkillInjection injection = new SkillInjection(
                 "demo",
-                Path.of("/tmp/demo/SKILL.md"),
+                skillPath,
                 "# Demo\nUse the demo workflow.\n"
         );
 
@@ -92,7 +95,7 @@ public class ContextBuilderTest extends TestCase {
         assertEquals(ContextMessage.ContextKind.SKILL, message.getKind());
         assertTrue(text.startsWith("<skill>"));
         assertTrue(text.contains("<name>demo</name>"));
-        assertTrue(text.contains("<path>/tmp/demo/SKILL.md</path>"));
+        assertTrue(text.contains("<path>" + skillPath + "</path>"));
         assertTrue(text.contains("# Demo\nUse the demo workflow."));
         assertTrue(text.endsWith("</skill>"));
     }
@@ -130,8 +133,12 @@ public class ContextBuilderTest extends TestCase {
     }
 
     private EnvironmentContext environmentContext(String cwd, String currentDate, String timezone) {
+        return environmentContext(Path.of(cwd), currentDate, timezone);
+    }
+
+    private EnvironmentContext environmentContext(Path cwd, String currentDate, String timezone) {
         return new EnvironmentContext(
-                Path.of(cwd),
+                cwd,
                 "zsh",
                 LocalDate.parse(currentDate),
             ZoneId.of(timezone)

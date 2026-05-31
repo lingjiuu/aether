@@ -52,8 +52,9 @@ public class GlobToolTest extends TestCase {
         Files.writeString(root.resolve("src/Absolute.java"), "class Absolute {}", StandardCharsets.UTF_8);
 
         GlobTool tool = new GlobTool(WorkspaceAccessPolicy.rootedAt(root));
+        String pattern = root.resolve("src") + root.getFileSystem().getSeparator() + "*.java";
         ToolExecutionResult result = io.github.lingjiuu.tool.ToolTestSupport.execute(tool, invocation("Glob", Map.of(
-                "pattern", root.resolve("src").resolve("*.java").toString()
+                "pattern", pattern
         )));
 
         assertFalse(result.isError());

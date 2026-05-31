@@ -27,8 +27,9 @@ public class TranscriptRestorerTest extends TestCase {
     public void testRestoreUsesLatestCompactionCheckpointAndReplaysSuffix() throws Exception {
         String sessionId = UUID.randomUUID().toString();
         TranscriptStore store = new TranscriptStore(Files.createTempDirectory("aether-transcript-test"));
-        EnvironmentContext oldBaseline = environmentContext("/tmp/old");
-        EnvironmentContext restoredBaseline = environmentContext("/tmp/new");
+        Path root = Files.createTempDirectory("aether-transcript-cwd-test");
+        EnvironmentContext oldBaseline = environmentContext(root.resolve("old"));
+        EnvironmentContext restoredBaseline = environmentContext(root.resolve("new"));
 
         append(store, sessionId, messageItem("old message"), 1);
         append(store, sessionId, turnContextItem("turn-1", 1, oldBaseline), 1);
@@ -219,8 +220,12 @@ public class TranscriptRestorerTest extends TestCase {
     }
 
     private EnvironmentContext environmentContext(String cwd) {
+        return environmentContext(Path.of(cwd));
+    }
+
+    private EnvironmentContext environmentContext(Path cwd) {
         return new EnvironmentContext(
-                Path.of(cwd),
+                cwd,
                 "zsh",
                 LocalDate.parse("2026-05-20"),
                 ZoneId.of("UTC")
