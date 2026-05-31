@@ -59,6 +59,8 @@ describe('aether config setup', () => {
     }, configPath);
 
     await expect(readFile(configPath, 'utf8')).resolves.toContain('api_key = "sk-test"');
-    expect((await stat(configPath)).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect((await stat(configPath)).mode & 0o777).toBe(0o600);
+    }
   });
 });

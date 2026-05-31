@@ -56,7 +56,7 @@ export function searchFiles(cwd: string | undefined, query: string, limit = 12):
       }
       results.push({
         path: absolutePath,
-        displayPath: relativePath,
+        displayPath: toPosix(relativePath),
         isImage: IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase()),
       });
     }
@@ -65,3 +65,6 @@ export function searchFiles(cwd: string | undefined, query: string, limit = 12):
   return results;
 }
 
+function toPosix(value: string): string {
+  return value.split(path.sep).join('/');
+}

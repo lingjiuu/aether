@@ -50,7 +50,7 @@ export function displayPath(value: string | undefined, cwd?: string | null): str
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
     return value;
   }
-  return relative;
+  return toPosix(relative);
 }
 
 export function defaultUserFacingName(toolName: string, toolCall: UiToolCall | undefined): string {
@@ -158,6 +158,10 @@ export function booleanField(details: Details | undefined, field: string): boole
 export function clean(text: string | null | undefined): string | undefined {
   const trimmed = text?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function toPosix(value: string): string {
+  return value.split(path.sep).join('/');
 }
 
 function isRecord(value: unknown): value is Details {
