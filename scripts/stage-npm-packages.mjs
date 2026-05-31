@@ -57,7 +57,7 @@ if (packageKind === 'all' || packageKind === 'platform') {
 
 if (args.pack) {
   for (const packageDir of staged) {
-    run('npm', ['pack', packageDir, '--pack-destination', distRoot], repoRoot);
+    run(npmCommand(), ['pack', packageDir, '--pack-destination', distRoot], repoRoot);
   }
 }
 
@@ -186,9 +186,17 @@ function writeJson(path, value) {
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, stdio: 'inherit' });
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+}
+
+function npmCommand() {
+  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
 function fail(message) {
