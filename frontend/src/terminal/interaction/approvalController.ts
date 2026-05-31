@@ -44,6 +44,15 @@ export class ApprovalController {
       case 'escape':
         await this.respond(state, client, callbacks.dispatch, false);
         return true;
+      case 'text': {
+        const value = key.value.toLowerCase();
+        if (value === 'y' || value === '1') {
+          await this.respond(state, client, callbacks.dispatch, true);
+        } else if (value === 'n' || value === '2') {
+          await this.respond(state, client, callbacks.dispatch, false);
+        }
+        return true;
+      }
       default:
         return true;
     }

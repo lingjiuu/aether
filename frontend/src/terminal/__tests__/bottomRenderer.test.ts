@@ -153,10 +153,10 @@ describe('bottom renderer', () => {
       pendingApproval: {
         request: {
           approvalId: 'approval-1',
-          toolName: 'write',
+          toolName: 'Bash',
           riskLevel: 'medium',
-          arguments: { file_path: '滕王阁序.md' },
-          reason: 'Create a new file',
+          arguments: { command: 'rm /Users/Apple/code/MyProjects/test0/hello.txt' },
+          reason: 'Tool can execute commands.',
         },
       },
     };
@@ -164,9 +164,15 @@ describe('bottom renderer', () => {
     const view = renderView(state, { approvalSelectedIndex: 1 });
     const text = activeLines(view).map(stripAnsi).join('\n');
 
-    expect(text).toContain('Approval required: write');
-    expect(text).toContain('  Approve');
-    expect(text).toContain('› Deny');
+    expect(text).toContain('Bash Command');
+    expect(text).toContain('$ rm /Users/Apple/code/MyProjects/test0/hello.txt');
+    expect(text).toContain('  1. Yes, proceed (y)');
+    expect(text).toContain('❯ 2. No, deny (esc)');
+    expect(text).toContain('Enter confirm · ↑/↓ select · y yes · n no');
+    expect(text).not.toContain('Approval required');
+    expect(text).not.toContain('Reason');
+    expect(text).not.toContain('Tool can execute commands.');
+    expect(text).not.toContain('gpt-');
     expect(text).not.toContain('/approve');
     expect(text).not.toContain('/deny');
   });

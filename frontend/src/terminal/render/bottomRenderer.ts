@@ -18,7 +18,7 @@ export function renderBottom({
   const panel = presentation.commandPanel
     ? renderCommandPanel(presentation, width, bottomBudget)
     : presentation.pendingApproval
-      ? renderApprovalPanel(presentation, width, approvalSelectedIndex)
+      ? renderApprovalPanel(presentation, width, approvalSelectedIndex, bottomBudget)
       : renderComposer(presentation, width, composerCursorOffset);
   const children = [...panel.children, ...footer];
 
