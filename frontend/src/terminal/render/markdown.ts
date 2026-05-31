@@ -1,119 +1,259 @@
-import { bold, dim } from '../shared/ansi.js';
-import { visualWidth, wrapPlain } from '../shared/text.js';
+import { marked, type Token, type Tokens } from 'marked';
+import { ansi, bold, dim } from '../shared/ansi.js';
+import { padPlain, visualWidth, wrapPlain } from '../shared/text.js';
 
 export type MarkdownLine = {
   text: string;
   raw: string;
 };
 
-type MarkdownBlock =
-  | { type: 'line'; line: string }
-  | { type: 'code'; lines: string[] };
-
-type Segment = {
+type InlineContent = {
   text: string;
-  kind: 'plain' | 'code' | 'bold';
+  raw: string;
 };
 
+let markedConfigured = false;
+
 export function renderMarkdownLines(text: string, width: number): MarkdownLine[] {
-  const blocks = compactBlocks(parseMarkdown(text));
-  const lines: MarkdownLine[] = [];
-
-  for (const [index, block] of blocks.entries()) {
-    if (index > 0 && shouldSeparate(blocks[index - 1], block)) {
-      lines.push({ text: '', raw: '' });
-    }
-
-    if (block.type === 'code') {
-      lines.push(...renderCodeBlock(block.lines, width));
-    } else {
-      lines.push(...renderTextLine(block.line, width));
-    }
-  }
-
-  return lines;
+  configureMarked();
+  const source = withoutTrailingIncompleteFence(text.split('\n')).join('\n');
+  return compactLines(marked.lexer(source).flatMap(token => renderToken(token, width, 0)));
 }
 
-function renderTextLine(source: string, width: number): MarkdownLine[] {
-  if (!source) {
-    return [{ text: '', raw: '' }];
+function configureMarked(): void {
+  if (markedConfigured) {
+    return;
   }
-
-  const raw = renderInlineRaw(source);
-  const rendered = renderInlineStyled(source);
-  if (visualWidth(raw) <= width) {
-    return [{ text: rendered, raw }];
-  }
-
-  return wrapPlain(raw, width).map(line => ({ text: line, raw: line }));
-}
-
-function renderCodeBlock(sourceLines: string[], width: number): MarkdownLine[] {
-  const lines = sourceLines.length ? sourceLines : [''];
-  return lines.flatMap(sourceLine => {
-    return wrapPlain(sourceLine, width).map(wrapped => ({
-      text: wrapped,
-      raw: wrapped,
-    }));
+  markedConfigured = true;
+  marked.use({
+    tokenizer: {
+      del() {
+        return undefined;
+      },
+    },
   });
 }
 
-function parseMarkdown(text: string): MarkdownBlock[] {
-  const blocks: MarkdownBlock[] = [];
-  const lines = withoutTrailingIncompleteFence(text.split('\n'));
-  let codeLines: string[] | null = null;
-  let codeBlockKind: 'fenced' | 'indented' | null = null;
+function renderToken(token: Token, width: number, listDepth: number): MarkdownLine[] {
+  switch (token.type) {
+    case 'space':
+      return [{ text: '', raw: '' }];
+    case 'paragraph':
+      return renderWrappedInline(inlineContent(token.tokens ?? [{ type: 'text', raw: token.text, text: token.text } as Tokens.Text]), width);
+    case 'heading':
+      return renderHeading(token as Tokens.Heading, width);
+    case 'code':
+      return renderCodeBlock(token.text, width);
+    case 'blockquote':
+      return renderBlockquote(token as Tokens.Blockquote, width);
+    case 'list':
+      return renderList(token as Tokens.List, width, listDepth);
+    case 'hr':
+      return [{ text: dim('─'.repeat(Math.max(1, width))), raw: '─'.repeat(Math.max(1, width)) }];
+    case 'table':
+      return renderTable(token as Tokens.Table, width);
+    case 'html':
+    case 'def':
+      return [];
+    default:
+      return 'raw' in token ? renderWrappedInline({ text: token.raw, raw: token.raw }, width) : [];
+  }
+}
 
+function renderHeading(token: Tokens.Heading, width: number): MarkdownLine[] {
+  const content = inlineContent(token.tokens ?? [{ type: 'text', raw: token.text, text: token.text } as Tokens.Text]);
+  const lines = wrapPlain(content.raw, width);
+  return lines.map(raw => {
+    const styled = token.depth === 1 ? underline(bold(raw)) : bold(raw);
+    return { text: styled, raw };
+  });
+}
+
+function renderCodeBlock(text: string, width: number): MarkdownLine[] {
+  const sourceLines = text.split('\n');
+  const lines = sourceLines.length ? sourceLines : [''];
+  return lines.flatMap(line => wrapPlain(line, width).map(raw => ({ text: raw, raw })));
+}
+
+function renderBlockquote(token: Tokens.Blockquote, width: number): MarkdownLine[] {
+  const prefix = '│ ';
+  const innerWidth = Math.max(1, width - visualWidth(prefix));
+  const innerLines = compactLines(token.tokens.flatMap(inner => renderToken(inner, innerWidth, 0)));
+  return innerLines.map(inner => {
+    if (!inner.raw) {
+      return { text: dim(prefix.trimEnd()), raw: prefix.trimEnd() };
+    }
+    return {
+      text: `${dim(prefix)}${inner.text}`,
+      raw: `${prefix}${inner.raw}`,
+    };
+  });
+}
+
+function renderList(token: Tokens.List, width: number, listDepth: number): MarkdownLine[] {
+  return token.items.flatMap((item, index) => {
+    const marker = token.ordered ? `${Number(token.start) + index}. ` : '- ';
+    const indent = '  '.repeat(listDepth);
+    const prefix = `${indent}${marker}`;
+    const continuation = ' '.repeat(visualWidth(prefix));
+    const content = item.tokens.flatMap(child => renderToken(child, Math.max(1, width - visualWidth(prefix)), listDepth + 1));
+    const compacted = compactLines(content);
+
+    if (!compacted.length) {
+      return [{ text: prefix.trimEnd(), raw: prefix.trimEnd() }];
+    }
+
+    return compacted.flatMap((line, lineIndex) => {
+      const currentPrefix = lineIndex === 0 ? prefix : continuation;
+      return renderPrefixedLine(currentPrefix, line, width);
+    });
+  });
+}
+
+function renderTable(token: Tokens.Table, width: number): MarkdownLine[] {
+  const header = token.header.map(cellContent);
+  const rows = token.rows.map(row => row.map(cellContent));
+  const columnCount = header.length;
+  const widths = Array.from({ length: columnCount }, (_, index) => {
+    const cells = [header[index], ...rows.map(row => row[index])].filter((cell): cell is InlineContent => Boolean(cell));
+    return Math.max(3, ...cells.map(cell => visualWidth(cell.raw)));
+  });
+  const tableWidth = 1 + widths.reduce((sum, columnWidth) => sum + columnWidth + 3, 0);
+
+  if (tableWidth > width) {
+    return renderNarrowTable(header, rows, width);
+  }
+
+  const output: MarkdownLine[] = [];
+  output.push(tableRow(header, widths, token.align));
+  output.push({
+    text: tableSeparator(widths),
+    raw: tableSeparator(widths),
+  });
+  output.push(...rows.map(row => tableRow(row, widths, token.align)));
+  return output;
+}
+
+function renderNarrowTable(header: InlineContent[], rows: InlineContent[][], width: number): MarkdownLine[] {
+  return rows.flatMap((row, rowIndex) => {
+    const lines = row.flatMap((cell, columnIndex) => {
+      const label = header[columnIndex]?.raw ?? `Column ${columnIndex + 1}`;
+      const prefix = `${label}: `;
+      return wrapPlain(`${prefix}${cell.raw}`, width).map(raw => ({ text: raw, raw }));
+    });
+    return rowIndex === 0 ? lines : [{ text: '', raw: '' }, ...lines];
+  });
+}
+
+function tableRow(cells: InlineContent[], widths: number[], aligns?: Tokens.Table['align']): MarkdownLine {
+  const rendered = cells.map((cell, index) => padCell(cell.text, cell.raw, widths[index] ?? 3, aligns?.[index]));
+  const raw = cells.map((cell, index) => padAligned(cell.raw, widths[index] ?? 3, aligns?.[index]));
+  return {
+    text: `| ${rendered.join(' | ')} |`,
+    raw: `| ${raw.join(' | ')} |`,
+  };
+}
+
+function tableSeparator(widths: number[]): string {
+  return `|${widths.map(width => '-'.repeat(width + 2)).join('|')}|`;
+}
+
+function cellContent(cell: Tokens.TableCell): InlineContent {
+  return inlineContent(cell.tokens ?? [{ type: 'text', raw: cell.text, text: cell.text } as Tokens.Text]);
+}
+
+function renderWrappedInline(content: InlineContent, width: number): MarkdownLine[] {
+  if (!content.raw) {
+    return [{ text: '', raw: '' }];
+  }
+  if (visualWidth(content.raw) <= width) {
+    return [{ text: content.text, raw: content.raw }];
+  }
+  return wrapPlain(content.raw, width).map(raw => ({ text: raw, raw }));
+}
+
+function renderPrefixedLine(prefix: string, line: MarkdownLine, width: number): MarkdownLine[] {
+  const raw = `${prefix}${line.raw}`;
+  const text = `${prefix}${line.text}`;
+  if (visualWidth(raw) <= width) {
+    return [{ text, raw }];
+  }
+  return wrapPlain(raw, width, ' '.repeat(visualWidth(prefix))).map(wrapped => ({ text: wrapped, raw: wrapped }));
+}
+
+function inlineContent(tokens: Token[]): InlineContent {
+  return tokens.reduce<InlineContent>((result, token) => {
+    const next = inlineToken(token);
+    return {
+      text: `${result.text}${next.text}`,
+      raw: `${result.raw}${next.raw}`,
+    };
+  }, { text: '', raw: '' });
+}
+
+function inlineToken(token: Token): InlineContent {
+  switch (token.type) {
+    case 'text':
+      if ('tokens' in token && token.tokens?.length) {
+        return inlineContent(token.tokens);
+      }
+      return { text: token.text, raw: token.text };
+    case 'strong': {
+      const content = inlineContent(token.tokens ?? []);
+      return { text: bold(content.text), raw: content.raw };
+    }
+    case 'em': {
+      const content = inlineContent(token.tokens ?? []);
+      return { text: italic(content.text), raw: content.raw };
+    }
+    case 'codespan':
+      return { text: dim(token.text), raw: token.text };
+    case 'br':
+      return { text: '\n', raw: '\n' };
+    case 'link': {
+      const label = inlineContent(token.tokens ?? []);
+      const raw = label.raw && label.raw !== token.href ? `${label.raw} (${token.href})` : token.href;
+      return { text: raw, raw };
+    }
+    case 'image':
+      return { text: token.href, raw: token.href };
+    case 'escape':
+      return { text: token.text, raw: token.text };
+    default:
+      return 'raw' in token ? { text: token.raw, raw: token.raw } : { text: '', raw: '' };
+  }
+}
+
+function padCell(text: string, raw: string, width: number, align?: Tokens.Table['align'][number]): string {
+  const aligned = padAligned(raw, width, align);
+  return `${text}${' '.repeat(Math.max(0, visualWidth(aligned) - visualWidth(raw)))}`;
+}
+
+function padAligned(text: string, width: number, align?: Tokens.Table['align'][number]): string {
+  const padding = Math.max(0, width - visualWidth(text));
+  if (align === 'right') {
+    return `${' '.repeat(padding)}${text}`;
+  }
+  if (align === 'center') {
+    const left = Math.floor(padding / 2);
+    return `${' '.repeat(left)}${text}${' '.repeat(padding - left)}`;
+  }
+  return padPlain(text, width);
+}
+
+function compactLines(lines: MarkdownLine[]): MarkdownLine[] {
+  const compacted: MarkdownLine[] = [];
   for (const line of lines) {
-    if (codeBlockKind === 'indented') {
-      if (line.trim() === '') {
-        codeLines?.push('');
-        continue;
-      }
-      const unindented = stripCodeIndent(line);
-      if (unindented !== null) {
-        codeLines?.push(unindented);
-        continue;
-      }
-      if (codeLines) {
-        blocks.push({ type: 'code', lines: codeLines });
-      }
-      codeLines = null;
-      codeBlockKind = null;
-    }
-
-    if (line.trimStart().startsWith('```')) {
-      if (codeBlockKind === 'fenced' && codeLines) {
-        blocks.push({ type: 'code', lines: codeLines });
-        codeLines = null;
-        codeBlockKind = null;
-      } else {
-        codeLines = [];
-        codeBlockKind = 'fenced';
-      }
+    const previous = compacted.at(-1);
+    if (!line.raw && !previous?.raw) {
       continue;
     }
-
-    if (codeBlockKind === 'fenced') {
-      codeLines?.push(line);
-      continue;
-    }
-
-    const unindented = stripCodeIndent(line);
-    if (unindented !== null) {
-      codeLines = [unindented];
-      codeBlockKind = 'indented';
-      continue;
-    }
-
-    blocks.push({ type: 'line', line });
+    compacted.push(line);
   }
-
-  if (codeLines) {
-    blocks.push({ type: 'code', lines: codeLines });
+  while (compacted.at(-1)?.raw === '') {
+    compacted.pop();
   }
-
-  return blocks;
+  return compacted;
 }
 
 function withoutTrailingIncompleteFence(lines: string[]): string[] {
@@ -124,128 +264,10 @@ function withoutTrailingIncompleteFence(lines: string[]): string[] {
   return lines;
 }
 
-function stripCodeIndent(line: string): string | null {
-  if (line.startsWith('    ')) {
-    return line.slice(4);
-  }
-  if (line.startsWith('\t')) {
-    return line.slice(1);
-  }
-  return null;
+function italic(text: string): string {
+  return `${ansi.italic}${text}${ansi.reset}`;
 }
 
-function compactBlocks(blocks: MarkdownBlock[]): MarkdownBlock[] {
-  const compacted: MarkdownBlock[] = [];
-
-  for (const block of blocks) {
-    if (block.type === 'code') {
-      const previous = compacted.at(-1);
-      if (previous?.type === 'line' && previous.line === '') {
-        compacted.pop();
-      }
-      compacted.push({ type: 'code', lines: trimBlankEdges(block.lines) });
-      continue;
-    }
-
-    const previous = compacted.at(-1);
-    if (block.line === '' && previous?.type === 'line' && previous.line === '') {
-      continue;
-    }
-
-    compacted.push(block);
-  }
-
-  const last = compacted.at(-1);
-  if (last?.type === 'line' && last.line === '') {
-    compacted.pop();
-  }
-
-  return compacted;
-}
-
-function trimBlankEdges(lines: string[]): string[] {
-  let start = 0;
-  let end = lines.length;
-
-  while (start < end && lines[start]?.trim() === '') {
-    start += 1;
-  }
-
-  while (end > start && lines[end - 1]?.trim() === '') {
-    end -= 1;
-  }
-
-  return lines.slice(start, end);
-}
-
-function shouldSeparate(previous: MarkdownBlock | undefined, next: MarkdownBlock): boolean {
-  return Boolean(previous && previous.type === 'code' && next.type === 'code');
-}
-
-function renderInlineRaw(line: string): string {
-  return parseInline(line).map(segment => segment.text).join('');
-}
-
-function renderInlineStyled(line: string): string {
-  return parseInline(line)
-    .map(segment => {
-      switch (segment.kind) {
-        case 'bold':
-          return bold(segment.text);
-        case 'code':
-          return dim(segment.text);
-        case 'plain':
-          return segment.text;
-      }
-    })
-    .join('');
-}
-
-function parseInline(line: string): Segment[] {
-  const segments: Segment[] = [];
-  let index = 0;
-
-  while (index < line.length) {
-    const codeStart = line.indexOf('`', index);
-    const boldStart = line.indexOf('**', index);
-    const nextStart = nextInlineStart(codeStart, boldStart);
-    if (nextStart === -1) {
-      segments.push({ text: line.slice(index), kind: 'plain' });
-      break;
-    }
-
-    if (nextStart > index) {
-      segments.push({ text: line.slice(index, nextStart), kind: 'plain' });
-    }
-
-    if (nextStart === codeStart) {
-      const end = line.indexOf('`', codeStart + 1);
-      if (end === -1) {
-        segments.push({ text: line.slice(codeStart + 1), kind: 'code' });
-        break;
-      }
-      segments.push({ text: line.slice(codeStart + 1, end), kind: 'code' });
-      index = end + 1;
-    } else {
-      const end = line.indexOf('**', boldStart + 2);
-      if (end === -1) {
-        segments.push({ text: line.slice(boldStart + 2), kind: 'bold' });
-        break;
-      }
-      segments.push({ text: line.slice(boldStart + 2, end), kind: 'bold' });
-      index = end + 2;
-    }
-  }
-
-  return segments.filter(segment => segment.text.length > 0);
-}
-
-function nextInlineStart(codeStart: number, boldStart: number): number {
-  if (codeStart === -1) {
-    return boldStart;
-  }
-  if (boldStart === -1) {
-    return codeStart;
-  }
-  return Math.min(codeStart, boldStart);
+function underline(text: string): string {
+  return `${ansi.underline}${text}${ansi.reset}`;
 }

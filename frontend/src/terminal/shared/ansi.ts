@@ -10,6 +10,8 @@ export const ansi = {
   syncEnd: '\x1b[?2026l',
   reset: '\x1b[0m',
   bold: '\x1b[1m',
+  italic: '\x1b[3m',
+  underline: '\x1b[4m',
   dim: '\x1b[2m',
   cyan: '\x1b[36m',
   green: '\x1b[32m',

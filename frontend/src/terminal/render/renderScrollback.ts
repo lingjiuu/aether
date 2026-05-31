@@ -1,7 +1,9 @@
-import { renderBottom } from './bottomRenderer.js';
+import { bottomLineCount, renderBottom } from './bottomRenderer.js';
 import type { TerminalPresentation } from './presentationModel.js';
-import { block, resetRenderKeySequence } from './renderPrimitives.js';
+import { block, line, resetRenderKeySequence } from './renderPrimitives.js';
+import { dim } from '../shared/ansi.js';
 import { renderTranscriptSections } from './transcriptRenderer.js';
+import type { RenderedLine } from './viewModel.js';
 import type { TerminalView } from './viewModel.js';
 
 type RenderOptions = {
@@ -29,12 +31,17 @@ export function renderScrollback({
     composerCursorOffset,
     approvalSelectedIndex,
   });
+  const activeTranscriptLines = fitActiveTranscriptToViewport(
+    transcript.active,
+    Math.max(0, rows - bottomLineCount(bottom)),
+    width,
+  );
   const history = block('history', transcript.history);
-  const activeTranscript = block('active-transcript', transcript.active);
+  const activeTranscript = block('active-transcript', activeTranscriptLines);
   const active = block('active', [activeTranscript, bottom]);
   const frame = block('terminal-frame', [history, active]);
   const cursor = bottom.cursor
-    ? { x: bottom.cursor.x, y: transcript.active.length + bottom.cursor.y }
+    ? { x: bottom.cursor.x, y: activeTranscriptLines.length + bottom.cursor.y }
     : undefined;
 
   return {
@@ -44,4 +51,21 @@ export function renderScrollback({
     active,
     cursor,
   };
+}
+
+function fitActiveTranscriptToViewport(lines: RenderedLine[], maxRows: number, width: number): RenderedLine[] {
+  if (lines.length <= maxRows) {
+    return lines;
+  }
+  if (maxRows <= 0) {
+    return [];
+  }
+  if (maxRows === 1) {
+    return lines.slice(-1);
+  }
+
+  return [
+    line(dim('...'), '...', width, 'active-truncation'),
+    ...lines.slice(-(maxRows - 1)),
+  ];
 }
