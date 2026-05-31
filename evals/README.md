@@ -46,6 +46,10 @@ The script installs `harbor` with `uv` if needed, starts OrbStack/Docker when
 Docker is not ready, validates `evals/aether-eval.toml`, builds the bundle, and
 runs Harbor. `--n-tasks 1` is optional; it limits the run to one task for a
 quick smoke test. Omit it to run the selected dataset/tasks without that limit.
+Aether derives its internal runner timeout from each Terminal-Bench task timeout
+while Harbor gets a small outer timeout multiplier for cleanup. The agent keeps
+the task's full working budget; the extra outer time is for summary and trace
+collection after Aether stops work.
 
 The output is ignored by git and lives at:
 
@@ -76,6 +80,8 @@ Useful environment variables:
 - `AETHER_EVAL_HOME`: isolated Aether home for config, logs, traces, and transcripts.
 - `AETHER_EVAL_ARTIFACT_DIR`: directory for eval summary and copied Aether state.
 - `AETHER_EVAL_TIMEOUT_SECONDS`: max runtime for one instruction.
+- `AETHER_EVAL_TIMEOUT_GRACE_SECONDS`: seconds reserved for graceful log collection.
+- `AETHER_TB_AGENT_TIMEOUT_MULTIPLIER`: Harbor agent timeout multiplier for cleanup room. Defaults to `1.05`.
 - `AETHER_EVAL_CONFIG`: optional override path for the small eval config.
 - `OPENAI_API_KEY`: needed only when `api_key = "$OPENAI_API_KEY"`.
 

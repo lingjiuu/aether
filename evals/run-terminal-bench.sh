@@ -6,8 +6,11 @@ dataset="${AETHER_TB_DATASET:-terminal-bench/terminal-bench-2-1}"
 jobs_dir="${AETHER_TB_RESULTS_DIR:-${repo_root}/evals/results/terminal-bench}"
 bundle_dir="${AETHER_EVAL_BUNDLE_DIR:-${repo_root}/evals/.bundle/aether-eval}"
 eval_config="${AETHER_EVAL_CONFIG_SOURCE:-${repo_root}/evals/aether-eval.toml}"
+prompt_template_path="${AETHER_TB_PROMPT_TEMPLATE:-${repo_root}/evals/terminal-bench/prompt-template.md}"
 jre_arch="${AETHER_EVAL_JRE_ARCH:-all}"
 n_concurrent="${AETHER_TB_N_CONCURRENT:-1}"
+timeout_grace_seconds="${AETHER_EVAL_TIMEOUT_GRACE_SECONDS:-20}"
+agent_timeout_multiplier="${AETHER_TB_AGENT_TIMEOUT_MULTIPLIER:-1.05}"
 n_tasks=""
 job_name=""
 skip_build=0
@@ -32,6 +35,12 @@ Options:
   --skip-build             Reuse an existing eval bundle.
   --dry-run                Print the Harbor command without running it.
   -h, --help               Show this help.
+
+Env:
+  AETHER_EVAL_TIMEOUT_GRACE_SECONDS
+                           Seconds reserved before each task timeout for graceful log collection. Defaults to 20.
+  AETHER_TB_AGENT_TIMEOUT_MULTIPLIER
+                           Harbor agent timeout multiplier used only to give cleanup room. Defaults to 1.05.
 
 Before first use:
   cp evals/aether-eval.example.toml evals/aether-eval.toml
@@ -258,7 +267,34 @@ if api_key == "$OPENAI_API_KEY" and not os.environ.get("OPENAI_API_KEY"):
 PY
 }
 
+validate_timeout_grace() {
+  case "$timeout_grace_seconds" in
+    ''|*[!0-9]*)
+      echo "AETHER_EVAL_TIMEOUT_GRACE_SECONDS must be a non-negative integer." >&2
+      exit 1
+      ;;
+  esac
+}
+
+validate_agent_timeout_multiplier() {
+  python3 - "$agent_timeout_multiplier" <<'PY'
+import sys
+
+try:
+    value = float(sys.argv[1])
+except ValueError:
+    print("AETHER_TB_AGENT_TIMEOUT_MULTIPLIER must be at least 1.0.", file=sys.stderr)
+    sys.exit(1)
+
+if value < 1.0:
+    print("AETHER_TB_AGENT_TIMEOUT_MULTIPLIER must be at least 1.0.", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
+validate_timeout_grace
 ensure_python
+validate_agent_timeout_multiplier
 ensure_harbor
 ensure_docker
 
@@ -280,22 +316,36 @@ if [ ! -x "${bundle_dir}/bin/aether-eval" ]; then
   echo "Eval bundle runner not found: ${bundle_dir}/bin/aether-eval" >&2
   exit 1
 fi
+if [ ! -f "$prompt_template_path" ]; then
+  echo "Prompt template does not exist: $prompt_template_path" >&2
+  exit 1
+fi
 
 mkdir -p "$jobs_dir"
 bundle_dir="$(cd "$bundle_dir" && pwd)"
 jobs_dir="$(cd "$jobs_dir" && pwd)"
+prompt_template_path="$(cd "$(dirname "$prompt_template_path")" && pwd)/$(basename "$prompt_template_path")"
 mounts_json="$(
   python3 - "$bundle_dir" <<'PY'
 import json
 import sys
-print(json.dumps([f"{sys.argv[1]}:/opt/aether-eval-bundle:ro"]))
+print(json.dumps([{
+    "type": "bind",
+    "source": sys.argv[1],
+    "target": "/opt/aether-eval-bundle",
+    "read_only": True,
+    "bind": {"create_host_path": False},
+}]))
 PY
 )"
 
 cmd=(
   harbor run
   --dataset "$dataset"
+  --agent-timeout-multiplier "$agent_timeout_multiplier"
   --agent-import-path "evals.terminal_bench.aether_agent:AetherAgent"
+  --agent-kwarg "prompt_template_path=${prompt_template_path}"
+  --agent-kwarg "eval_timeout_grace_seconds=${timeout_grace_seconds}"
   --jobs-dir "$jobs_dir"
   --mounts "$mounts_json"
   --agent-env "AETHER_EVAL_BUNDLE=/opt/aether-eval-bundle"

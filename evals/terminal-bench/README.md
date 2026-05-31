@@ -63,9 +63,17 @@ evals/run-terminal-bench.sh
 --dry-run           Print the Harbor command only.
 ```
 
+`AETHER_EVAL_TIMEOUT_GRACE_SECONDS` reserves cleanup time for summary and trace
+collection. It defaults to `20`. The script also sets
+`AETHER_TB_AGENT_TIMEOUT_MULTIPLIER=1.05` by default so Aether still gets the
+task's full working timeout.
+
 The script installs `harbor` with `uv` if missing, starts OrbStack/Docker if
 Docker is not ready, validates `evals/aether-eval.toml`, builds the eval bundle,
-and runs Harbor.
+applies `evals/terminal-bench/prompt-template.md`, and runs Harbor.
+
+The prompt template supports `{{ instruction }}` and
+`{{ task_timeout_seconds }}`.
 
 ## Results
 
