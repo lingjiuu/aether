@@ -178,13 +178,17 @@ function initialState(env: NodeJS.ProcessEnv): ConfigSetupState {
   const modelId = env.AETHER_MODEL_ID?.trim()
     || env.AETHER_EVAL_MODEL_ID?.trim()
     || 'gpt-5.5';
+  const contextWindowK = env.AETHER_CONTEXT_WINDOW_K?.trim()
+    || env.AETHER_MODEL_CONTEXT_WINDOW_K?.trim()
+    || '';
   const fields: ConfigSetupField[] = [
     { id: 'providerId', label: 'Provider', value: providerId, placeholder: '' },
     { id: 'baseUrl', label: 'Base URL', value: baseUrl, placeholder: '' },
     { id: 'apiKey', label: 'API key', value: apiKey, placeholder: 'sk-...', masked: true },
     { id: 'modelId', label: 'Model', value: modelId, placeholder: 'gpt-5.5' },
+    { id: 'contextWindowK', label: 'Context window', value: contextWindowK, placeholder: '258', suffix: 'K' },
   ];
-  const firstEmptyIndex = fields.findIndex(field => !field.value.trim());
+  const firstEmptyIndex = fields.findIndex(field => !field.value.trim() && field.id !== 'contextWindowK');
   return {
     fields,
     activeIndex: firstEmptyIndex >= 0 ? firstEmptyIndex : fields.length - 1,
@@ -193,6 +197,7 @@ function initialState(env: NodeJS.ProcessEnv): ConfigSetupState {
       baseUrl: baseUrl.length,
       apiKey: apiKey.length,
       modelId: modelId.length,
+      contextWindowK: contextWindowK.length,
     },
   };
 }
@@ -284,6 +289,10 @@ function validate(state: ConfigSetupState): string | undefined {
   if (!values.modelId) {
     return 'Model is required.';
   }
+  const contextWindowK = values.contextWindowK || '258';
+  if (!/^\d+$/.test(contextWindowK) || Number.parseInt(contextWindowK, 10) <= 0) {
+    return 'Context window must be a positive number.';
+  }
   return undefined;
 }
 
@@ -293,6 +302,7 @@ function valuesFromState(state: ConfigSetupState): AetherConfigSetupValues {
     baseUrl: fieldValue(state, 'baseUrl'),
     apiKey: fieldValue(state, 'apiKey'),
     modelId: fieldValue(state, 'modelId'),
+    contextWindowK: fieldValue(state, 'contextWindowK'),
   };
 }
 

@@ -8,6 +8,7 @@ export type AetherConfigSetupValues = {
   baseUrl: string;
   apiKey: string;
   modelId: string;
+  contextWindowK?: string;
   modelName?: string;
   thinkingLevel?: string;
 };
@@ -33,6 +34,7 @@ export function aetherConfigToml(values: AetherConfigSetupValues): string {
   const modelId = normalized(values.modelId, 'gpt-5.5');
   const modelName = normalized(values.modelName, modelId);
   const thinkingLevel = normalized(values.thinkingLevel, 'medium');
+  const contextWindow = contextWindowTokens(values.contextWindowK);
   const baseUrl = values.baseUrl.trim();
   const apiKey = values.apiKey.trim();
   const providerKey = tomlKey(providerId);
@@ -53,7 +55,7 @@ export function aetherConfigToml(values: AetherConfigSetupValues): string {
     `name = ${tomlString(modelName)}`,
     'api = "openai"',
     `base_url = ${tomlString(baseUrl)}`,
-    'context_window = 128000',
+    `context_window = ${contextWindow}`,
     'input = ["text", "image"]',
     '',
   ].join('\n');
@@ -62,6 +64,11 @@ export function aetherConfigToml(values: AetherConfigSetupValues): string {
 function normalized(value: string | undefined, fallback: string): string {
   const trimmed = value?.trim();
   return trimmed || fallback;
+}
+
+function contextWindowTokens(value: string | undefined): number {
+  const parsed = Number.parseInt(normalized(value, '258'), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed * 1000 : 258000;
 }
 
 function tomlString(value: string): string {

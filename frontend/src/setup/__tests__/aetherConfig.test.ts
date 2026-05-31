@@ -18,7 +18,20 @@ describe('aether config setup', () => {
     expect(toml).toContain('[model_providers.lingsuan-openai]');
     expect(toml).toContain('base_url = "https://example.test/v1"');
     expect(toml).toContain('api_key = "sk-test"');
+    expect(toml).toContain('context_window = 258000');
     expect(toml).toContain('input = ["text", "image"]');
+  });
+
+  it('writes context window from K units', () => {
+    const toml = aetherConfigToml({
+      providerId: 'lingsuan-openai',
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'sk-test',
+      modelId: 'gpt-test',
+      contextWindowK: '256',
+    });
+
+    expect(toml).toContain('context_window = 256000');
   });
 
   it('escapes TOML string values', () => {

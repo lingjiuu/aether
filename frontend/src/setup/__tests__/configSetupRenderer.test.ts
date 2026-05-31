@@ -14,6 +14,7 @@ describe('config setup renderer', () => {
         { id: 'baseUrl', label: 'Base URL', value: 'https://api.openai.com/v1', placeholder: '' },
         { id: 'apiKey', label: 'API key', value: 'sk-secret-key', placeholder: 'sk-...', masked: true },
         { id: 'modelId', label: 'Model', value: 'gpt-5.5', placeholder: 'gpt-5.5' },
+        { id: 'contextWindowK', label: 'Context window', value: '', placeholder: '258', suffix: 'K' },
       ],
     }, 90);
 
@@ -23,8 +24,11 @@ describe('config setup renderer', () => {
     expect(text).toContain('Provider');
     expect(text).toContain('Base URL');
     expect(text).toContain('API key');
+    expect(text).toContain('Context window');
+    expect(text).toContain('Context window 258 K');
+    expect(text).not.toContain('API key is hidden while typing.');
     expect(text).toContain('***********');
     expect(text).not.toContain('sk-secret-key');
-    expect(view.cursor).toEqual({ x: 24, y: 7 });
+    expect(view.cursor).toEqual({ x: 30, y: 7 });
   });
 });
