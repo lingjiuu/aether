@@ -168,6 +168,70 @@ public class OpenAiStreamEventMapperTest extends TestCase {
         assertTrue(done.getMessage().getErrorMessage().contains("without visible assistant output"));
     }
 
+    public void testRawOutputTextDoneCompletesTextItem() throws Exception {
+        OpenAiStreamEventMapper mapper = new OpenAiStreamEventMapper("fallback-model", "openai");
+        mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.created",
+                  "response": {
+                    "id": "resp-text-done",
+                    "model": "gpt-raw",
+                    "usage": null,
+                    "error": null
+                  }
+                }
+                """));
+        mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.output_item.added",
+                  "item": {"id": "msg-text-done", "type": "message", "content": []},
+                  "output_index": 0,
+                  "sequence_number": 1
+                }
+                """));
+
+        AssistantStreamEvent end = mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.output_text.done",
+                  "item_id": "msg-text-done",
+                  "content_index": 0,
+                  "output_index": 0,
+                  "text": "done text",
+                  "logprobs": [],
+                  "sequence_number": 2
+                }
+                """));
+        List<AssistantStreamEvent> completed = mapper.mapAll(rawOnlyEvent("""
+                {
+                  "type": "response.completed",
+                  "response": {
+                    "id": "resp-text-done",
+                    "model": "gpt-raw",
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                    "error": null,
+                    "output": [
+                      {
+                        "id": "msg-text-done",
+                        "type": "message",
+                        "status": "completed",
+                        "role": "assistant",
+                        "content": [
+                          {"type": "output_text", "text": "done text", "annotations": [], "logprobs": []}
+                        ]
+                      }
+                    ]
+                  }
+                }
+                """));
+
+        assertEquals(AssistantStreamEvent.Type.TEXT_END, end.getType());
+        assertEquals("done text", end.getContent());
+        assertNotNull(end.getProviderState());
+        assertEquals(1, completed.size());
+        assertEquals(AssistantStreamEvent.Type.DONE, completed.getFirst().getType());
+        assertEquals("done text", ((TextContent) completed.getFirst().getMessage().messageContents().getFirst()).getText());
+    }
+
     public void testRawCompletedOutputSynthesizesTextItemBeforeDone() throws Exception {
         OpenAiStreamEventMapper mapper = new OpenAiStreamEventMapper("fallback-model", "openai");
         mapper.map(rawOnlyEvent("""

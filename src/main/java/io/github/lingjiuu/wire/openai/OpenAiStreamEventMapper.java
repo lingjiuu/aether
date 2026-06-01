@@ -155,6 +155,11 @@ final class OpenAiStreamEventMapper {
                     .build();
         }
 
+        if (event.outputTextDone().isPresent()) {
+            var done = event.outputTextDone().get();
+            return completeText(done.itemId(), Math.toIntExact(done.contentIndex()), done.text());
+        }
+
         if (event.reasoningSummaryTextDelta().isPresent()) {
             var delta = event.reasoningSummaryTextDelta().get();
             Integer contentIndex = contentIndexesByItemId.get(delta.itemId());
@@ -333,6 +338,7 @@ final class OpenAiStreamEventMapper {
             case "response.created" -> rawCreated(raw);
             case "response.output_item.added" -> rawOutputItemAdded(raw);
             case "response.output_text.delta" -> rawOutputTextDelta(raw);
+            case "response.output_text.done" -> rawOutputTextDone(raw);
             case "response.reasoning_summary_text.delta" -> rawReasoningSummaryTextDelta(raw);
             case "response.function_call_arguments.delta" -> rawFunctionCallArgumentsDelta(raw);
             case "response.function_call_arguments.done" -> rawFunctionCallArgumentsDone(raw);
@@ -436,6 +442,14 @@ final class OpenAiStreamEventMapper {
                 .delta(delta)
                 .partial(copyMessage(partial))
                 .build();
+    }
+
+    private AssistantStreamEvent rawOutputTextDone(JsonNode raw) {
+        return completeText(
+                firstText(raw, "item_id", "itemId"),
+                integer(raw, "content_index"),
+                nullToEmpty(text(raw, "text"))
+        );
     }
 
     private AssistantStreamEvent rawReasoningSummaryTextDelta(JsonNode raw) {
@@ -780,6 +794,29 @@ final class OpenAiStreamEventMapper {
                 .itemId(messageItem.id())
                 .contentIndex(contentIndex)
                 .content(text)
+                .providerState(replayCodec.providerState(partial.getResponseId(), replayItem))
+                .partial(copyMessage(partial))
+                .build();
+    }
+
+    private AssistantStreamEvent completeText(String itemId, Integer contentIndexHint, String text) {
+        if (completedItemIds.contains(itemId)) {
+            return null;
+        }
+        int contentIndex = ensureTextContent(itemId, contentIndexHint);
+        String finalText = nullToEmpty(text);
+        partial.getContents().set(contentIndex, TextContent.builder()
+                .text(finalText)
+                .build());
+        JsonNode messageItem = syntheticOutputMessage(itemId, finalText);
+        OpenAiReplayData.ReplayItem replayItem = rawReplayItem(OpenAiReplayData.Type.OUTPUT_MESSAGE, messageItem);
+        addReplayItem(replayItem);
+        completedItemIds.add(itemId);
+        return AssistantStreamEvent.builder()
+                .type(AssistantStreamEvent.Type.TEXT_END)
+                .itemId(itemId)
+                .contentIndex(contentIndex)
+                .content(finalText)
                 .providerState(replayCodec.providerState(partial.getResponseId(), replayItem))
                 .partial(copyMessage(partial))
                 .build();
@@ -1174,6 +1211,23 @@ final class OpenAiStreamEventMapper {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private JsonNode syntheticOutputMessage(String itemId, String text) {
+        var message = objectMapper.createObjectNode();
+        message.put("id", itemId);
+        message.put("type", "message");
+        message.put("status", "completed");
+        message.put("role", "assistant");
+        var contents = objectMapper.createArrayNode();
+        var content = objectMapper.createObjectNode();
+        content.put("type", "output_text");
+        content.put("text", nullToEmpty(text));
+        content.set("annotations", objectMapper.createArrayNode());
+        content.set("logprobs", objectMapper.createArrayNode());
+        contents.add(content);
+        message.set("content", contents);
+        return message;
     }
 
     private String errorText(JsonNode error) {
