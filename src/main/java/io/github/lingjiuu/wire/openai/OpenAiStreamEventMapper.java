@@ -238,6 +238,12 @@ final class OpenAiStreamEventMapper {
         if (event.completed().isPresent()) {
             Response response = event.completed().get().response();
             enqueueCompletedOutputItems(response);
+            JsonNode raw = rawEventJson(event);
+            if (raw != null && !raw.isMissingNode() && !raw.isNull()) {
+                JsonNode rawResponse = raw.path("response");
+                applyResponseIdentity(rawResponse);
+                enqueueRawCompletedOutputItems(rawResponse);
+            }
             AssistantMessage finalMessage = finalizeMessage(
                     resolveCompletedStopReason(),
                     toUsage(response),
@@ -1121,6 +1127,10 @@ final class OpenAiStreamEventMapper {
         try {
             return objectMapper.valueToTree(json.convert(Object.class));
         } catch (RuntimeException ignored) {
+        }
+        try {
+            return objectMapper.readTree(json.toString());
+        } catch (Exception ignored) {
             return null;
         }
     }
