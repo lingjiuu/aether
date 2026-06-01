@@ -6,53 +6,61 @@ import { dirname, resolve } from 'node:path';
 
 const moduleRequire = createRequire(import.meta.url);
 
-const nativePackages = {
+const backendPackages = {
   'darwin-arm64': {
     packageName: '@lingjiuu/aether-darwin-arm64',
-    executable: 'aether-backend',
   },
   'darwin-x64': {
     packageName: '@lingjiuu/aether-darwin-x64',
-    executable: 'aether-backend',
   },
   'win32-x64': {
     packageName: '@lingjiuu/aether-win32-x64',
-    executable: 'aether-backend.exe',
   },
 };
 
 const platformId = `${process.platform}-${process.arch}`;
-const nativePackage = nativePackages[platformId];
+const backendPackage = backendPackages[platformId];
 
-if (!nativePackage) {
+if (!backendPackage) {
   fail([
-    `Aether does not ship a native backend for ${platformId}.`,
+    `Aether does not ship a bundled JVM backend for ${platformId}.`,
     'Use a supported platform or build the backend from source and set AETHER_BACKEND_COMMAND.',
   ]);
 }
 
 let packageJsonPath;
 try {
-  packageJsonPath = moduleRequire.resolve(`${nativePackage.packageName}/package.json`);
+  packageJsonPath = moduleRequire.resolve(`${backendPackage.packageName}/package.json`);
 } catch {
   fail([
-    `Missing optional dependency: ${nativePackage.packageName}`,
+    `Missing optional dependency: ${backendPackage.packageName}`,
     'Reinstall Aether with optional dependencies enabled:',
     'npm install -g @lingjiuu/aether --include=optional',
     'If npm was configured with --omit=optional or --no-optional, remove that setting first.',
   ]);
 }
 
-const executablePath = resolve(dirname(packageJsonPath), 'bin', nativePackage.executable);
-if (!existsSync(executablePath)) {
+const packageDir = dirname(packageJsonPath);
+const javaPath = resolve(packageDir, 'runtime', 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
+const jarPath = resolve(packageDir, 'backend', 'aether-backend.jar');
+
+if (!existsSync(javaPath)) {
   fail([
-    `Native backend executable was not found: ${executablePath}`,
+    `Bundled Java launcher was not found: ${javaPath}`,
+    'Reinstall Aether with optional dependencies enabled:',
+    'npm install -g @lingjiuu/aether --include=optional',
+  ]);
+}
+
+if (!existsSync(jarPath)) {
+  fail([
+    `Backend jar was not found: ${jarPath}`,
     'Reinstall Aether with optional dependencies enabled:',
     'npm install -g @lingjiuu/aether --include=optional',
   ]);
 }
 
 function fail(lines) {
-  console.error(['Aether native backend is not installed correctly.', ...lines].join('\n'));
+  console.error(['Aether bundled JVM backend is not installed correctly.', ...lines].join('\n'));
   process.exit(1);
 }

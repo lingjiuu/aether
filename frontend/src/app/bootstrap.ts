@@ -6,6 +6,12 @@ import type { StdioTransportOptions } from '../backend/StdioTransport.js';
 
 const moduleRequire = createRequire(import.meta.url);
 
+type PackagedBackend = {
+  packageDir: string;
+  javaCommand: string;
+  jarPath: string;
+};
+
 export function backendOptions(env: NodeJS.ProcessEnv = process.env): StdioTransportOptions {
   const explicitCwd = env.AETHER_BACKEND_CWD;
   const sessionCwd = findSessionCwd(env);
@@ -22,9 +28,9 @@ export function backendOptions(env: NodeJS.ProcessEnv = process.env): StdioTrans
   const packagedBackend = findPackagedBackend();
   if (packagedBackend) {
     return {
-      command: packagedBackend,
-      args: ['--stdio'],
-      cwd: explicitCwd && explicitCwd.trim() ? explicitCwd : dirname(packagedBackend),
+      command: packagedBackend.javaCommand,
+      args: ['-jar', packagedBackend.jarPath, '--stdio'],
+      cwd: explicitCwd && explicitCwd.trim() ? explicitCwd : packagedBackend.packageDir,
       sessionCwd,
     };
   }
@@ -69,32 +75,39 @@ function findSourceBackendCwd(explicitCwd?: string): string | undefined {
   return undefined;
 }
 
-function findPackagedBackend(): string | undefined {
+function findPackagedBackend(): PackagedBackend | undefined {
   return findNpmBackend() ?? findLibexecBackend();
 }
 
-function findNpmBackend(): string | undefined {
-  const packageName = nativeBackendPackageName();
+function findNpmBackend(): PackagedBackend | undefined {
+  const packageName = backendPackageName();
   if (!packageName) {
     return undefined;
   }
 
   try {
     const packageJsonPath = moduleRequire.resolve(`${packageName}/package.json`);
-    const command = resolve(dirname(packageJsonPath), 'bin', backendExecutableName());
-    return existsSync(command) ? command : undefined;
+    return packagedBackendFromDirectory(dirname(packageJsonPath));
   } catch {
     return undefined;
   }
 }
 
-function findLibexecBackend(): string | undefined {
+function findLibexecBackend(): PackagedBackend | undefined {
   const thisFile = fileURLToPath(import.meta.url);
-  const command = resolve(dirname(thisFile), '../../..', backendExecutableName());
-  return existsSync(command) ? command : undefined;
+  return packagedBackendFromDirectory(resolve(dirname(thisFile), '../../..'));
 }
 
-function nativeBackendPackageName(): string | undefined {
+function packagedBackendFromDirectory(packageDir: string): PackagedBackend | undefined {
+  const javaCommand = resolve(packageDir, 'runtime', 'bin', javaExecutableName());
+  const jarPath = resolve(packageDir, 'backend', 'aether-backend.jar');
+  if (!existsSync(javaCommand) || !existsSync(jarPath)) {
+    return undefined;
+  }
+  return { packageDir, javaCommand, jarPath };
+}
+
+function backendPackageName(): string | undefined {
   const platform = process.platform;
   const arch = process.arch;
   if (platform === 'darwin' && arch === 'arm64') {
@@ -109,22 +122,22 @@ function nativeBackendPackageName(): string | undefined {
   return undefined;
 }
 
-function backendExecutableName(): string {
-  return process.platform === 'win32' ? 'aether-backend.exe' : 'aether-backend';
+function javaExecutableName(): string {
+  return process.platform === 'win32' ? 'java.exe' : 'java';
 }
 
 function missingBackendMessage(): string {
   const platformId = `${process.platform}-${process.arch}`;
-  const packageName = nativeBackendPackageName();
+  const packageName = backendPackageName();
   if (!packageName) {
     return [
-      `Aether does not ship a native backend for ${platformId}.`,
+      `Aether does not ship a bundled JVM backend for ${platformId}.`,
       'Build the backend from source and set AETHER_BACKEND_COMMAND, or use a supported platform.',
     ].join('\n');
   }
 
   return [
-    `Aether native backend package is missing for ${platformId}.`,
+    `Aether bundled JVM backend package is missing for ${platformId}.`,
     `Expected optional dependency: ${packageName}`,
     'Reinstall Aether with optional dependencies enabled:',
     'npm install -g @lingjiuu/aether --include=optional',

@@ -33,8 +33,8 @@ jobs:
       - name: Test backend
         run: mvn test
 
-  native-smoke:
-    name: Native smoke ${{ matrix.platform }}
+  backend-smoke:
+    name: Backend smoke ${{ matrix.platform }}
     needs: backend-tests
     runs-on: ${{ matrix.os }}
     defaults:
@@ -55,13 +55,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up GraalVM
-        uses: graalvm/setup-graalvm@v1
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
+          distribution: temurin
           java-version: "21"
-          distribution: "graalvm"
           cache: maven
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Resolve version
         id: version
@@ -78,18 +77,26 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Build native backend
+      - name: Build JVM backend jar
         id: backend
         run: |
-          backend_path="$(scripts/build-backend-native.sh)"
+          backend_path="$(scripts/build-backend-jvm.sh)"
           echo "path=$backend_path" >> "$GITHUB_OUTPUT"
 
-      - name: Check native metadata
-        run: node scripts/check-openai-native-metadata.mjs
-
-      - name: Smoke native backend
+      - name: Build bundled JVM runtime
+        id: runtime
         run: |
-          node scripts/smoke-native-backend.mjs \
-            --backend "${{ steps.backend.outputs.path }}" \
+          runtime_path="$(scripts/build-jvm-runtime.sh)"
+          echo "path=$runtime_path" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke backend with bundled JVM
+        run: |
+          java_path="${{ steps.runtime.outputs.path }}/bin/java"
+          if [[ "${{ matrix.platform }}" == win32-* ]]; then
+            java_path="${{ steps.runtime.outputs.path }}/bin/java.exe"
+          fi
+          node scripts/smoke-backend.mjs \
+            --command "$java_path" \
+            --jar "${{ steps.backend.outputs.path }}" \
             --version "${{ steps.version.outputs.version }}" \
             --ensure-test-config true

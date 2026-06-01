@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync, chmodSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync, chmodSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
@@ -13,22 +13,18 @@ const platforms = {
     packageName: '@lingjiuu/aether-darwin-arm64',
     os: 'darwin',
     cpu: 'arm64',
-    executable: 'aether-backend',
   },
   'darwin-x64': {
     packageName: '@lingjiuu/aether-darwin-x64',
     os: 'darwin',
     cpu: 'x64',
-    executable: 'aether-backend',
   },
   'win32-x64': {
     packageName: '@lingjiuu/aether-win32-x64',
     os: 'win32',
     cpu: 'x64',
-    executable: 'aether-backend.exe',
   },
 };
-const windowsRuntimeDlls = ['VCRUNTIME140.dll', 'VCRUNTIME140_1.dll'];
 
 const args = parseArgs(process.argv.slice(2));
 const version = requireArg(args, 'version');
@@ -53,7 +49,8 @@ if (packageKind === 'all' || packageKind === 'main') {
 if (packageKind === 'all' || packageKind === 'platform') {
   const platform = requireArg(args, 'platform');
   const backend = requireArg(args, 'backend');
-  staged.push(stagePlatformPackage(version, platform, backend, stageRoot));
+  const runtime = requireArg(args, 'runtime');
+  staged.push(stagePlatformPackage(version, platform, backend, runtime, stageRoot));
 }
 
 if (args.pack) {
@@ -104,38 +101,47 @@ function stageMainPackage(version, root) {
   return packageDir;
 }
 
-function stagePlatformPackage(version, platformName, backendPath, root) {
+function stagePlatformPackage(version, platformName, backendPath, runtimePath, root) {
   const platform = platforms[platformName];
   if (!platform) {
     fail(`Unsupported platform: ${platformName}. Expected one of: ${Object.keys(platforms).join(', ')}`);
   }
 
   const backend = resolveInputPath(backendPath);
-  console.error(`Staging ${platformName} backend from ${backend}`);
+  const runtime = resolveInputPath(runtimePath);
+  console.error(`Staging ${platformName} backend jar from ${backend}`);
+  console.error(`Staging ${platformName} JVM runtime from ${runtime}`);
   if (!existsSync(backend)) {
-    fail(`Backend executable does not exist: ${backend}`);
+    fail(`Backend jar does not exist: ${backend}`);
+  }
+  if (!existsSync(runtime)) {
+    fail(`JVM runtime does not exist: ${runtime}`);
   }
 
   const packageDir = resolve(root, platform.packageName.replace('@lingjiuu/', ''));
-  const binDir = resolve(packageDir, 'bin');
-  mkdirSync(binDir, { recursive: true });
+  const backendDir = resolve(packageDir, 'backend');
+  const runtimeDir = resolve(packageDir, 'runtime');
+  mkdirSync(backendDir, { recursive: true });
 
-  const executablePath = resolve(binDir, platform.executable);
-  copyFileSync(backend, executablePath);
+  copyFileSync(backend, resolve(backendDir, 'aether-backend.jar'));
+  cpSync(runtime, runtimeDir, { recursive: true });
+
+  const javaPath = resolve(runtimeDir, 'bin', platform.os === 'win32' ? 'java.exe' : 'java');
+  if (!existsSync(javaPath)) {
+    fail(`Bundled Java launcher does not exist: ${javaPath}`);
+  }
   if (platform.os !== 'win32') {
-    chmodSync(executablePath, 0o755);
-  } else {
-    copyWindowsRuntimeDlls(binDir);
+    chmodSync(javaPath, 0o755);
   }
 
   const sourcePackageJson = readJson(resolve(frontendRoot, 'package.json'));
   const packageJson = {
     name: platform.packageName,
     version,
-    description: `Aether native backend for ${platformName}`,
+    description: `Aether JVM backend for ${platformName}`,
     os: [platform.os],
     cpu: [platform.cpu],
-    files: ['bin'],
+    files: ['backend', 'runtime'],
     engines: sourcePackageJson.engines,
     repository: {
       type: 'git',
@@ -144,88 +150,6 @@ function stagePlatformPackage(version, platformName, backendPath, root) {
   };
   writeJson(resolve(packageDir, 'package.json'), packageJson);
   return packageDir;
-}
-
-function copyWindowsRuntimeDlls(binDir) {
-  if (process.platform !== 'win32') {
-    console.warn('Skipping Windows VC runtime DLL copy because staging is not running on Windows.');
-    return;
-  }
-
-  for (const dllName of windowsRuntimeDlls) {
-    const dllPath = findWindowsRuntimeDll(dllName);
-    if (!dllPath) {
-      fail(`Could not find ${dllName}. Install Microsoft Visual C++ Redistributable or set AETHER_WINDOWS_RUNTIME_DIR.`);
-    }
-    const target = resolve(binDir, basename(dllName));
-    copyFileSync(dllPath, target);
-    console.error(`Bundled Windows runtime DLL: ${dllPath}`);
-  }
-}
-
-function findWindowsRuntimeDll(dllName) {
-  for (const directory of windowsRuntimeSearchDirectories()) {
-    const candidate = resolve(directory, dllName);
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  const where = spawnSync('where.exe', [dllName], { encoding: 'utf8' });
-  if (where.status === 0) {
-    return where.stdout
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .find(Boolean);
-  }
-
-  return undefined;
-}
-
-function windowsRuntimeSearchDirectories() {
-  const directories = [];
-  const redistRoots = [];
-  const explicit = process.env.AETHER_WINDOWS_RUNTIME_DIR;
-  if (explicit?.trim()) {
-    directories.push(explicit.trim());
-  }
-
-  const systemRoot = process.env.SystemRoot || 'C:\\Windows';
-  directories.push(join(systemRoot, 'System32'));
-
-  for (const base of [
-    process.env.ProgramFiles,
-    process.env['ProgramFiles(x86)'],
-  ]) {
-    if (!base) {
-      continue;
-    }
-    redistRoots.push(
-      join(base, 'Microsoft Visual Studio', '2022', 'Enterprise', 'VC', 'Redist', 'MSVC'),
-      join(base, 'Microsoft Visual Studio', '2022', 'Community', 'VC', 'Redist', 'MSVC'),
-      join(base, 'Microsoft Visual Studio', '2022', 'BuildTools', 'VC', 'Redist', 'MSVC'),
-    );
-  }
-
-  return [
-    ...directories,
-    ...redistRoots,
-    ...redistRoots.flatMap(directory => redistSubdirectories(directory)),
-  ];
-}
-
-function redistSubdirectories(directory) {
-  try {
-    return readdirSync(directory, { withFileTypes: true })
-      .filter(entry => entry.isDirectory())
-      .flatMap(entry => [
-        resolve(directory, entry.name),
-        resolve(directory, entry.name, 'x64', 'Microsoft.VC143.CRT'),
-        resolve(directory, entry.name, 'x64', 'Microsoft.VC142.CRT'),
-      ]);
-  } catch {
-    return [];
-  }
 }
 
 function parseArgs(argv) {

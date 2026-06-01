@@ -7,15 +7,15 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 
-const TEXT_SMOKE = 'native smoke ok';
+const TEXT_SMOKE = 'backend smoke ok';
 const TOOL_SMOKE = 'tool smoke ok';
 const COMPACT_SMOKE = 'compact summary ok';
-const READ_FILE_CONTENT = 'native smoke file content';
-const RESPONSE_ID = 'resp_native_smoke';
-const REASONING_ID = 'rsn_native_smoke';
-const MESSAGE_ID = 'msg_native_smoke';
-const TOOL_ITEM_ID = 'fc_native_smoke';
-const TOOL_CALL_ID = 'call_native_smoke';
+const READ_FILE_CONTENT = 'backend smoke file content';
+const RESPONSE_ID = 'resp_backend_smoke';
+const REASONING_ID = 'rsn_backend_smoke';
+const MESSAGE_ID = 'msg_backend_smoke';
+const TOOL_ITEM_ID = 'fc_backend_smoke';
+const TOOL_CALL_ID = 'call_backend_smoke';
 
 let child;
 let providerServer;
@@ -26,16 +26,17 @@ let readFilePath;
 let timeout;
 
 const args = parseArgs(process.argv.slice(2));
-const backend = requireArg(args, 'backend');
+const command = requireArg(args, 'command');
+const commandArgs = backendArgs(args);
 const expectedVersion = args.version;
 const runTurnSmoke = truthy(args['ensure-test-config']);
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
-sessionCwd = mkdtempSync(resolve(tmpdir(), 'aether-native-smoke-cwd-'));
-secondaryCwd = mkdtempSync(resolve(tmpdir(), 'aether-native-smoke-secondary-cwd-'));
+sessionCwd = mkdtempSync(resolve(tmpdir(), 'aether-backend-smoke-cwd-'));
+secondaryCwd = mkdtempSync(resolve(tmpdir(), 'aether-backend-smoke-secondary-cwd-'));
 readFilePath = resolve(sessionCwd, 'read-me.txt');
 writeFileSync(readFilePath, `${READ_FILE_CONTENT}\n`, 'utf8');
-smokeHome = runTurnSmoke ? mkdtempSync(resolve(tmpdir(), 'aether-native-smoke-home-')) : null;
+smokeHome = runTurnSmoke ? mkdtempSync(resolve(tmpdir(), 'aether-backend-smoke-home-')) : null;
 
 if (runTurnSmoke) {
   const fakeProvider = await startFakeProvider();
@@ -54,7 +55,7 @@ const pendingResponses = new Map();
 const eventWaiters = [];
 const recentEvents = [];
 
-child = spawn(backend, ['--stdio'], {
+child = spawn(command, commandArgs, {
   cwd: repoRoot,
   env: {
     ...process.env,
@@ -66,7 +67,7 @@ child = spawn(backend, ['--stdio'], {
 });
 
 timeout = setTimeout(() => {
-  fail(`Native backend smoke timed out.\nstdout:\n${stdout}\nstderr:\n${stderr}`);
+  fail(`Backend smoke timed out.\nstdout:\n${stdout}\nstderr:\n${stderr}`);
 }, runTurnSmoke ? 90000 : 15000);
 
 child.stdout.setEncoding('utf8');
@@ -80,11 +81,11 @@ child.stderr.on('data', chunk => {
   stderr += chunk;
 });
 child.on('error', error => {
-  fail(`Failed to start native backend: ${error.message}`);
+  fail(`Failed to start backend: ${error.message}`);
 });
 child.on('exit', (code, signal) => {
   if (!finished) {
-    fail(`Native backend exited before smoke completed: code=${code} signal=${signal}\nstdout:\n${stdout}\nstderr:\n${stderr}`);
+    fail(`Backend exited before smoke completed: code=${code} signal=${signal}\nstdout:\n${stdout}\nstderr:\n${stderr}`);
   }
 });
 
@@ -98,7 +99,7 @@ async function runSmoke() {
   const initialized = await request('initialize');
   validateInitialize(initialized);
   if (!runTurnSmoke) {
-    pass(`Native backend smoke passed: ${initialized.protocolVersion} ${initialized.session?.appVersion ?? ''}`.trim());
+    pass(`Backend smoke passed: ${initialized.protocolVersion} ${initialized.session?.appVersion ?? ''}`.trim());
     return;
   }
 
@@ -111,7 +112,7 @@ async function runSmoke() {
   await runInterrupt();
   await closeSessionForTraceFlush();
   await validateTraceDb();
-  pass('Native backend smoke passed: initialize + text/tool/compact/resume/interrupt/trace');
+  pass('Backend smoke passed: initialize + text/tool/compact/resume/interrupt/trace');
 }
 
 function validateInitialize(result) {
@@ -128,7 +129,7 @@ async function runTextTurn() {
   const scenario = beginScenario('text');
   const completed = waitForEvent('text turn completed', event => event.type === 'TURN_COMPLETED', 30000);
   const ack = await request('turn/submit', {
-    items: [{ type: 'text', text: 'basic native smoke' }],
+    items: [{ type: 'text', text: 'basic backend smoke' }],
   });
   assertAccepted(ack, 'text turn');
   await completed;
@@ -145,7 +146,7 @@ async function runToolTurn() {
   const scenario = beginScenario('tool');
   const completed = waitForEvent('tool turn completed', event => event.type === 'TURN_COMPLETED', 45000);
   const ack = await request('turn/submit', {
-    items: [{ type: 'text', text: 'tool native smoke: read the smoke file' }],
+    items: [{ type: 'text', text: 'tool backend smoke: read the smoke file' }],
   });
   assertAccepted(ack, 'tool turn');
   await completed;
@@ -216,7 +217,7 @@ async function runInterrupt() {
     20000,
   );
   const ack = await request('turn/submit', {
-    items: [{ type: 'text', text: 'interrupt native smoke: keep streaming' }],
+    items: [{ type: 'text', text: 'interrupt backend smoke: keep streaming' }],
   });
   assertAccepted(ack, 'interrupt turn');
   await delay(500);
@@ -252,10 +253,10 @@ async function validateTraceDb() {
   const probe = spawnSync('sqlite3', ['-version'], { encoding: 'utf8' });
   if (probe.error) {
     if (process.platform === 'win32') {
-      console.warn('Skipping native trace DB validation because sqlite3 is not available on Windows.');
+      console.warn('Skipping backend trace DB validation because sqlite3 is not available on Windows.');
       return;
     }
-    throw new Error(`sqlite3 is required for native trace validation: ${probe.error.message}`);
+    throw new Error(`sqlite3 is required for backend trace validation: ${probe.error.message}`);
   }
 
   let counts = '';
@@ -362,7 +363,7 @@ function handleUiEvent(event) {
   rememberEvent(event);
   updateActiveScenario(event);
   if (event.type === 'ERROR') {
-    fail(`Native backend emitted ERROR during smoke: ${event.payload?.message ?? JSON.stringify(event.payload)}\n${recentEventText()}\nstderr:\n${stderr}`);
+    fail(`Backend emitted ERROR during smoke: ${event.payload?.message ?? JSON.stringify(event.payload)}\n${recentEventText()}\nstderr:\n${stderr}`);
   }
   for (const waiter of [...eventWaiters]) {
     if (waiter.predicate(event)) {
@@ -512,7 +513,7 @@ async function startFakeProvider() {
 
 function classifyProviderRequest(body) {
   providerRequestCount++;
-  if (body.includes('interrupt native smoke')) {
+  if (body.includes('interrupt backend smoke')) {
     if (body.includes(COMPACT_SMOKE)) {
       sawResumedCompactSummaryInModelRequest = true;
     }
@@ -524,7 +525,7 @@ function classifyProviderRequest(body) {
   if (body.includes('function_call_output') || body.includes(READ_FILE_CONTENT)) {
     return 'tool-final';
   }
-  if (body.includes('tool native smoke')) {
+  if (body.includes('tool backend smoke')) {
     return 'tool-call';
   }
   return 'text';
@@ -634,7 +635,7 @@ function textResponseEvents(text, suffix) {
       content_index: 0,
       delta: text,
       logprobs: [],
-      obfuscation: 'native-smoke-extra-field',
+      obfuscation: 'backend-smoke-extra-field',
     },
     {
       type: 'response.output_text.done',
@@ -817,6 +818,20 @@ function parseArgs(argv) {
   return parsed;
 }
 
+function backendArgs(values) {
+  if (values.jar) {
+    return ['-jar', values.jar, '--stdio'];
+  }
+  if (values.args) {
+    return splitArgs(values.args);
+  }
+  return ['--stdio'];
+}
+
+function splitArgs(input) {
+  return input.split(/\s+/).filter(Boolean);
+}
+
 function requireArg(values, name) {
   const value = values[name];
   if (!value) {
@@ -850,7 +865,7 @@ function fail(message) {
 function cleanup() {
   clearTimeout(timeout);
   for (const pending of pendingResponses.values()) {
-    pending.reject(new Error('Native smoke stopped.'));
+    pending.reject(new Error('Backend smoke stopped.'));
   }
   pendingResponses.clear();
   for (const waiter of eventWaiters.splice(0)) {

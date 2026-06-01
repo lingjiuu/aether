@@ -11,7 +11,7 @@ brew tap lingjiuu/aether
 brew install aether
 ```
 
-macOS, Linux, and Windows:
+macOS and Windows:
 
 ```bash
 npm install -g @lingjiuu/aether

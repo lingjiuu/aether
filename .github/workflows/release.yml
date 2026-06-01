@@ -50,13 +50,12 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Set up GraalVM
-        uses: graalvm/setup-graalvm@v1
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
+          distribution: temurin
           java-version: "21"
-          distribution: "graalvm"
           cache: maven
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -85,23 +84,35 @@ jobs:
           pnpm test
           pnpm typecheck
 
-      - name: Build native backend
+      - name: Build JVM backend jar
         id: backend
         run: |
-          backend_path="$(scripts/build-backend-native.sh)"
+          backend_path="$(scripts/build-backend-jvm.sh)"
           echo "smoke_path=$backend_path" >> "$GITHUB_OUTPUT"
           if [[ "${{ matrix.platform }}" == win32-* ]]; then
             backend_path="$(cygpath -w "$backend_path")"
           fi
           echo "path=$backend_path" >> "$GITHUB_OUTPUT"
 
-      - name: Check native metadata
-        run: node scripts/check-openai-native-metadata.mjs
-
-      - name: Smoke native backend
+      - name: Build bundled JVM runtime
+        id: runtime
         run: |
-          node scripts/smoke-native-backend.mjs \
-            --backend "${{ steps.backend.outputs.smoke_path }}" \
+          runtime_path="$(scripts/build-jvm-runtime.sh)"
+          echo "smoke_path=$runtime_path" >> "$GITHUB_OUTPUT"
+          if [[ "${{ matrix.platform }}" == win32-* ]]; then
+            runtime_path="$(cygpath -w "$runtime_path")"
+          fi
+          echo "path=$runtime_path" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke backend with bundled JVM
+        run: |
+          java_path="${{ steps.runtime.outputs.smoke_path }}/bin/java"
+          if [[ "${{ matrix.platform }}" == win32-* ]]; then
+            java_path="${{ steps.runtime.outputs.smoke_path }}/bin/java.exe"
+          fi
+          node scripts/smoke-backend.mjs \
+            --command "$java_path" \
+            --jar "${{ steps.backend.outputs.smoke_path }}" \
             --version "${{ steps.version.outputs.version }}" \
             --ensure-test-config true
 
@@ -111,16 +122,19 @@ jobs:
             --version "${{ steps.version.outputs.version }}" \
             --platform "${{ matrix.platform }}" \
             --backend "${{ steps.backend.outputs.path }}" \
+            --runtime "${{ steps.runtime.outputs.path }}" \
             --package platform \
             --pack
 
-      - name: Check Windows package contents
-        if: matrix.platform == 'win32-x64'
+      - name: Check platform package contents
         run: |
-          tarball="target/npm/dist/lingjiuu-aether-win32-x64-${{ steps.version.outputs.version }}.tgz"
-          tar -tf "$tarball" | grep -i 'package/bin/aether-backend.exe'
-          tar -tf "$tarball" | grep -i 'package/bin/VCRUNTIME140.dll'
-          tar -tf "$tarball" | grep -i 'package/bin/VCRUNTIME140_1.dll'
+          tarball="target/npm/dist/lingjiuu-aether-${{ matrix.platform }}-${{ steps.version.outputs.version }}.tgz"
+          tar -tf "$tarball" | grep -i 'package/backend/aether-backend.jar'
+          if [[ "${{ matrix.platform }}" == win32-* ]]; then
+            tar -tf "$tarball" | grep -i 'package/runtime/bin/java.exe'
+          else
+            tar -tf "$tarball" | grep -i 'package/runtime/bin/java'
+          fi
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -239,11 +253,12 @@ jobs:
           publish_if_missing "@lingjiuu/aether-win32-x64" "dist/lingjiuu-aether-win32-x64-${version}.tgz"
           publish_if_missing "@lingjiuu/aether" "dist/lingjiuu-aether-${version}.tgz"
 
-          verify_npm_tarball "@lingjiuu/aether-darwin-arm64" "package/bin/aether-backend"
-          verify_npm_tarball "@lingjiuu/aether-darwin-x64" "package/bin/aether-backend"
-          verify_npm_tarball "@lingjiuu/aether-win32-x64" "package/bin/aether-backend.exe"
-          verify_npm_tarball "@lingjiuu/aether-win32-x64" "package/bin/VCRUNTIME140.dll"
-          verify_npm_tarball "@lingjiuu/aether-win32-x64" "package/bin/VCRUNTIME140_1.dll"
+          verify_npm_tarball "@lingjiuu/aether-darwin-arm64" "package/backend/aether-backend.jar"
+          verify_npm_tarball "@lingjiuu/aether-darwin-arm64" "package/runtime/bin/java"
+          verify_npm_tarball "@lingjiuu/aether-darwin-x64" "package/backend/aether-backend.jar"
+          verify_npm_tarball "@lingjiuu/aether-darwin-x64" "package/runtime/bin/java"
+          verify_npm_tarball "@lingjiuu/aether-win32-x64" "package/backend/aether-backend.jar"
+          verify_npm_tarball "@lingjiuu/aether-win32-x64" "package/runtime/bin/java.exe"
           verify_npm_tarball "@lingjiuu/aether" "package/dist/main.js"
           verify_npm_tarball "@lingjiuu/aether" "package/scripts/postinstall.js"
 
