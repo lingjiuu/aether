@@ -1,0 +1,8 @@
+[
+  ["org.jdbi.v3.core.enums.EnumByName"],
+  ["org.jdbi.v3.core.enums.EnumByOrdinal"],
+  ["org.jdbi.v3.core.qualifier.NVarchar"],
+  ["org.jdbi.v3.meta.Alpha"],
+  ["org.jdbi.v3.meta.Beta"],
+  ["org.jdbi.v3.meta.Legacy"]
+]
