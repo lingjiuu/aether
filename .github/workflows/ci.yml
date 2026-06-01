@@ -83,14 +83,6 @@ jobs:
         run: |
           backend_path="$(scripts/build-backend-native.sh)"
           echo "path=$backend_path" >> "$GITHUB_OUTPUT"
-          if [[ "${{ matrix.platform }}" == win32-* ]]; then
-            echo "windows_path=$(cygpath -w "$backend_path")" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Check Windows native dependencies
-        if: matrix.platform == 'win32-x64'
-        shell: pwsh
-        run: ./scripts/check-windows-native-dependencies.ps1 -BackendPath "${{ steps.backend.outputs.windows_path }}"
 
       - name: Check native metadata
         run: node scripts/check-openai-native-metadata.mjs

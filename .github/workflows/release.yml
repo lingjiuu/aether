@@ -98,11 +98,6 @@ jobs:
       - name: Check native metadata
         run: node scripts/check-openai-native-metadata.mjs
 
-      - name: Check Windows native dependencies
-        if: matrix.platform == 'win32-x64'
-        shell: pwsh
-        run: ./scripts/check-windows-native-dependencies.ps1 -BackendPath "${{ steps.backend.outputs.path }}"
-
       - name: Smoke native backend
         run: |
           node scripts/smoke-native-backend.mjs \
@@ -124,10 +119,8 @@ jobs:
         run: |
           tarball="target/npm/dist/lingjiuu-aether-win32-x64-${{ steps.version.outputs.version }}.tgz"
           tar -tf "$tarball" | grep -i 'package/bin/aether-backend.exe'
-          if tar -tf "$tarball" | grep -Ei 'package/bin/(VCRUNTIME|MSVCP).*\.dll'; then
-            echo "Windows npm package must not bundle MSVC runtime DLLs." >&2
-            exit 1
-          fi
+          tar -tf "$tarball" | grep -i 'package/bin/VCRUNTIME140.dll'
+          tar -tf "$tarball" | grep -i 'package/bin/VCRUNTIME140_1.dll'
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -249,6 +242,8 @@ jobs:
           verify_npm_tarball "@lingjiuu/aether-darwin-arm64" "package/bin/aether-backend"
           verify_npm_tarball "@lingjiuu/aether-darwin-x64" "package/bin/aether-backend"
           verify_npm_tarball "@lingjiuu/aether-win32-x64" "package/bin/aether-backend.exe"
+          verify_npm_tarball "@lingjiuu/aether-win32-x64" "package/bin/VCRUNTIME140.dll"
+          verify_npm_tarball "@lingjiuu/aether-win32-x64" "package/bin/VCRUNTIME140_1.dll"
           verify_npm_tarball "@lingjiuu/aether" "package/dist/main.js"
 
       - name: Generate checksums
