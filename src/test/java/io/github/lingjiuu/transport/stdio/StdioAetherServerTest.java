@@ -2,6 +2,7 @@ package io.github.lingjiuu.transport.stdio;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.lingjiuu.AppVersion;
 import io.github.lingjiuu.TestModelSelections;
 import io.github.lingjiuu.model.client.AssistantStream;
 import io.github.lingjiuu.model.client.AssistantStreamEvent;
@@ -43,7 +44,7 @@ public class StdioAetherServerTest extends TestCase {
         assertEquals("1", initialize.get("id").asText());
         assertEquals(StdioAetherServer.PROTOCOL_VERSION, initialize.get("result").get("protocolVersion").asText());
         assertTrue(initialize.get("result").hasNonNull("sessionId"));
-        assertEquals("0.1.1", initialize.get("result").get("session").get("appVersion").asText());
+        assertEquals(AppVersion.current(), initialize.get("result").get("session").get("appVersion").asText());
         assertEquals("IDLE", initialize.get("result").get("session").get("status").asText());
         assertTrue(initialize.get("result").get("capabilities").get("sessionState").asBoolean());
         assertTrue(initialize.get("result").get("capabilities").get("permissionSelection").asBoolean());
