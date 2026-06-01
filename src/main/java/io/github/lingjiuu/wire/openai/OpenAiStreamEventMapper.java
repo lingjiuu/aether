@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.core.JsonValue;
 import com.openai.errors.OpenAIException;
 import com.openai.models.responses.Response;
+import com.openai.models.responses.ResponseFunctionToolCall;
 import com.openai.models.responses.ResponseOutputMessage;
 import com.openai.models.responses.ResponseReasoningItem;
 import com.openai.models.responses.ResponseError;
@@ -19,7 +20,9 @@ import io.github.lingjiuu.model.client.AssistantStreamEvent;
 import io.github.lingjiuu.model.client.ModelErrorCode;
 import io.github.lingjiuu.model.client.ModelErrorInfo;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -35,6 +38,7 @@ final class OpenAiStreamEventMapper {
     private final Map<String, String> partialToolArguments = new LinkedHashMap<>();
     private final List<OpenAiReplayData.ReplayItem> replayItems = new ArrayList<>();
     private final Set<String> completedItemIds = new LinkedHashSet<>();
+    private final Deque<AssistantStreamEvent> pendingEvents = new ArrayDeque<>();
     private final String provider;
     private final AssistantMessage partial;
     private String toolBatchId;
@@ -47,6 +51,24 @@ final class OpenAiStreamEventMapper {
                 .model(model)
                 .provider(provider)
                 .build();
+    }
+
+    List<AssistantStreamEvent> mapAll(ResponseStreamEvent event) {
+        List<AssistantStreamEvent> events = new ArrayList<>();
+        AssistantStreamEvent mapped = map(event);
+        if (mapped != null) {
+            events.add(mapped);
+        }
+        events.addAll(drainPending());
+        return events;
+    }
+
+    List<AssistantStreamEvent> drainPending() {
+        List<AssistantStreamEvent> events = new ArrayList<>();
+        while (!pendingEvents.isEmpty()) {
+            events.add(pendingEvents.removeFirst());
+        }
+        return events;
     }
 
     AssistantStreamEvent map(ResponseStreamEvent event) {
@@ -202,98 +224,31 @@ final class OpenAiStreamEventMapper {
         if (event.outputItemDone().isPresent()) {
             var done = event.outputItemDone().get();
             if (done.item().isReasoning()) {
-                ResponseReasoningItem reasoningItem = done.item().asReasoning();
-                Integer contentIndex = contentIndexesByItemId.get(reasoningItem.id());
-                if (contentIndex == null) {
-                    return null;
-                }
-                String thinking = extractReasoningSummary(reasoningItem);
-                partial.getContents().set(contentIndex, ThinkingContent.builder()
-                        .thinking(thinking)
-                        .build());
-                OpenAiReplayData.ReplayItem replayItem = replayCodec.replayItem(OpenAiReplayData.Type.REASONING, reasoningItem);
-                addReplayItem(replayItem);
-                completedItemIds.add(reasoningItem.id());
-                return AssistantStreamEvent.builder()
-                        .type(AssistantStreamEvent.Type.THINKING_END)
-                        .itemId(reasoningItem.id())
-                        .contentIndex(contentIndex)
-                        .content(thinking)
-                        .providerState(replayCodec.providerState(partial.getResponseId(), replayItem))
-                        .partial(copyMessage(partial))
-                        .build();
+                return completeReasoningItem(done.item().asReasoning());
             }
             if (done.item().isMessage()) {
-                ResponseOutputMessage messageItem = done.item().asMessage();
-                Integer contentIndex = contentIndexesByItemId.get(messageItem.id());
-                if (contentIndex == null) {
-                    return null;
-                }
-                String text = extractMessageText(messageItem);
-                partial.getContents().set(contentIndex, TextContent.builder()
-                        .text(text)
-                        .build());
-                OpenAiReplayData.ReplayItem replayItem = replayCodec.replayItem(OpenAiReplayData.Type.OUTPUT_MESSAGE, messageItem);
-                addReplayItem(replayItem);
-                completedItemIds.add(messageItem.id());
-                return AssistantStreamEvent.builder()
-                        .type(AssistantStreamEvent.Type.TEXT_END)
-                        .itemId(messageItem.id())
-                        .contentIndex(contentIndex)
-                        .content(text)
-                        .providerState(replayCodec.providerState(partial.getResponseId(), replayItem))
-                        .partial(copyMessage(partial))
-                        .build();
+                return completeMessageItem(done.item().asMessage());
             }
             if (done.item().isFunctionCall()) {
-                var functionCall = done.item().asFunctionCall();
-                String itemId = functionCall.id().orElse(functionCall.callId());
-                Integer contentIndex = contentIndexesByItemId.get(itemId);
-                if (contentIndex == null) {
-                    return null;
-                }
-                ToolCallContent existingToolCall = (ToolCallContent) partial.getContents().get(contentIndex);
-                String finalArguments = partialToolArguments.getOrDefault(itemId, functionCall.arguments());
-                ToolCallContent toolCall = ToolCallContent.builder()
-                        .toolCallId(functionCall.callId())
-                        .toolBatchId(isBlank(existingToolCall.getToolBatchId())
-                                ? currentToolBatchId()
-                                : existingToolCall.getToolBatchId())
-                        .toolName(functionCall.name())
-                        .argumentsJson(finalArguments)
-                        .arguments(parseStreamingJson(finalArguments))
-                        .build();
-                partial.getContents().set(contentIndex, toolCall);
-                partialToolArguments.remove(itemId);
-                OpenAiReplayData.ReplayItem replayItem = replayCodec.replayItem(OpenAiReplayData.Type.FUNCTION_CALL, functionCall);
-                addReplayItem(replayItem);
-                completedItemIds.add(itemId);
-                return AssistantStreamEvent.builder()
-                        .type(AssistantStreamEvent.Type.TOOLCALL_END)
-                        .itemId(itemId)
-                        .toolCallId(toolCall.getToolCallId())
-                        .toolName(toolCall.getToolName())
-                        .contentIndex(contentIndex)
-                        .toolCall(copyToolCall(toolCall))
-                        .providerState(replayCodec.providerState(partial.getResponseId(), replayItem))
-                        .partial(copyMessage(partial))
-                        .build();
+                return completeFunctionCall(done.item().asFunctionCall());
             }
             return null;
         }
 
         if (event.completed().isPresent()) {
             Response response = event.completed().get().response();
+            enqueueCompletedOutputItems(response);
             AssistantMessage finalMessage = finalizeMessage(
                     resolveCompletedStopReason(),
                     toUsage(response),
                     response.error().map(Object::toString).orElse(null)
             );
-            return AssistantStreamEvent.builder()
+            AssistantStreamEvent done = AssistantStreamEvent.builder()
                     .type(AssistantStreamEvent.Type.DONE)
                     .reason(toReasonString(finalMessage.getStopReason()))
                     .message(finalMessage)
                     .build();
+            return maybeDeferDone(done);
         }
 
         if (event.incomplete().isPresent()) {
@@ -628,16 +583,18 @@ final class OpenAiStreamEventMapper {
     private AssistantStreamEvent rawCompleted(JsonNode raw) {
         JsonNode response = raw.path("response");
         applyResponseIdentity(response);
+        enqueueRawCompletedOutputItems(response);
         AssistantMessage finalMessage = finalizeMessage(
                 resolveCompletedStopReason(),
                 usage(response),
                 errorText(response.path("error"))
         );
-        return AssistantStreamEvent.builder()
+        AssistantStreamEvent done = AssistantStreamEvent.builder()
                 .type(AssistantStreamEvent.Type.DONE)
                 .reason(toReasonString(finalMessage.getStopReason()))
                 .message(finalMessage)
                 .build();
+        return maybeDeferDone(done);
     }
 
     private AssistantStreamEvent rawIncomplete(JsonNode raw) {
@@ -742,6 +699,131 @@ final class OpenAiStreamEventMapper {
                 .reason("error")
                 .error(errorMessage)
                 .build();
+    }
+
+    private void enqueueCompletedOutputItems(Response response) {
+        if (response == null) {
+            return;
+        }
+        response.output().forEach(item -> {
+            AssistantStreamEvent event = null;
+            if (item.isReasoning()) {
+                event = completeReasoningItem(item.asReasoning());
+            } else if (item.isMessage()) {
+                event = completeMessageItem(item.asMessage());
+            } else if (item.isFunctionCall()) {
+                event = completeFunctionCall(item.asFunctionCall());
+            }
+            if (event != null) {
+                pendingEvents.addLast(event);
+            }
+        });
+    }
+
+    private void enqueueRawCompletedOutputItems(JsonNode response) {
+        JsonNode output = response == null ? null : response.path("output");
+        if (output == null || !output.isArray()) {
+            return;
+        }
+        for (JsonNode item : output) {
+            var rawDone = objectMapper.createObjectNode();
+            rawDone.set("item", item);
+            AssistantStreamEvent event = rawOutputItemDone(rawDone);
+            if (event != null) {
+                pendingEvents.addLast(event);
+            }
+        }
+    }
+
+    private AssistantStreamEvent completeReasoningItem(ResponseReasoningItem reasoningItem) {
+        if (reasoningItem == null || completedItemIds.contains(reasoningItem.id())) {
+            return null;
+        }
+        int contentIndex = ensureThinkingContent(reasoningItem.id(), null);
+        String thinking = extractReasoningSummary(reasoningItem);
+        partial.getContents().set(contentIndex, ThinkingContent.builder()
+                .thinking(thinking)
+                .build());
+        OpenAiReplayData.ReplayItem replayItem = replayCodec.replayItem(OpenAiReplayData.Type.REASONING, reasoningItem);
+        addReplayItem(replayItem);
+        completedItemIds.add(reasoningItem.id());
+        return AssistantStreamEvent.builder()
+                .type(AssistantStreamEvent.Type.THINKING_END)
+                .itemId(reasoningItem.id())
+                .contentIndex(contentIndex)
+                .content(thinking)
+                .providerState(replayCodec.providerState(partial.getResponseId(), replayItem))
+                .partial(copyMessage(partial))
+                .build();
+    }
+
+    private AssistantStreamEvent completeMessageItem(ResponseOutputMessage messageItem) {
+        if (messageItem == null || completedItemIds.contains(messageItem.id())) {
+            return null;
+        }
+        int contentIndex = ensureTextContent(messageItem.id(), null);
+        String text = extractMessageText(messageItem);
+        partial.getContents().set(contentIndex, TextContent.builder()
+                .text(text)
+                .build());
+        OpenAiReplayData.ReplayItem replayItem = replayCodec.replayItem(OpenAiReplayData.Type.OUTPUT_MESSAGE, messageItem);
+        addReplayItem(replayItem);
+        completedItemIds.add(messageItem.id());
+        return AssistantStreamEvent.builder()
+                .type(AssistantStreamEvent.Type.TEXT_END)
+                .itemId(messageItem.id())
+                .contentIndex(contentIndex)
+                .content(text)
+                .providerState(replayCodec.providerState(partial.getResponseId(), replayItem))
+                .partial(copyMessage(partial))
+                .build();
+    }
+
+    private AssistantStreamEvent completeFunctionCall(ResponseFunctionToolCall functionCall) {
+        if (functionCall == null) {
+            return null;
+        }
+        String itemId = functionCall.id().orElse(functionCall.callId());
+        if (completedItemIds.contains(itemId)) {
+            return null;
+        }
+        Integer contentIndex = contentIndexesByItemId.get(itemId);
+        if (!validContentIndex(contentIndex) || !(partial.getContents().get(contentIndex) instanceof ToolCallContent existingToolCall)) {
+            return null;
+        }
+        String finalArguments = partialToolArguments.getOrDefault(itemId, functionCall.arguments());
+        ToolCallContent toolCall = ToolCallContent.builder()
+                .toolCallId(functionCall.callId())
+                .toolBatchId(isBlank(existingToolCall.getToolBatchId())
+                        ? currentToolBatchId()
+                        : existingToolCall.getToolBatchId())
+                .toolName(functionCall.name())
+                .argumentsJson(finalArguments)
+                .arguments(parseStreamingJson(finalArguments))
+                .build();
+        partial.getContents().set(contentIndex, toolCall);
+        partialToolArguments.remove(itemId);
+        OpenAiReplayData.ReplayItem replayItem = replayCodec.replayItem(OpenAiReplayData.Type.FUNCTION_CALL, functionCall);
+        addReplayItem(replayItem);
+        completedItemIds.add(itemId);
+        return AssistantStreamEvent.builder()
+                .type(AssistantStreamEvent.Type.TOOLCALL_END)
+                .itemId(itemId)
+                .toolCallId(toolCall.getToolCallId())
+                .toolName(toolCall.getToolName())
+                .contentIndex(contentIndex)
+                .toolCall(copyToolCall(toolCall))
+                .providerState(replayCodec.providerState(partial.getResponseId(), replayItem))
+                .partial(copyMessage(partial))
+                .build();
+    }
+
+    private AssistantStreamEvent maybeDeferDone(AssistantStreamEvent done) {
+        if (pendingEvents.isEmpty()) {
+            return done;
+        }
+        pendingEvents.addLast(done);
+        return pendingEvents.removeFirst();
     }
 
     private String streamDisconnectedMessage(String detail) {

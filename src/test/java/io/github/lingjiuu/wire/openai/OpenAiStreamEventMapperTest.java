@@ -12,6 +12,7 @@ import io.github.lingjiuu.model.client.AssistantStreamEvent;
 import junit.framework.TestCase;
 
 import java.lang.reflect.Constructor;
+import java.util.List;
 
 public class OpenAiStreamEventMapperTest extends TestCase {
 
@@ -165,6 +166,69 @@ public class OpenAiStreamEventMapperTest extends TestCase {
         assertEquals("error", done.getReason());
         assertEquals(AssistantMessage.StopReason.ERROR, done.getMessage().getStopReason());
         assertTrue(done.getMessage().getErrorMessage().contains("without visible assistant output"));
+    }
+
+    public void testRawCompletedOutputSynthesizesTextItemBeforeDone() throws Exception {
+        OpenAiStreamEventMapper mapper = new OpenAiStreamEventMapper("fallback-model", "openai");
+        mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.created",
+                  "response": {
+                    "id": "resp-final-output",
+                    "model": "gpt-raw",
+                    "usage": null,
+                    "error": null
+                  }
+                }
+                """));
+        mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.output_item.added",
+                  "item": {"id": "rsn-final-output", "type": "reasoning", "summary": []},
+                  "output_index": 0,
+                  "sequence_number": 1
+                }
+                """));
+        mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.output_item.done",
+                  "item": {"id": "rsn-final-output", "type": "reasoning", "summary": []},
+                  "output_index": 0,
+                  "sequence_number": 2
+                }
+                """));
+
+        List<AssistantStreamEvent> events = mapper.mapAll(rawOnlyEvent("""
+                {
+                  "type": "response.completed",
+                  "response": {
+                    "id": "resp-final-output",
+                    "model": "gpt-raw",
+                    "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+                    "error": null,
+                    "output": [
+                      {"id": "rsn-final-output", "type": "reasoning", "summary": []},
+                      {
+                        "id": "msg-final-output",
+                        "type": "message",
+                        "status": "completed",
+                        "role": "assistant",
+                        "content": [
+                          {"type": "output_text", "text": "final recovered text", "annotations": [], "logprobs": []}
+                        ]
+                      }
+                    ]
+                  }
+                }
+                """));
+
+        assertEquals(2, events.size());
+        assertEquals(AssistantStreamEvent.Type.TEXT_END, events.get(0).getType());
+        assertEquals("msg-final-output", events.get(0).getItemId());
+        assertEquals("final recovered text", events.get(0).getContent());
+        assertEquals(AssistantStreamEvent.Type.DONE, events.get(1).getType());
+        assertEquals(AssistantMessage.StopReason.STOP, events.get(1).getMessage().getStopReason());
+        assertEquals("final recovered text", ((TextContent) events.get(1).getMessage().messageContents().get(1)).getText());
     }
 
     private ResponseFunctionToolCall toolCall(String itemId, String callId) {

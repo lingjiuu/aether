@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 
 const EXPECTED_TEXT = 'native smoke ok';
 const RESPONSE_ID = 'resp_native_smoke';
+const REASONING_ID = 'rsn_native_smoke';
 const MESSAGE_ID = 'msg_native_smoke';
 
 let child;
@@ -190,16 +191,13 @@ function completeTurnSmoke() {
   if (!turnAccepted) {
     missing.push('turn/submit ack');
   }
-  if (!assistantDeltaText.includes(EXPECTED_TEXT)) {
-    missing.push('assistant text delta');
-  }
   if (!assistantCompletedText.includes(EXPECTED_TEXT)) {
     missing.push('completed assistant text item');
   }
   if (missing.length > 0) {
     fail(`Native backend turn completed without ${missing.join(', ')}.\nDelta text: ${JSON.stringify(assistantDeltaText)}\nCompleted text: ${JSON.stringify(assistantCompletedText)}\n${recentEventText()}\nstderr:\n${stderr}`);
   }
-  pass('Native backend smoke passed: initialize + streamed model turn');
+  pass('Native backend smoke passed: initialize + completed model turn');
 }
 
 function rememberEvent(event) {
@@ -269,6 +267,7 @@ async function startFakeProvider() {
 }
 
 function responseEvents() {
+  const completedReasoning = reasoningItem('completed');
   const completedMessage = messageItem('completed');
   return [
     {
@@ -280,26 +279,18 @@ function responseEvents() {
       type: 'response.output_item.added',
       sequence_number: 1,
       output_index: 0,
-      item: messageItem('in_progress'),
-    },
-    {
-      type: 'response.output_text.delta',
-      sequence_number: 2,
-      output_index: 0,
-      item_id: MESSAGE_ID,
-      content_index: 0,
-      delta: EXPECTED_TEXT,
+      item: reasoningItem('in_progress'),
     },
     {
       type: 'response.output_item.done',
-      sequence_number: 3,
+      sequence_number: 2,
       output_index: 0,
-      item: completedMessage,
+      item: completedReasoning,
     },
     {
       type: 'response.completed',
-      sequence_number: 4,
-      response: responseObject('completed', [completedMessage]),
+      sequence_number: 3,
+      response: responseObject('completed', [completedReasoning, completedMessage]),
     },
   ];
 }
@@ -364,6 +355,15 @@ function messageItem(status) {
           },
         ]
       : [],
+  };
+}
+
+function reasoningItem(status) {
+  return {
+    id: REASONING_ID,
+    type: 'reasoning',
+    status,
+    summary: [],
   };
 }
 

@@ -35,6 +35,9 @@ case "$(uname -s)" in
 esac
 
 echo "Building GraalVM native backend in ${repo_root}..." >&2
+echo "Platform: $(uname -s) $(uname -m)" >&2
+echo "JAVA_HOME: ${JAVA_HOME:-<unset>}" >&2
+native-image --version >&2 || native-image.cmd --version >&2 || native-image.exe --version >&2 || true
 (
   cd "$repo_root"
   mvn -Pnative -DskipTests native:compile

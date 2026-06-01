@@ -118,4 +118,53 @@ public class SqliteTraceStoreTest extends TestCase {
             store.close();
         }
     }
+
+    public void testRunFinishClosesRunningSpans() throws Exception {
+        Path dbPath = Files.createTempDirectory("aether-trace-store-orphan-span-test").resolve("trace.sqlite");
+        SqliteTraceStore store = new SqliteTraceStore(dbPath);
+        try {
+            store.appendRunStarted(new TraceRunRecord(
+                    "run-orphan",
+                    "session-1",
+                    "turn-1",
+                    1,
+                    null,
+                    "REGULAR",
+                    "/tmp/work",
+                    "fake",
+                    "fake-model",
+                    "RUNNING",
+                    10L,
+                    null,
+                    null,
+                    null
+            ));
+            store.appendSpanStarted(new TraceSpanRecord(
+                    "span-orphan",
+                    "run-orphan",
+                    null,
+                    "model",
+                    "model.sample",
+                    "RUNNING",
+                    12L,
+                    null,
+                    null,
+                    "{\"input\":true}",
+                    null,
+                    null
+            ));
+            store.appendRunFinished("run-orphan", "COMPLETED", 30L, 20L, null);
+
+            var detail = store.readRun("run-orphan").orElse(null);
+            assertNotNull(detail);
+            assertEquals("COMPLETED", detail.run().status());
+            assertEquals(1, detail.spans().size());
+            assertEquals("FAILED", detail.spans().getFirst().status());
+            assertEquals(Long.valueOf(30L), detail.spans().getFirst().endedAtMs());
+            assertEquals(Long.valueOf(18L), detail.spans().getFirst().durationMs());
+            assertEquals("span left running when run finished", detail.spans().getFirst().error());
+        } finally {
+            store.close();
+        }
+    }
 }

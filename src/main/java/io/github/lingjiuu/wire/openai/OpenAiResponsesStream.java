@@ -24,13 +24,17 @@ final class OpenAiResponsesStream extends AssistantStream {
     public AssistantMessage consume(Consumer<AssistantStreamEvent> consumer) {
         try {
             for (ResponseStreamEvent event : (Iterable<ResponseStreamEvent>) streamResponse.stream()::iterator) {
-                AssistantStreamEvent assistantEvent = eventMapper.map(event);
-                if (assistantEvent == null) {
-                    continue;
+                for (AssistantStreamEvent assistantEvent : eventMapper.mapAll(event)) {
+                    AssistantMessage terminalMessage = consumeEvent(consumer, assistantEvent);
+                    if (terminalMessage != null) {
+                        result = terminalMessage;
+                        return result;
+                    }
                 }
-                consumer.accept(assistantEvent);
+            }
 
-                AssistantMessage terminalMessage = terminalMessage(assistantEvent);
+            for (AssistantStreamEvent assistantEvent : eventMapper.drainPending()) {
+                AssistantMessage terminalMessage = consumeEvent(consumer, assistantEvent);
                 if (terminalMessage != null) {
                     result = terminalMessage;
                     return result;
@@ -67,5 +71,13 @@ final class OpenAiResponsesStream extends AssistantStream {
             return event.getError();
         }
         return null;
+    }
+
+    private AssistantMessage consumeEvent(Consumer<AssistantStreamEvent> consumer, AssistantStreamEvent assistantEvent) {
+        if (assistantEvent == null) {
+            return null;
+        }
+        consumer.accept(assistantEvent);
+        return terminalMessage(assistantEvent);
     }
 }

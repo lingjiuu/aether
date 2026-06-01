@@ -62,6 +62,25 @@ final class SqliteTraceWriter {
                 .bind("error", error)
                 .bind("runId", runId)
                 .execute();
+
+        String orphanSpanStatus = "COMPLETED".equals(status) ? "FAILED" : status;
+        handle.createUpdate("""
+                UPDATE agent_spans
+                SET status = :status,
+                    ended_at_ms = :endedAtMs,
+                    duration_ms = MAX(0, :endedAtMs - started_at_ms),
+                    error = CASE
+                        WHEN error IS NULL OR error = '' THEN :error
+                        ELSE error
+                    END
+                WHERE run_id = :runId
+                  AND status = 'RUNNING'
+                """)
+                .bind("status", orphanSpanStatus)
+                .bind("endedAtMs", endedAtMs)
+                .bind("error", "span left running when run finished")
+                .bind("runId", runId)
+                .execute();
     }
 
     static void appendSpanStarted(Handle handle, TraceSpanRecord span) {
