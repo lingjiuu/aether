@@ -84,6 +84,9 @@ jobs:
           backend_path="$(scripts/build-backend-native.sh)"
           echo "path=$backend_path" >> "$GITHUB_OUTPUT"
 
+      - name: Check native metadata
+        run: node scripts/check-openai-native-metadata.mjs
+
       - name: Smoke native backend
         run: |
           node scripts/smoke-native-backend.mjs \

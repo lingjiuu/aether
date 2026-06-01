@@ -705,7 +705,7 @@ final class OpenAiStreamEventMapper {
                 .build();
     }
 
-    AssistantStreamEvent error(RuntimeException error) {
+    AssistantStreamEvent error(Throwable error) {
         ModelErrorInfo errorInfo = streamErrorInfo(error);
         String message = errorInfo.message();
         AssistantMessage errorMessage = finalizeMessage(
@@ -725,7 +725,7 @@ final class OpenAiStreamEventMapper {
         if (response == null) {
             return;
         }
-        response.output().forEach(item -> {
+        response._output().asKnown().orElseGet(List::of).forEach(item -> {
             AssistantStreamEvent event = null;
             if (item.isReasoning()) {
                 event = completeReasoningItem(item.asReasoning());
@@ -873,7 +873,7 @@ final class OpenAiStreamEventMapper {
         return "stream disconnected before completion: " + detail;
     }
 
-    private String errorMessage(RuntimeException error) {
+    private String errorMessage(Throwable error) {
         if (error == null) {
             return "unknown stream failure";
         }
@@ -881,7 +881,7 @@ final class OpenAiStreamEventMapper {
         return message == null || message.isBlank() ? error.getClass().getSimpleName() : message;
     }
 
-    private ModelErrorInfo streamErrorInfo(RuntimeException error) {
+    private ModelErrorInfo streamErrorInfo(Throwable error) {
         if (error instanceof OpenAIException) {
             ModelErrorInfo sdkError = ModelErrorInfo.fromOpenAiException(error);
             if (sdkError.code() == ModelErrorCode.RATE_LIMIT) {

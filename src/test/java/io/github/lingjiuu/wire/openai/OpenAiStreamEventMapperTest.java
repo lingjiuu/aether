@@ -232,6 +232,74 @@ public class OpenAiStreamEventMapperTest extends TestCase {
         assertEquals("done text", ((TextContent) completed.getFirst().getMessage().messageContents().getFirst()).getText());
     }
 
+    public void testTypedCompletedMayOmitOutputAfterTextDone() throws Exception {
+        OpenAiStreamEventMapper mapper = new OpenAiStreamEventMapper("fallback-model", "openai");
+        mapper.map(createdEvent());
+        mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.output_item.added",
+                  "item": {"id": "msg-no-output", "type": "message", "content": []},
+                  "output_index": 0,
+                  "sequence_number": 1
+                }
+                """));
+        mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.output_text.done",
+                  "item_id": "msg-no-output",
+                  "content_index": 0,
+                  "output_index": 0,
+                  "text": "done text",
+                  "logprobs": [],
+                  "sequence_number": 2
+                }
+                """));
+
+        List<AssistantStreamEvent> completed = mapper.mapAll(objectMapper.readValue("""
+                {
+                  "type": "response.completed",
+                  "sequence_number": 3,
+                  "response": {
+                    "id": "resp-1",
+                    "object": "response",
+                    "created_at": 0,
+                    "error": null,
+                    "incomplete_details": null,
+                    "instructions": null,
+                    "metadata": {},
+                    "model": "gpt-test",
+                    "parallel_tool_calls": true,
+                    "temperature": null,
+                    "tool_choice": "auto",
+                    "tools": [],
+                    "top_p": null,
+                    "background": null,
+                    "completed_at": 0,
+                    "conversation": null,
+                    "max_output_tokens": null,
+                    "max_tool_calls": null,
+                    "previous_response_id": null,
+                    "prompt": null,
+                    "prompt_cache_key": null,
+                    "prompt_cache_retention": null,
+                    "reasoning": null,
+                    "safety_identifier": null,
+                    "service_tier": null,
+                    "status": "completed",
+                    "text": null,
+                    "top_logprobs": null,
+                    "truncation": "disabled",
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                    "user": null
+                  }
+                }
+                """, ResponseStreamEvent.class));
+
+        assertEquals(1, completed.size());
+        assertEquals(AssistantStreamEvent.Type.DONE, completed.getFirst().getType());
+        assertEquals("done text", ((TextContent) completed.getFirst().getMessage().messageContents().getFirst()).getText());
+    }
+
     public void testRawCompletedOutputSynthesizesTextItemBeforeDone() throws Exception {
         OpenAiStreamEventMapper mapper = new OpenAiStreamEventMapper("fallback-model", "openai");
         mapper.map(rawOnlyEvent("""

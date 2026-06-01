@@ -167,4 +167,59 @@ public class SqliteTraceStoreTest extends TestCase {
             store.close();
         }
     }
+
+    public void testLifecycleRecordsFlushWhileThreadInterrupted() throws Exception {
+        Path dbPath = Files.createTempDirectory("aether-trace-store-interrupted-test").resolve("trace.sqlite");
+        SqliteTraceStore store = new SqliteTraceStore(dbPath);
+        try {
+            store.appendRunStarted(new TraceRunRecord(
+                    "run-interrupted",
+                    "session-1",
+                    "turn-1",
+                    1,
+                    null,
+                    "REGULAR",
+                    "/tmp/work",
+                    "fake",
+                    "fake-model",
+                    "RUNNING",
+                    10L,
+                    null,
+                    null,
+                    null
+            ));
+            store.appendSpanStarted(new TraceSpanRecord(
+                    "span-interrupted",
+                    "run-interrupted",
+                    null,
+                    "model",
+                    "model.sample",
+                    "RUNNING",
+                    12L,
+                    null,
+                    null,
+                    "{\"input\":true}",
+                    null,
+                    null
+            ));
+
+            Thread.currentThread().interrupt();
+            try {
+                store.appendSpanFinished("span-interrupted", "ABORTED", 20L, 8L, null, null);
+                store.appendRunFinished("run-interrupted", "ABORTED", 21L, 11L, null);
+                store.flush();
+            } finally {
+                assertTrue(Thread.interrupted());
+            }
+
+            var detail = store.readRun("run-interrupted").orElse(null);
+            assertNotNull(detail);
+            assertEquals("ABORTED", detail.run().status());
+            assertEquals(1, detail.spans().size());
+            assertEquals("ABORTED", detail.spans().getFirst().status());
+            assertEquals(0L, store.droppedWrites());
+        } finally {
+            store.close();
+        }
+    }
 }

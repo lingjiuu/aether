@@ -45,7 +45,10 @@ final class OpenAiResponsesStream extends AssistantStream {
             consumer.accept(errorEvent);
             result = errorEvent.getError();
             return result;
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
+            if (isFatalThrowable(e)) {
+                throw e;
+            }
             AssistantStreamEvent errorEvent = eventMapper.error(e);
             consumer.accept(errorEvent);
             result = errorEvent.getError();
@@ -79,5 +82,10 @@ final class OpenAiResponsesStream extends AssistantStream {
         }
         consumer.accept(assistantEvent);
         return terminalMessage(assistantEvent);
+    }
+
+    private static boolean isFatalThrowable(Throwable throwable) {
+        return throwable instanceof VirtualMachineError
+                || (throwable != null && "java.lang.ThreadDeath".equals(throwable.getClass().getName()));
     }
 }

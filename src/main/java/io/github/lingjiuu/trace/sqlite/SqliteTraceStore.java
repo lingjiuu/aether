@@ -114,13 +114,48 @@ public class SqliteTraceStore implements AgentTraceStore {
             return;
         }
         CountDownLatch latch = new CountDownLatch(1);
+        boolean interrupted = false;
+        boolean enqueued = false;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
         try {
-            queue.put(handle -> latch.countDown());
-            if (!latch.await(10, TimeUnit.SECONDS)) {
-                LOGGER.warning("Timed out flushing trace writer.");
+            while (!closed.get()) {
+                long remainingNanos = deadline - System.nanoTime();
+                if (remainingNanos <= 0L) {
+                    break;
+                }
+                try {
+                    if (queue.offer(handle -> latch.countDown(), remainingNanos, TimeUnit.NANOSECONDS)) {
+                        enqueued = true;
+                        break;
+                    }
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                    if (queue.offer(handle -> latch.countDown())) {
+                        enqueued = true;
+                        break;
+                    }
+                }
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            if (!enqueued) {
+                LOGGER.warning("Timed out flushing trace writer.");
+                return;
+            }
+            while (latch.getCount() > 0L) {
+                long remainingNanos = deadline - System.nanoTime();
+                if (remainingNanos <= 0L) {
+                    LOGGER.warning("Timed out flushing trace writer.");
+                    return;
+                }
+                try {
+                    latch.await(remainingNanos, TimeUnit.NANOSECONDS);
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
@@ -189,14 +224,36 @@ public class SqliteTraceStore implements AgentTraceStore {
         if (operation == null || closed.get()) {
             return;
         }
+        boolean interrupted = false;
+        boolean enqueued = false;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(CRITICAL_ENQUEUE_TIMEOUT_SECONDS);
         try {
-            if (!queue.offer(operation, CRITICAL_ENQUEUE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            while (!closed.get()) {
+                long remainingNanos = deadline - System.nanoTime();
+                if (remainingNanos <= 0L) {
+                    break;
+                }
+                try {
+                    if (queue.offer(operation, remainingNanos, TimeUnit.NANOSECONDS)) {
+                        enqueued = true;
+                        break;
+                    }
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                    if (queue.offer(operation)) {
+                        enqueued = true;
+                        break;
+                    }
+                }
+            }
+            if (!enqueued) {
                 dropped.incrementAndGet();
                 LOGGER.warning("Timed out enqueueing critical trace lifecycle record.");
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            dropped.incrementAndGet();
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 

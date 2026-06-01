@@ -627,7 +627,7 @@ public class Session implements AutoCloseable {
         int requestRetries = 0;
         while (true) {
             try (AssistantStream stream = modelSession.stream(request, token)) {
-                AutoCloseable cancelRegistration = token.onCancel(() -> closeQuietly(stream));
+                AutoCloseable cancelRegistration = token.onCancel(() -> closeAsync(stream, "aether-cancel-model-stream"));
                 try {
                     assistantMessage = stream.consume(event -> {
                         if (!token.isCancellationRequested()) {
@@ -823,10 +823,12 @@ public class Session implements AutoCloseable {
             );
         } catch (RuntimeException e) {
             config.traceRecorder().finishRun(traceContext, "FAILED", traceStartedAtMs, e);
+            synchronized (this) {
+                state.markIdle();
+            }
             eventManager.emit(UiEvents.error(sessionId(), turn, e.getMessage()));
             eventManager.emit(UiEvents.turnAborted(turnContext));
             synchronized (this) {
-                state.markIdle();
                 notifyAll();
             }
             throw e;
@@ -843,7 +845,7 @@ public class Session implements AutoCloseable {
     ) {
         ModelSelection modelSelection = activeModelSelection();
         SessionConfig turnConfig = config.withModelSelection(modelSelection);
-        RuntimeException failure = null;
+        Throwable failure = null;
         try (ModelClientSession modelSession = config.modelClient().openSession(modelSelection)) {
             TaskContext context = new TaskContext(
                     this,
@@ -855,7 +857,10 @@ public class Session implements AutoCloseable {
                     traceContext
             );
             task.run(context);
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
+            if (isFatalThrowable(e)) {
+                throw e;
+            }
             failure = e;
             if (!cancellationSource.token().isCancellationRequested()) {
                 eventManager.emit(UiEvents.error(turnContext, e.getMessage()));
@@ -871,15 +876,17 @@ public class Session implements AutoCloseable {
                     eventManager.emit(UiEvents.error(turnContext, "Failed to record interrupted turn: " + e.getMessage()));
                 }
             }
+            String traceStatus = cancelled ? "ABORTED" : failure == null ? "COMPLETED" : "FAILED";
+            config.traceRecorder().finishRun(traceContext, traceStatus, traceStartedAtMs, failure);
+            synchronized (this) {
+                state.markIdle();
+            }
             if (cancelled) {
                 eventManager.emit(UiEvents.turnAborted(turnContext));
             } else {
                 eventManager.emit(UiEvents.turnCompleted(turnContext));
             }
-            String traceStatus = cancelled ? "ABORTED" : failure == null ? "COMPLETED" : "FAILED";
-            config.traceRecorder().finishRun(traceContext, traceStatus, traceStartedAtMs, failure);
             synchronized (this) {
-                state.markIdle();
                 notifyAll();
             }
         }
@@ -910,6 +917,11 @@ public class Session implements AutoCloseable {
         if (turnContext != null) {
             eventManager.emit(UiEvents.tokenUsage(turnContext, tokenUsageInfo(), currentContextTokenUsage(), autoCompactTokenLimit()));
         }
+    }
+
+    private boolean isFatalThrowable(Throwable throwable) {
+        return throwable instanceof VirtualMachineError
+                || (throwable != null && "java.lang.ThreadDeath".equals(throwable.getClass().getName()));
     }
 
     private String modelTraceStatus(AssistantMessage assistantMessage) {
@@ -954,6 +966,16 @@ public class Session implements AutoCloseable {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private void closeAsync(AutoCloseable closeable, String threadName) {
+        if (closeable == null) {
+            return;
+        }
+        Thread.ofPlatform()
+                .daemon(true)
+                .name(threadName == null || threadName.isBlank() ? "aether-close" : threadName)
+                .start(() -> closeQuietly(closeable));
     }
 
     private synchronized void ensureIdle() {
