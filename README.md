@@ -7,7 +7,8 @@ A minimal but powerful agent in your terminal.
 macOS:
 
 ```bash
-brew install lingjiuu/aether/aether
+brew tap lingjiuu/aether
+brew install aether
 ```
 
 macOS, Linux, and Windows:
