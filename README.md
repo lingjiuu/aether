@@ -7,17 +7,16 @@ A minimal but powerful agent in your terminal.
 macOS:
 
 ```bash
-brew tap lingjiuu/aether
-brew install aether
+brew install lingjiuu/aether/aether
 ```
 
 macOS and Windows:
 
 ```bash
-npm install -g @lingjiuu/aether
+npm install -g @lingjiuu/aether@latest
 ```
 
-Aether requires Node.js 22+.
+Aether requires Node.js 22+. The backend Java runtime is bundled.
 
 ## Start
 
