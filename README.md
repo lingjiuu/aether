@@ -2,6 +2,10 @@
 
 A minimal but powerful agent in your terminal.
 
+<img width="775" height="597" alt="aether-screenshot" src="https://github.com/user-attachments/assets/c8e4d98e-14db-42e7-80c2-06d0e6cfd52f" />
+
+https://github.com/user-attachments/assets/97576240-74d8-47e3-9987-e99313c0ed5f
+
 ## Quickstart
 
 macOS:
