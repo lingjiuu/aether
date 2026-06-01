@@ -25,6 +25,7 @@ public class SqliteTraceStore implements AgentTraceStore {
 
     private static final Logger LOGGER = Logger.getLogger(SqliteTraceStore.class.getName());
     private static final int DEFAULT_QUEUE_CAPACITY = 512;
+    private static final long CRITICAL_ENQUEUE_TIMEOUT_SECONDS = 10L;
 
     private final Path dbPath;
     private final Jdbi jdbi;
@@ -55,12 +56,12 @@ public class SqliteTraceStore implements AgentTraceStore {
         if (run == null) {
             return;
         }
-        enqueue(handle -> SqliteTraceWriter.appendRunStarted(handle, run));
+        enqueueCritical(handle -> SqliteTraceWriter.appendRunStarted(handle, run));
     }
 
     @Override
     public void appendRunFinished(String runId, String status, long endedAtMs, long durationMs, String error) {
-        enqueue(handle -> SqliteTraceWriter.appendRunFinished(handle, runId, status, endedAtMs, durationMs, error));
+        enqueueCritical(handle -> SqliteTraceWriter.appendRunFinished(handle, runId, status, endedAtMs, durationMs, error));
     }
 
     @Override
@@ -68,7 +69,7 @@ public class SqliteTraceStore implements AgentTraceStore {
         if (span == null) {
             return;
         }
-        enqueue(handle -> SqliteTraceWriter.appendSpanStarted(handle, span));
+        enqueueCritical(handle -> SqliteTraceWriter.appendSpanStarted(handle, span));
     }
 
     @Override
@@ -80,7 +81,7 @@ public class SqliteTraceStore implements AgentTraceStore {
             String outputJson,
             String error
     ) {
-        enqueue(handle -> SqliteTraceWriter.appendSpanFinished(
+        enqueueCritical(handle -> SqliteTraceWriter.appendSpanFinished(
                 handle,
                 spanId,
                 status,
@@ -180,6 +181,21 @@ public class SqliteTraceStore implements AgentTraceStore {
             return;
         }
         if (!queue.offer(operation)) {
+            dropped.incrementAndGet();
+        }
+    }
+
+    private void enqueueCritical(SqlOperation operation) {
+        if (operation == null || closed.get()) {
+            return;
+        }
+        try {
+            if (!queue.offer(operation, CRITICAL_ENQUEUE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                dropped.incrementAndGet();
+                LOGGER.warning("Timed out enqueueing critical trace lifecycle record.");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             dropped.incrementAndGet();
         }
     }

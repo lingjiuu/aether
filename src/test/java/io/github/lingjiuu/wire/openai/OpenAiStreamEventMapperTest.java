@@ -1,12 +1,17 @@
 package io.github.lingjiuu.wire.openai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openai.core.JsonValue;
 import com.openai.models.responses.ResponseFunctionToolCall;
 import com.openai.models.responses.ResponseOutputItemAddedEvent;
 import com.openai.models.responses.ResponseOutputItemDoneEvent;
 import com.openai.models.responses.ResponseStreamEvent;
+import io.github.lingjiuu.message.AssistantMessage;
+import io.github.lingjiuu.message.content.TextContent;
 import io.github.lingjiuu.model.client.AssistantStreamEvent;
 import junit.framework.TestCase;
+
+import java.lang.reflect.Constructor;
 
 public class OpenAiStreamEventMapperTest extends TestCase {
 
@@ -48,6 +53,118 @@ public class OpenAiStreamEventMapperTest extends TestCase {
         assertNotNull(first.getToolCall().getToolBatchId());
         assertFalse(first.getToolCall().getToolBatchId().isBlank());
         assertEquals(first.getToolCall().getToolBatchId(), second.getToolCall().getToolBatchId());
+    }
+
+    public void testRawJsonFallbackMapsTextDeltaAndMessageDone() throws Exception {
+        OpenAiStreamEventMapper mapper = new OpenAiStreamEventMapper("fallback-model", "openai");
+
+        AssistantStreamEvent created = mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.created",
+                  "response": {
+                    "id": "resp-raw",
+                    "model": "gpt-raw",
+                    "usage": null,
+                    "error": null
+                  }
+                }
+                """));
+        AssistantStreamEvent start = mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.output_item.added",
+                  "item": {"id": "msg-raw", "type": "message", "content": []},
+                  "output_index": 0,
+                  "sequence_number": 1
+                }
+                """));
+        AssistantStreamEvent delta = mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.output_text.delta",
+                  "item_id": "msg-raw",
+                  "content_index": 0,
+                  "output_index": 0,
+                  "delta": "你好",
+                  "sequence_number": 2
+                }
+                """));
+        AssistantStreamEvent end = mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.output_item.done",
+                  "item": {
+                    "id": "msg-raw",
+                    "type": "message",
+                    "status": "completed",
+                    "role": "assistant",
+                    "content": [
+                      {"type": "output_text", "text": "你好！", "annotations": [], "logprobs": []}
+                    ]
+                  },
+                  "output_index": 0,
+                  "sequence_number": 3
+                }
+                """));
+        AssistantStreamEvent done = mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.completed",
+                  "response": {
+                    "id": "resp-raw",
+                    "model": "gpt-raw",
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                    "error": null
+                  }
+                }
+                """));
+
+        assertEquals(AssistantStreamEvent.Type.START, created.getType());
+        assertEquals(AssistantStreamEvent.Type.TEXT_START, start.getType());
+        assertEquals(AssistantStreamEvent.Type.TEXT_DELTA, delta.getType());
+        assertEquals("你好", delta.getDelta());
+        assertEquals(AssistantStreamEvent.Type.TEXT_END, end.getType());
+        assertEquals("你好！", end.getContent());
+        assertNotNull(end.getProviderState());
+        assertEquals(AssistantStreamEvent.Type.DONE, done.getType());
+        assertEquals(AssistantMessage.StopReason.STOP, done.getMessage().getStopReason());
+        assertEquals("你好！", ((TextContent) done.getMessage().messageContents().getFirst()).getText());
+    }
+
+    public void testCompletedWithoutVisibleOutputBecomesModelError() throws Exception {
+        OpenAiStreamEventMapper mapper = new OpenAiStreamEventMapper("fallback-model", "openai");
+        mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.created",
+                  "response": {
+                    "id": "resp-empty",
+                    "model": "gpt-raw",
+                    "usage": null,
+                    "error": null
+                  }
+                }
+                """));
+        mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.output_item.added",
+                  "item": {"id": "msg-empty", "type": "message", "content": []},
+                  "output_index": 0,
+                  "sequence_number": 1
+                }
+                """));
+
+        AssistantStreamEvent done = mapper.map(rawOnlyEvent("""
+                {
+                  "type": "response.completed",
+                  "response": {
+                    "id": "resp-empty",
+                    "model": "gpt-raw",
+                    "usage": {},
+                    "error": null
+                  }
+                }
+                """));
+
+        assertEquals(AssistantStreamEvent.Type.DONE, done.getType());
+        assertEquals("error", done.getReason());
+        assertEquals(AssistantMessage.StopReason.ERROR, done.getMessage().getStopReason());
+        assertTrue(done.getMessage().getErrorMessage().contains("without visible assistant output"));
     }
 
     private ResponseFunctionToolCall toolCall(String itemId, String callId) {
@@ -100,5 +217,21 @@ public class OpenAiStreamEventMapperTest extends TestCase {
                   }
                 }
                 """, ResponseStreamEvent.class);
+    }
+
+    private ResponseStreamEvent rawOnlyEvent(String json) throws Exception {
+        Constructor<?> constructor = null;
+        for (Constructor<?> candidate : ResponseStreamEvent.class.getDeclaredConstructors()) {
+            Class<?>[] parameterTypes = candidate.getParameterTypes();
+            if (parameterTypes.length > 0 && parameterTypes[parameterTypes.length - 1] == JsonValue.class) {
+                constructor = candidate;
+                break;
+            }
+        }
+        assertNotNull(constructor);
+        constructor.setAccessible(true);
+        Object[] args = new Object[constructor.getParameterCount()];
+        args[args.length - 1] = JsonValue.fromJsonNode(objectMapper.readTree(json));
+        return (ResponseStreamEvent) constructor.newInstance(args);
     }
 }

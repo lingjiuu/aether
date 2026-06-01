@@ -85,4 +85,37 @@ public class SqliteTraceStoreTest extends TestCase {
             store.close();
         }
     }
+
+    public void testLifecycleRecordsAreNotDroppedWhenQueueIsFull() throws Exception {
+        Path dbPath = Files.createTempDirectory("aether-trace-store-critical-test").resolve("trace.sqlite");
+        SqliteTraceStore store = new SqliteTraceStore(dbPath, 1);
+        try {
+            for (int i = 0; i < 20; i++) {
+                store.appendRunStarted(new TraceRunRecord(
+                        "run-" + i,
+                        "session-1",
+                        "turn-" + i,
+                        i,
+                        null,
+                        "REGULAR",
+                        "/tmp/work",
+                        "fake",
+                        "fake-model",
+                        "RUNNING",
+                        10L + i,
+                        null,
+                        null,
+                        null
+                ));
+                store.appendRunFinished("run-" + i, "COMPLETED", 30L + i, 20L, null);
+            }
+
+            store.flush();
+
+            assertEquals(0L, store.droppedWrites());
+            assertEquals(20, store.listRuns(50).size());
+        } finally {
+            store.close();
+        }
+    }
 }

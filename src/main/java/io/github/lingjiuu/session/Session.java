@@ -643,7 +643,7 @@ public class Session implements AutoCloseable {
             } catch (ModelInvocationException e) {
                 if (token.isCancellationRequested()) {
                     assistantMessage = AssistantMessage.aborted();
-                    span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
+                    finishModelSpan(span, "ABORTED", assistantMessage);
                     return assistantMessage;
                 }
                 ModelErrorInfo errorInfo = e.errorInfo();
@@ -657,7 +657,7 @@ public class Session implements AutoCloseable {
                     ));
                     if (!sleepForRetry(token, retryDelayMillis(retryOptions, requestRetries, errorInfo))) {
                         assistantMessage = AssistantMessage.aborted();
-                        span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
+                        finishModelSpan(span, "ABORTED", assistantMessage);
                         return assistantMessage;
                     }
                     continue;
@@ -667,7 +667,7 @@ public class Session implements AutoCloseable {
             } catch (IOException e) {
                 if (token.isCancellationRequested()) {
                     assistantMessage = AssistantMessage.aborted();
-                    span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
+                    finishModelSpan(span, "ABORTED", assistantMessage);
                     return assistantMessage;
                 }
                 span.fail(e);
@@ -675,7 +675,7 @@ public class Session implements AutoCloseable {
             } catch (RuntimeException e) {
                 if (token.isCancellationRequested()) {
                     assistantMessage = AssistantMessage.aborted();
-                    span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
+                    finishModelSpan(span, "ABORTED", assistantMessage);
                     return assistantMessage;
                 }
                 span.fail(e);
@@ -685,11 +685,11 @@ public class Session implements AutoCloseable {
 
         if (token.isCancellationRequested()) {
             assistantMessage = AssistantMessage.aborted();
-            span.finish("ABORTED", TracePayloads.modelOutput(assistantMessage));
+            finishModelSpan(span, "ABORTED", assistantMessage);
             return assistantMessage;
         }
         recordTokenUsage(assistantMessage, turnContext);
-        span.finish(modelTraceStatus(assistantMessage), TracePayloads.modelOutput(assistantMessage));
+        finishModelSpan(span, modelTraceStatus(assistantMessage), assistantMessage);
         return assistantMessage;
     }
 
@@ -917,6 +917,17 @@ public class Session implements AutoCloseable {
             return "ABORTED";
         }
         return assistantMessage.isError() ? "FAILED" : "COMPLETED";
+    }
+
+    private void finishModelSpan(TraceSpan span, String status, AssistantMessage assistantMessage) {
+        if (span == null) {
+            return;
+        }
+        try {
+            span.finish(status, TracePayloads.modelOutput(assistantMessage));
+        } catch (RuntimeException e) {
+            span.fail(e);
+        }
     }
 
     private void recomputeTokenUsageFromHistory() {

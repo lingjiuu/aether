@@ -9,6 +9,10 @@ public final class AetherPaths {
     }
 
     public static Path getAgentDir() {
+        String explicitHome = System.getenv("AETHER_HOME");
+        if (explicitHome != null && !explicitHome.isBlank()) {
+            return Paths.get(explicitHome);
+        }
         return Paths.get(System.getProperty("user.home"), ".aether");
     }
 

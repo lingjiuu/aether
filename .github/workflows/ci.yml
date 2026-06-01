@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Test backend
+        run: mvn test
+
+  native-smoke:
+    name: Native smoke ${{ matrix.platform }}
+    needs: backend-tests
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            os: macos-15
+          - platform: darwin-x64
+            os: macos-15-intel
+          - platform: win32-x64
+            os: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: "21"
+          distribution: "graalvm"
+          components: "native-image"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve version
+        id: version
+        run: |
+          version="$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)"
+          if [ -z "$version" ]; then
+            echo "Version is empty." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build and smoke native backend
+        run: |
+          backend_path="$(scripts/build-backend-native.sh)"
+          node scripts/smoke-native-backend.mjs \
+            --backend "$backend_path" \
+            --version "${{ steps.version.outputs.version }}" \
+            --ensure-test-config true

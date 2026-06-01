@@ -3,6 +3,7 @@ package io.github.lingjiuu.wire.openai;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openai.core.JsonValue;
 import com.openai.errors.OpenAIException;
 import com.openai.models.responses.Response;
 import com.openai.models.responses.ResponseOutputMessage;
@@ -20,8 +21,10 @@ import io.github.lingjiuu.model.client.ModelErrorInfo;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 final class OpenAiStreamEventMapper {
@@ -31,6 +34,7 @@ final class OpenAiStreamEventMapper {
     private final Map<String, Integer> contentIndexesByItemId = new LinkedHashMap<>();
     private final Map<String, String> partialToolArguments = new LinkedHashMap<>();
     private final List<OpenAiReplayData.ReplayItem> replayItems = new ArrayList<>();
+    private final Set<String> completedItemIds = new LinkedHashSet<>();
     private final String provider;
     private final AssistantMessage partial;
     private String toolBatchId;
@@ -209,6 +213,7 @@ final class OpenAiStreamEventMapper {
                         .build());
                 OpenAiReplayData.ReplayItem replayItem = replayCodec.replayItem(OpenAiReplayData.Type.REASONING, reasoningItem);
                 addReplayItem(replayItem);
+                completedItemIds.add(reasoningItem.id());
                 return AssistantStreamEvent.builder()
                         .type(AssistantStreamEvent.Type.THINKING_END)
                         .itemId(reasoningItem.id())
@@ -230,6 +235,7 @@ final class OpenAiStreamEventMapper {
                         .build());
                 OpenAiReplayData.ReplayItem replayItem = replayCodec.replayItem(OpenAiReplayData.Type.OUTPUT_MESSAGE, messageItem);
                 addReplayItem(replayItem);
+                completedItemIds.add(messageItem.id());
                 return AssistantStreamEvent.builder()
                         .type(AssistantStreamEvent.Type.TEXT_END)
                         .itemId(messageItem.id())
@@ -261,6 +267,7 @@ final class OpenAiStreamEventMapper {
                 partialToolArguments.remove(itemId);
                 OpenAiReplayData.ReplayItem replayItem = replayCodec.replayItem(OpenAiReplayData.Type.FUNCTION_CALL, functionCall);
                 addReplayItem(replayItem);
+                completedItemIds.add(itemId);
                 return AssistantStreamEvent.builder()
                         .type(AssistantStreamEvent.Type.TOOLCALL_END)
                         .itemId(itemId)
@@ -352,7 +359,358 @@ final class OpenAiStreamEventMapper {
                     .build();
         }
 
+        return mapRaw(event);
+    }
+
+    private AssistantStreamEvent mapRaw(ResponseStreamEvent event) {
+        JsonNode raw = rawEventJson(event);
+        if (raw == null || raw.isMissingNode() || raw.isNull()) {
+            return null;
+        }
+        String type = text(raw, "type");
+        return switch (type) {
+            case "response.created" -> rawCreated(raw);
+            case "response.output_item.added" -> rawOutputItemAdded(raw);
+            case "response.output_text.delta" -> rawOutputTextDelta(raw);
+            case "response.reasoning_summary_text.delta" -> rawReasoningSummaryTextDelta(raw);
+            case "response.function_call_arguments.delta" -> rawFunctionCallArgumentsDelta(raw);
+            case "response.function_call_arguments.done" -> rawFunctionCallArgumentsDone(raw);
+            case "response.output_item.done" -> rawOutputItemDone(raw);
+            case "response.completed" -> rawCompleted(raw);
+            case "response.incomplete" -> rawIncomplete(raw);
+            case "response.failed" -> rawFailed(raw);
+            case "error", "response.error" -> rawError(raw);
+            default -> null;
+        };
+    }
+
+    private AssistantStreamEvent rawCreated(JsonNode raw) {
+        JsonNode response = raw.path("response");
+        String responseId = text(response, "id");
+        if (!isBlank(responseId)) {
+            partial.setResponseId(responseId);
+            if (isBlank(toolBatchId)) {
+                toolBatchId = responseId;
+            }
+        }
+        partial.setProvider(provider);
+        String model = text(response, "model");
+        if (!isBlank(model)) {
+            partial.setModel(model);
+        }
+        return AssistantStreamEvent.builder()
+                .type(AssistantStreamEvent.Type.START)
+                .partial(copyMessage(partial))
+                .build();
+    }
+
+    private AssistantStreamEvent rawOutputItemAdded(JsonNode raw) {
+        JsonNode item = raw.path("item");
+        String itemType = text(item, "type");
+        if ("reasoning".equals(itemType)) {
+            String itemId = text(item, "id");
+            int contentIndex = appendContent(ThinkingContent.builder().thinking("").build());
+            if (!isBlank(itemId)) {
+                contentIndexesByItemId.put(itemId, contentIndex);
+            }
+            return AssistantStreamEvent.builder()
+                    .type(AssistantStreamEvent.Type.THINKING_START)
+                    .itemId(itemId)
+                    .contentIndex(contentIndex)
+                    .partial(copyMessage(partial))
+                    .build();
+        }
+        if ("message".equals(itemType)) {
+            String itemId = text(item, "id");
+            int contentIndex = appendContent(TextContent.builder().text("").build());
+            if (!isBlank(itemId)) {
+                contentIndexesByItemId.put(itemId, contentIndex);
+            }
+            return AssistantStreamEvent.builder()
+                    .type(AssistantStreamEvent.Type.TEXT_START)
+                    .itemId(itemId)
+                    .contentIndex(contentIndex)
+                    .partial(copyMessage(partial))
+                    .build();
+        }
+        if ("function_call".equals(itemType)) {
+            String itemId = firstText(item, "id", "call_id", "callId");
+            ToolCallContent toolCall = ToolCallContent.builder()
+                    .toolCallId(firstText(item, "call_id", "callId", "id"))
+                    .toolBatchId(currentToolBatchId())
+                    .toolName(text(item, "name"))
+                    .argumentsJson(nullToEmpty(text(item, "arguments")))
+                    .arguments(parseStreamingJson(text(item, "arguments")))
+                    .build();
+            int contentIndex = appendContent(toolCall);
+            if (!isBlank(itemId)) {
+                contentIndexesByItemId.put(itemId, contentIndex);
+                partialToolArguments.put(itemId, nullToEmpty(text(item, "arguments")));
+            }
+            return AssistantStreamEvent.builder()
+                    .type(AssistantStreamEvent.Type.TOOLCALL_START)
+                    .itemId(itemId)
+                    .toolCallId(toolCall.getToolCallId())
+                    .toolName(toolCall.getToolName())
+                    .contentIndex(contentIndex)
+                    .toolCall(copyToolCall(toolCall))
+                    .partial(copyMessage(partial))
+                    .build();
+        }
         return null;
+    }
+
+    private AssistantStreamEvent rawOutputTextDelta(JsonNode raw) {
+        String itemId = firstText(raw, "item_id", "itemId");
+        int contentIndex = ensureTextContent(itemId, integer(raw, "content_index"));
+        TextContent textContent = (TextContent) partial.getContents().get(contentIndex);
+        String delta = nullToEmpty(text(raw, "delta"));
+        partial.getContents().set(contentIndex, TextContent.builder()
+                .text(nullToEmpty(textContent.getText()) + delta)
+                .build());
+        return AssistantStreamEvent.builder()
+                .type(AssistantStreamEvent.Type.TEXT_DELTA)
+                .itemId(itemId)
+                .contentIndex(contentIndex)
+                .delta(delta)
+                .partial(copyMessage(partial))
+                .build();
+    }
+
+    private AssistantStreamEvent rawReasoningSummaryTextDelta(JsonNode raw) {
+        String itemId = firstText(raw, "item_id", "itemId");
+        int contentIndex = ensureThinkingContent(itemId, integer(raw, "content_index"));
+        ThinkingContent thinkingContent = (ThinkingContent) partial.getContents().get(contentIndex);
+        String delta = nullToEmpty(text(raw, "delta"));
+        partial.getContents().set(contentIndex, ThinkingContent.builder()
+                .thinking(nullToEmpty(thinkingContent.getThinking()) + delta)
+                .build());
+        return AssistantStreamEvent.builder()
+                .type(AssistantStreamEvent.Type.THINKING_DELTA)
+                .itemId(itemId)
+                .contentIndex(contentIndex)
+                .delta(delta)
+                .partial(copyMessage(partial))
+                .build();
+    }
+
+    private AssistantStreamEvent rawFunctionCallArgumentsDelta(JsonNode raw) {
+        String itemId = firstText(raw, "item_id", "itemId");
+        Integer contentIndex = contentIndexesByItemId.get(itemId);
+        if (!validContentIndex(contentIndex) || !(partial.getContents().get(contentIndex) instanceof ToolCallContent toolCallContent)) {
+            return null;
+        }
+        String partialJson = partialToolArguments.getOrDefault(itemId, "") + nullToEmpty(text(raw, "delta"));
+        partialToolArguments.put(itemId, partialJson);
+        ToolCallContent updatedToolCall = ToolCallContent.builder()
+                .toolCallId(toolCallContent.getToolCallId())
+                .toolBatchId(toolCallContent.getToolBatchId())
+                .toolName(toolCallContent.getToolName())
+                .argumentsJson(partialJson)
+                .arguments(parseStreamingJson(partialJson))
+                .build();
+        partial.getContents().set(contentIndex, updatedToolCall);
+        return AssistantStreamEvent.builder()
+                .type(AssistantStreamEvent.Type.TOOLCALL_DELTA)
+                .itemId(itemId)
+                .toolCallId(updatedToolCall.getToolCallId())
+                .toolName(updatedToolCall.getToolName())
+                .contentIndex(contentIndex)
+                .delta(text(raw, "delta"))
+                .toolCall(copyToolCall(updatedToolCall))
+                .partial(copyMessage(partial))
+                .build();
+    }
+
+    private AssistantStreamEvent rawFunctionCallArgumentsDone(JsonNode raw) {
+        String itemId = firstText(raw, "item_id", "itemId");
+        Integer contentIndex = contentIndexesByItemId.get(itemId);
+        if (!validContentIndex(contentIndex) || !(partial.getContents().get(contentIndex) instanceof ToolCallContent toolCallContent)) {
+            return null;
+        }
+        String arguments = nullToEmpty(text(raw, "arguments"));
+        partialToolArguments.put(itemId, arguments);
+        partial.getContents().set(contentIndex, ToolCallContent.builder()
+                .toolCallId(toolCallContent.getToolCallId())
+                .toolBatchId(toolCallContent.getToolBatchId())
+                .toolName(toolCallContent.getToolName())
+                .argumentsJson(arguments)
+                .arguments(parseStreamingJson(arguments))
+                .build());
+        return null;
+    }
+
+    private AssistantStreamEvent rawOutputItemDone(JsonNode raw) {
+        JsonNode item = raw.path("item");
+        String itemType = text(item, "type");
+        if ("reasoning".equals(itemType)) {
+            String itemId = text(item, "id");
+            if (completedItemIds.contains(itemId)) {
+                return null;
+            }
+            int contentIndex = ensureThinkingContent(itemId, integer(raw, "content_index"));
+            String thinking = extractReasoningSummary(item);
+            partial.getContents().set(contentIndex, ThinkingContent.builder()
+                    .thinking(thinking)
+                    .build());
+            OpenAiReplayData.ReplayItem replayItem = rawReplayItem(OpenAiReplayData.Type.REASONING, item);
+            addReplayItem(replayItem);
+            completedItemIds.add(itemId);
+            return AssistantStreamEvent.builder()
+                    .type(AssistantStreamEvent.Type.THINKING_END)
+                    .itemId(itemId)
+                    .contentIndex(contentIndex)
+                    .content(thinking)
+                    .providerState(replayCodec.providerState(partial.getResponseId(), replayItem))
+                    .partial(copyMessage(partial))
+                    .build();
+        }
+        if ("message".equals(itemType)) {
+            String itemId = text(item, "id");
+            if (completedItemIds.contains(itemId)) {
+                return null;
+            }
+            int contentIndex = ensureTextContent(itemId, integer(raw, "content_index"));
+            String text = extractMessageText(item);
+            partial.getContents().set(contentIndex, TextContent.builder()
+                    .text(text)
+                    .build());
+            OpenAiReplayData.ReplayItem replayItem = rawReplayItem(OpenAiReplayData.Type.OUTPUT_MESSAGE, item);
+            addReplayItem(replayItem);
+            completedItemIds.add(itemId);
+            return AssistantStreamEvent.builder()
+                    .type(AssistantStreamEvent.Type.TEXT_END)
+                    .itemId(itemId)
+                    .contentIndex(contentIndex)
+                    .content(text)
+                    .providerState(replayCodec.providerState(partial.getResponseId(), replayItem))
+                    .partial(copyMessage(partial))
+                    .build();
+        }
+        if ("function_call".equals(itemType)) {
+            String itemId = firstText(item, "id", "call_id", "callId");
+            if (completedItemIds.contains(itemId)) {
+                return null;
+            }
+            Integer contentIndex = contentIndexesByItemId.get(itemId);
+            if (!validContentIndex(contentIndex) || !(partial.getContents().get(contentIndex) instanceof ToolCallContent existingToolCall)) {
+                return null;
+            }
+            String finalArguments = partialToolArguments.getOrDefault(itemId, text(item, "arguments"));
+            ToolCallContent toolCall = ToolCallContent.builder()
+                    .toolCallId(firstText(item, "call_id", "callId", "id"))
+                    .toolBatchId(isBlank(existingToolCall.getToolBatchId())
+                            ? currentToolBatchId()
+                            : existingToolCall.getToolBatchId())
+                    .toolName(text(item, "name"))
+                    .argumentsJson(finalArguments)
+                    .arguments(parseStreamingJson(finalArguments))
+                    .build();
+            partial.getContents().set(contentIndex, toolCall);
+            partialToolArguments.remove(itemId);
+            OpenAiReplayData.ReplayItem replayItem = rawReplayItem(OpenAiReplayData.Type.FUNCTION_CALL, item);
+            addReplayItem(replayItem);
+            completedItemIds.add(itemId);
+            return AssistantStreamEvent.builder()
+                    .type(AssistantStreamEvent.Type.TOOLCALL_END)
+                    .itemId(itemId)
+                    .toolCallId(toolCall.getToolCallId())
+                    .toolName(toolCall.getToolName())
+                    .contentIndex(contentIndex)
+                    .toolCall(copyToolCall(toolCall))
+                    .providerState(replayCodec.providerState(partial.getResponseId(), replayItem))
+                    .partial(copyMessage(partial))
+                    .build();
+        }
+        return null;
+    }
+
+    private AssistantStreamEvent rawCompleted(JsonNode raw) {
+        JsonNode response = raw.path("response");
+        applyResponseIdentity(response);
+        AssistantMessage finalMessage = finalizeMessage(
+                resolveCompletedStopReason(),
+                usage(response),
+                errorText(response.path("error"))
+        );
+        return AssistantStreamEvent.builder()
+                .type(AssistantStreamEvent.Type.DONE)
+                .reason(toReasonString(finalMessage.getStopReason()))
+                .message(finalMessage)
+                .build();
+    }
+
+    private AssistantStreamEvent rawIncomplete(JsonNode raw) {
+        JsonNode response = raw.path("response");
+        applyResponseIdentity(response);
+        String reason = text(response.path("incomplete_details"), "reason");
+        AssistantMessage.StopReason stopReason = "max_output_tokens".equals(reason)
+                ? AssistantMessage.StopReason.LENGTH
+                : AssistantMessage.StopReason.ERROR;
+        AssistantMessage finalMessage = finalizeMessage(
+                stopReason,
+                usage(response),
+                "Response incomplete" + (reason == null ? "" : ": " + reason),
+                stopReason == AssistantMessage.StopReason.ERROR
+                        ? ModelErrorInfo.of(ModelErrorCode.fromIncompleteReason(reason), "Response incomplete")
+                        : null
+        );
+        if (stopReason == AssistantMessage.StopReason.LENGTH) {
+            return AssistantStreamEvent.builder()
+                    .type(AssistantStreamEvent.Type.DONE)
+                    .reason(toReasonString(stopReason))
+                    .message(finalMessage)
+                    .build();
+        }
+        return AssistantStreamEvent.builder()
+                .type(AssistantStreamEvent.Type.ERROR)
+                .reason(toReasonString(stopReason))
+                .error(finalMessage)
+                .build();
+    }
+
+    private AssistantStreamEvent rawFailed(JsonNode raw) {
+        JsonNode response = raw.path("response");
+        applyResponseIdentity(response);
+        JsonNode error = response.path("error");
+        String message = errorText(error);
+        ModelErrorInfo errorInfo = ModelErrorInfo.of(
+                ModelErrorCode.fromResponseError(text(error, "code"), message),
+                isBlank(message) ? "Response failed" : message
+        );
+        AssistantMessage finalMessage = finalizeMessage(
+                AssistantMessage.StopReason.ERROR,
+                usage(response),
+                errorInfo.message(),
+                errorInfo
+        );
+        return AssistantStreamEvent.builder()
+                .type(AssistantStreamEvent.Type.ERROR)
+                .reason("error")
+                .error(finalMessage)
+                .build();
+    }
+
+    private AssistantStreamEvent rawError(JsonNode raw) {
+        String message = firstText(raw, "message", "error");
+        if (isBlank(message) && raw.path("error").isObject()) {
+            message = errorText(raw.path("error"));
+        }
+        ModelErrorInfo errorInfo = ModelErrorInfo.of(
+                ModelErrorCode.fromResponseError(text(raw.path("error"), "code"), message),
+                isBlank(message) ? "Response failed" : message
+        );
+        AssistantMessage errorMessage = finalizeMessage(
+                AssistantMessage.StopReason.ERROR,
+                null,
+                errorInfo.message(),
+                errorInfo
+        );
+        return AssistantStreamEvent.builder()
+                .type(AssistantStreamEvent.Type.ERROR)
+                .reason("error")
+                .error(errorMessage)
+                .build();
     }
 
     AssistantStreamEvent unexpectedEnd() {
@@ -414,6 +772,46 @@ final class OpenAiStreamEventMapper {
         return partial.getContents().size() - 1;
     }
 
+    private int ensureTextContent(String itemId, Integer contentIndexHint) {
+        Integer contentIndex = contentIndexesByItemId.get(itemId);
+        if (validContentIndex(contentIndex) && partial.getContents().get(contentIndex) instanceof TextContent) {
+            return contentIndex;
+        }
+        if (validContentIndex(contentIndexHint) && partial.getContents().get(contentIndexHint) instanceof TextContent) {
+            if (!isBlank(itemId)) {
+                contentIndexesByItemId.put(itemId, contentIndexHint);
+            }
+            return contentIndexHint;
+        }
+        int newIndex = appendContent(TextContent.builder().text("").build());
+        if (!isBlank(itemId)) {
+            contentIndexesByItemId.put(itemId, newIndex);
+        }
+        return newIndex;
+    }
+
+    private int ensureThinkingContent(String itemId, Integer contentIndexHint) {
+        Integer contentIndex = contentIndexesByItemId.get(itemId);
+        if (validContentIndex(contentIndex) && partial.getContents().get(contentIndex) instanceof ThinkingContent) {
+            return contentIndex;
+        }
+        if (validContentIndex(contentIndexHint) && partial.getContents().get(contentIndexHint) instanceof ThinkingContent) {
+            if (!isBlank(itemId)) {
+                contentIndexesByItemId.put(itemId, contentIndexHint);
+            }
+            return contentIndexHint;
+        }
+        int newIndex = appendContent(ThinkingContent.builder().thinking("").build());
+        if (!isBlank(itemId)) {
+            contentIndexesByItemId.put(itemId, newIndex);
+        }
+        return newIndex;
+    }
+
+    private boolean validContentIndex(Integer contentIndex) {
+        return contentIndex != null && contentIndex >= 0 && contentIndex < partial.getContents().size();
+    }
+
     private AssistantMessage finalizeMessage(
             AssistantMessage.StopReason stopReason,
             Map<String, Object> usage,
@@ -428,6 +826,15 @@ final class OpenAiStreamEventMapper {
             String errorMessage,
             ModelErrorInfo errorInfo
     ) {
+        if (stopReason == AssistantMessage.StopReason.STOP
+                && errorInfo == null
+                && isBlank(errorMessage)
+                && !hasVisibleOutput()) {
+            String message = "Model completed without visible assistant output.";
+            stopReason = AssistantMessage.StopReason.ERROR;
+            errorMessage = message;
+            errorInfo = ModelErrorInfo.of(ModelErrorCode.INVALID_REQUEST, message);
+        }
         return AssistantMessage.builder()
                 .timestamp(partial.getTimestamp())
                 .responseId(partial.getResponseId())
@@ -440,6 +847,18 @@ final class OpenAiStreamEventMapper {
                 .errorInfo(errorInfo)
                 .providerState(replayCodec.providerState(partial.getResponseId(), replayItems))
                 .build();
+    }
+
+    private boolean hasVisibleOutput() {
+        for (MessageContent content : partial.getContents()) {
+            if (content instanceof TextContent textContent && !isBlank(textContent.getText())) {
+                return true;
+            }
+            if (content instanceof ToolCallContent) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private AssistantMessage copyMessage(AssistantMessage message) {
@@ -569,6 +988,182 @@ final class OpenAiStreamEventMapper {
             }
         });
         return text.toString();
+    }
+
+    private String extractReasoningSummary(JsonNode reasoningItem) {
+        StringBuilder summary = new StringBuilder();
+        JsonNode summaries = reasoningItem.path("summary");
+        if (summaries.isArray()) {
+            for (JsonNode item : summaries) {
+                String text = text(item, "text");
+                if (isBlank(text)) {
+                    continue;
+                }
+                if (!summary.isEmpty()) {
+                    summary.append('\n');
+                }
+                summary.append(text);
+            }
+        }
+        return summary.toString().trim();
+    }
+
+    private String extractMessageText(JsonNode messageItem) {
+        StringBuilder text = new StringBuilder();
+        JsonNode contents = messageItem.path("content");
+        if (contents.isArray()) {
+            for (JsonNode content : contents) {
+                String type = text(content, "type");
+                if ("output_text".equals(type)) {
+                    text.append(text(content, "text"));
+                } else if ("refusal".equals(type)) {
+                    text.append(text(content, "refusal"));
+                }
+            }
+        }
+        return text.toString();
+    }
+
+    private JsonNode rawEventJson(ResponseStreamEvent event) {
+        if (event == null || event._json().isEmpty()) {
+            return null;
+        }
+        JsonValue json = event._json().get();
+        try {
+            Object converted = json.convert(JsonNode.class);
+            if (converted instanceof JsonNode node) {
+                return node;
+            }
+        } catch (RuntimeException ignored) {
+        }
+        try {
+            return objectMapper.valueToTree(json.convert(Object.class));
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private void applyResponseIdentity(JsonNode response) {
+        if (response == null || response.isMissingNode() || response.isNull()) {
+            return;
+        }
+        String responseId = text(response, "id");
+        if (!isBlank(responseId)) {
+            partial.setResponseId(responseId);
+            if (isBlank(toolBatchId)) {
+                toolBatchId = responseId;
+            }
+        }
+        String model = text(response, "model");
+        if (!isBlank(model)) {
+            partial.setModel(model);
+        }
+        partial.setProvider(provider);
+    }
+
+    private Map<String, Object> usage(JsonNode response) {
+        JsonNode usage = response == null ? null : response.path("usage");
+        if (usage == null || usage.isMissingNode() || usage.isNull()) {
+            return new LinkedHashMap<>();
+        }
+        return objectMapper.convertValue(usage, new TypeReference<Map<String, Object>>() {
+        });
+    }
+
+    private OpenAiReplayData.ReplayItem rawReplayItem(OpenAiReplayData.Type type, JsonNode item) {
+        if (item == null || item.isMissingNode() || item.isNull()) {
+            return null;
+        }
+        try {
+            return OpenAiReplayData.ReplayItem.builder()
+                    .type(type)
+                    .json(replayCodec.sanitize(objectMapper.writeValueAsString(item)))
+                    .build();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String errorText(JsonNode error) {
+        if (error == null || error.isMissingNode() || error.isNull()) {
+            return null;
+        }
+        if (error.isTextual()) {
+            return error.asText();
+        }
+        String message = text(error, "message");
+        return isBlank(message) ? error.toString() : message;
+    }
+
+    private String firstText(JsonNode node, String... fields) {
+        if (fields == null) {
+            return null;
+        }
+        for (String field : fields) {
+            String text = text(node, field);
+            if (!isBlank(text)) {
+                return text;
+            }
+        }
+        return null;
+    }
+
+    private String text(JsonNode node, String field) {
+        if (node == null || field == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        JsonNode value = node.path(field);
+        if (value.isMissingNode() && field.indexOf('_') >= 0) {
+            value = node.path(snakeToCamel(field));
+        }
+        if (value.isMissingNode() || value.isNull()) {
+            return null;
+        }
+        if (value.isTextual()) {
+            return value.asText();
+        }
+        if (value.isNumber() || value.isBoolean()) {
+            return value.asText();
+        }
+        return null;
+    }
+
+    private Integer integer(JsonNode node, String field) {
+        if (node == null || field == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        JsonNode value = node.path(field);
+        if (value.isMissingNode() && field.indexOf('_') >= 0) {
+            value = node.path(snakeToCamel(field));
+        }
+        if (value.isInt() || value.isLong()) {
+            return value.asInt();
+        }
+        if (value.isTextual()) {
+            try {
+                return Integer.parseInt(value.asText());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private String snakeToCamel(String value) {
+        StringBuilder result = new StringBuilder();
+        boolean upperNext = false;
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch == '_') {
+                upperNext = true;
+            } else if (upperNext) {
+                result.append(Character.toUpperCase(ch));
+                upperNext = false;
+            } else {
+                result.append(ch);
+            }
+        }
+        return result.toString();
     }
 
     private void addReplayItem(OpenAiReplayData.ReplayItem replayItem) {

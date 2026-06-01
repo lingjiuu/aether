@@ -137,7 +137,7 @@ public class AgentTraceRecorder implements AutoCloseable {
                 startedAtMs,
                 null,
                 null,
-                TraceJson.write(input),
+                safeTraceJson(input),
                 null,
                 null
         ));
@@ -149,14 +149,49 @@ public class AgentTraceRecorder implements AutoCloseable {
             return;
         }
         long endedAtMs = System.currentTimeMillis();
+        String outputJson;
+        String finishStatus = status == null ? "COMPLETED" : status;
+        String finishError = error;
+        try {
+            outputJson = TraceJson.write(output);
+        } catch (RuntimeException e) {
+            outputJson = null;
+            finishStatus = "FAILED";
+            finishError = appendError(finishError, "trace serialization failed: " + e.getMessage());
+        }
         store.appendSpanFinished(
                 span.id(),
-                status == null ? "COMPLETED" : status,
+                finishStatus,
                 endedAtMs,
                 Math.max(0L, endedAtMs - span.startedAtMs()),
-                TraceJson.write(output),
-                error
+                outputJson,
+                finishError
         );
+    }
+
+    private String safeTraceJson(Object value) {
+        try {
+            return TraceJson.write(value);
+        } catch (RuntimeException e) {
+            return "{\"serializationError\":\"" + escapeJson(e.getMessage()) + "\"}";
+        }
+    }
+
+    private static String appendError(String existing, String addition) {
+        if (addition == null || addition.isBlank()) {
+            return existing;
+        }
+        if (existing == null || existing.isBlank()) {
+            return addition;
+        }
+        return existing + "; " + addition;
+    }
+
+    private static String escapeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     public void recordToolResult(
