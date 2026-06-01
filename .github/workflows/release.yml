@@ -185,7 +185,12 @@ jobs:
             if npm view "${package_name}@${version}" version >/dev/null 2>&1; then
               echo "${package_name}@${version} already exists on npm; skipping."
             else
-              npm publish "$tarball" --access public
+              if [ ! -f "$tarball" ]; then
+                echo "Package tarball does not exist: $tarball" >&2
+                find dist -maxdepth 2 -type f -print >&2
+                exit 1
+              fi
+              npm publish "./$tarball" --access public
             fi
           }
 
