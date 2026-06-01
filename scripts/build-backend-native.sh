@@ -30,7 +30,11 @@ if ! has_native_image; then
 fi
 
 case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*) exe_suffix=".exe" ;;
+  MINGW*|MSYS*|CYGWIN*)
+    exe_suffix=".exe"
+    export _CL_="${_CL_:+${_CL_} }/MT"
+    echo "Configuring MSVC static runtime via _CL_=${_CL_}" >&2
+    ;;
   *) exe_suffix="" ;;
 esac
 

@@ -98,6 +98,11 @@ jobs:
       - name: Check native metadata
         run: node scripts/check-openai-native-metadata.mjs
 
+      - name: Check Windows native dependencies
+        if: matrix.platform == 'win32-x64'
+        shell: pwsh
+        run: ./scripts/check-windows-native-dependencies.ps1 -BackendPath "${{ steps.backend.outputs.path }}"
+
       - name: Smoke native backend
         run: |
           node scripts/smoke-native-backend.mjs \
@@ -114,12 +119,15 @@ jobs:
             --package platform \
             --pack
 
-      - name: Check Windows runtime DLLs
+      - name: Check Windows package contents
         if: matrix.platform == 'win32-x64'
         run: |
           tarball="target/npm/dist/lingjiuu-aether-win32-x64-${{ steps.version.outputs.version }}.tgz"
-          tar -tf "$tarball" | grep -i 'package/bin/VCRUNTIME140.dll'
-          tar -tf "$tarball" | grep -i 'package/bin/VCRUNTIME140_1.dll'
+          tar -tf "$tarball" | grep -i 'package/bin/aether-backend.exe'
+          if tar -tf "$tarball" | grep -Ei 'package/bin/(VCRUNTIME|MSVCP).*\.dll'; then
+            echo "Windows npm package must not bundle MSVC runtime DLLs." >&2
+            exit 1
+          fi
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -212,10 +220,36 @@ jobs:
             fi
           }
 
+          verify_npm_tarball() {
+            package_name="$1"
+            expected_entry="$2"
+            tmpdir="$(mktemp -d)"
+            for attempt in {1..18}; do
+              echo "Verifying ${package_name}@${version} tarball availability, attempt ${attempt}/18..."
+              if (
+                cd "$tmpdir"
+                pack_name="$(npm pack "${package_name}@${version}")"
+                tar -tzf "$pack_name" | grep -i "$expected_entry"
+              ); then
+                rm -rf "$tmpdir"
+                return 0
+              fi
+              sleep 10
+            done
+            echo "npm tarball was not available or did not contain ${expected_entry}: ${package_name}@${version}" >&2
+            rm -rf "$tmpdir"
+            exit 1
+          }
+
           publish_if_missing "@lingjiuu/aether-darwin-arm64" "dist/lingjiuu-aether-darwin-arm64-${version}.tgz"
           publish_if_missing "@lingjiuu/aether-darwin-x64" "dist/lingjiuu-aether-darwin-x64-${version}.tgz"
           publish_if_missing "@lingjiuu/aether-win32-x64" "dist/lingjiuu-aether-win32-x64-${version}.tgz"
           publish_if_missing "@lingjiuu/aether" "dist/lingjiuu-aether-${version}.tgz"
+
+          verify_npm_tarball "@lingjiuu/aether-darwin-arm64" "package/bin/aether-backend"
+          verify_npm_tarball "@lingjiuu/aether-darwin-x64" "package/bin/aether-backend"
+          verify_npm_tarball "@lingjiuu/aether-win32-x64" "package/bin/aether-backend.exe"
+          verify_npm_tarball "@lingjiuu/aether" "package/dist/main.js"
 
       - name: Generate checksums
         run: |

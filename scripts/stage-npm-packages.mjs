@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync, chmodSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync, chmodSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
@@ -28,8 +28,6 @@ const platforms = {
     executable: 'aether-backend.exe',
   },
 };
-const windowsRuntimeDlls = ['VCRUNTIME140.dll', 'VCRUNTIME140_1.dll'];
-
 const args = parseArgs(process.argv.slice(2));
 const version = requireArg(args, 'version');
 const packageKind = args.package ?? 'all';
@@ -119,8 +117,6 @@ function stagePlatformPackage(version, platformName, backendPath, root) {
   copyFileSync(backend, executablePath);
   if (platform.os !== 'win32') {
     chmodSync(executablePath, 0o755);
-  } else {
-    copyWindowsRuntimeDlls(binDir);
   }
 
   const sourcePackageJson = readJson(resolve(frontendRoot, 'package.json'));
@@ -139,88 +135,6 @@ function stagePlatformPackage(version, platformName, backendPath, root) {
   };
   writeJson(resolve(packageDir, 'package.json'), packageJson);
   return packageDir;
-}
-
-function copyWindowsRuntimeDlls(binDir) {
-  if (process.platform !== 'win32') {
-    console.warn('Skipping Windows VC runtime DLL copy because staging is not running on Windows.');
-    return;
-  }
-
-  for (const dllName of windowsRuntimeDlls) {
-    const dllPath = findWindowsRuntimeDll(dllName);
-    if (!dllPath) {
-      fail(`Could not find ${dllName}. Install Microsoft Visual C++ Redistributable or set AETHER_WINDOWS_RUNTIME_DIR.`);
-    }
-    const target = resolve(binDir, basename(dllName));
-    copyFileSync(dllPath, target);
-    console.error(`Bundled Windows runtime DLL: ${dllPath}`);
-  }
-}
-
-function findWindowsRuntimeDll(dllName) {
-  for (const directory of windowsRuntimeSearchDirectories()) {
-    const candidate = resolve(directory, dllName);
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  const where = spawnSync('where.exe', [dllName], { encoding: 'utf8' });
-  if (where.status === 0) {
-    return where.stdout
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .find(Boolean);
-  }
-
-  return undefined;
-}
-
-function windowsRuntimeSearchDirectories() {
-  const directories = [];
-  const redistRoots = [];
-  const explicit = process.env.AETHER_WINDOWS_RUNTIME_DIR;
-  if (explicit?.trim()) {
-    directories.push(explicit.trim());
-  }
-
-  const systemRoot = process.env.SystemRoot || 'C:\\Windows';
-  directories.push(join(systemRoot, 'System32'));
-
-  for (const base of [
-    process.env.ProgramFiles,
-    process.env['ProgramFiles(x86)'],
-  ]) {
-    if (!base) {
-      continue;
-    }
-    redistRoots.push(
-      join(base, 'Microsoft Visual Studio', '2022', 'Enterprise', 'VC', 'Redist', 'MSVC'),
-      join(base, 'Microsoft Visual Studio', '2022', 'Community', 'VC', 'Redist', 'MSVC'),
-      join(base, 'Microsoft Visual Studio', '2022', 'BuildTools', 'VC', 'Redist', 'MSVC'),
-    );
-  }
-
-  return [
-    ...directories,
-    ...redistRoots,
-    ...redistRoots.flatMap(directory => redistSubdirectories(directory)),
-  ];
-}
-
-function redistSubdirectories(directory) {
-  try {
-    return readdirSync(directory, { withFileTypes: true })
-      .filter(entry => entry.isDirectory())
-      .flatMap(entry => [
-        resolve(directory, entry.name),
-        resolve(directory, entry.name, 'x64', 'Microsoft.VC143.CRT'),
-        resolve(directory, entry.name, 'x64', 'Microsoft.VC142.CRT'),
-      ]);
-  } catch {
-    return [];
-  }
 }
 
 function parseArgs(argv) {
