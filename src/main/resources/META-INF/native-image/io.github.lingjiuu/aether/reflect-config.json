@@ -22,6 +22,12 @@
   { "name": "org.jdbi.v3.core.statement.StatementExceptions", "allDeclaredConstructors": true },
   { "name": "org.jdbi.v3.core.transaction.SerializableTransactionRunner$Configuration", "allDeclaredConstructors": true },
 
+  { "name": "io.github.lingjiuu.transport.JsonRpcError", "allDeclaredConstructors": true, "allDeclaredFields": true, "allPublicMethods": true, "allDeclaredMethods": true, "allRecordComponents": true },
+  { "name": "io.github.lingjiuu.transport.JsonRpcErrorResponse", "allDeclaredConstructors": true, "allDeclaredFields": true, "allPublicMethods": true, "allDeclaredMethods": true, "allRecordComponents": true },
+  { "name": "io.github.lingjiuu.transport.JsonRpcNotification", "allDeclaredConstructors": true, "allDeclaredFields": true, "allPublicMethods": true, "allDeclaredMethods": true, "allRecordComponents": true },
+  { "name": "io.github.lingjiuu.transport.JsonRpcResponse", "allDeclaredConstructors": true, "allDeclaredFields": true, "allPublicMethods": true, "allDeclaredMethods": true, "allRecordComponents": true },
+  { "name": "io.github.lingjiuu.transport.stdio.StdioAetherServer$SkillInfo", "allDeclaredConstructors": true, "allDeclaredFields": true, "allPublicMethods": true, "allDeclaredMethods": true, "allRecordComponents": true },
+
   { "name": "io.github.lingjiuu.context.EnvironmentContext", "allDeclaredConstructors": true, "allDeclaredFields": true, "allPublicMethods": true, "allDeclaredMethods": true, "allRecordComponents": true },
   { "name": "io.github.lingjiuu.context.EnvironmentContext$Field", "allDeclaredConstructors": true, "allDeclaredFields": true, "allPublicMethods": true, "allDeclaredMethods": true, "allRecordComponents": true },
 
