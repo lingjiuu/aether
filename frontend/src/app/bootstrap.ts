@@ -29,11 +29,15 @@ export function backendOptions(env: NodeJS.ProcessEnv = process.env): StdioTrans
     };
   }
 
-  const cwd = explicitCwd && explicitCwd.trim() ? explicitCwd : findBackendCwd();
-  const command = 'mvn';
-  const args = ['-q', 'exec:java', '-Dexec.mainClass=io.github.lingjiuu.App', '-Dexec.args=--stdio'];
+  const sourceBackendCwd = findSourceBackendCwd(explicitCwd);
+  if (sourceBackendCwd) {
+    const command = 'mvn';
+    const args = ['-q', 'exec:java', '-Dexec.mainClass=io.github.lingjiuu.App', '-Dexec.args=--stdio'];
 
-  return { command, args, cwd, sessionCwd };
+    return { command, args, cwd: sourceBackendCwd, sessionCwd };
+  }
+
+  throw new Error(missingBackendMessage());
 }
 
 function findSessionCwd(env: NodeJS.ProcessEnv): string {
@@ -50,15 +54,10 @@ function findSessionCwd(env: NodeJS.ProcessEnv): string {
   return process.cwd();
 }
 
-function findBackendCwd(): string {
-  const current = process.cwd();
-  if (existsSync(resolve(current, 'pom.xml'))) {
-    return current;
-  }
-
-  const parent = resolve(current, '..');
-  if (existsSync(resolve(parent, 'pom.xml'))) {
-    return parent;
+function findSourceBackendCwd(explicitCwd?: string): string | undefined {
+  const explicit = explicitCwd?.trim();
+  if (explicit && existsSync(resolve(explicit, 'pom.xml'))) {
+    return explicit;
   }
 
   const thisFile = fileURLToPath(import.meta.url);
@@ -67,7 +66,7 @@ function findBackendCwd(): string {
     return repoRoot;
   }
 
-  return current;
+  return undefined;
 }
 
 function findPackagedBackend(): string | undefined {
@@ -112,6 +111,25 @@ function nativeBackendPackageName(): string | undefined {
 
 function backendExecutableName(): string {
   return process.platform === 'win32' ? 'aether-backend.exe' : 'aether-backend';
+}
+
+function missingBackendMessage(): string {
+  const platformId = `${process.platform}-${process.arch}`;
+  const packageName = nativeBackendPackageName();
+  if (!packageName) {
+    return [
+      `Aether does not ship a native backend for ${platformId}.`,
+      'Build the backend from source and set AETHER_BACKEND_COMMAND, or use a supported platform.',
+    ].join('\n');
+  }
+
+  return [
+    `Aether native backend package is missing for ${platformId}.`,
+    `Expected optional dependency: ${packageName}`,
+    'Reinstall Aether with optional dependencies enabled:',
+    'npm install -g @lingjiuu/aether --include=optional',
+    'If npm was configured with --omit=optional or --no-optional, remove that setting first.',
+  ].join('\n');
 }
 
 function splitArgs(input: string): string[] {

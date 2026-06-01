@@ -77,7 +77,10 @@ function stageMainPackage(version, root) {
     description: sourcePackageJson.description,
     type: 'module',
     bin: { aether: 'dist/main.js' },
-    files: ['dist'],
+    files: ['dist', 'scripts'],
+    scripts: {
+      postinstall: 'node scripts/postinstall.js',
+    },
     engines: sourcePackageJson.engines,
     dependencies: sourcePackageJson.dependencies,
     optionalDependencies: Object.fromEntries(
@@ -95,6 +98,8 @@ function stageMainPackage(version, root) {
   }
 
   cpSync(distDir, resolve(packageDir, 'dist'), { recursive: true });
+  mkdirSync(resolve(packageDir, 'scripts'), { recursive: true });
+  copyFileSync(resolve(frontendRoot, 'scripts', 'postinstall.js'), resolve(packageDir, 'scripts', 'postinstall.js'));
   writeJson(resolve(packageDir, 'package.json'), packageJson);
   return packageDir;
 }

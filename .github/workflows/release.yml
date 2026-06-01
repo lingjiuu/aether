@@ -245,6 +245,7 @@ jobs:
           verify_npm_tarball "@lingjiuu/aether-win32-x64" "package/bin/VCRUNTIME140.dll"
           verify_npm_tarball "@lingjiuu/aether-win32-x64" "package/bin/VCRUNTIME140_1.dll"
           verify_npm_tarball "@lingjiuu/aether" "package/dist/main.js"
+          verify_npm_tarball "@lingjiuu/aether" "package/scripts/postinstall.js"
 
       - name: Generate checksums
         run: |
