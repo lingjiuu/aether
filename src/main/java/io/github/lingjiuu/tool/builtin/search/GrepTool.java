@@ -378,20 +378,24 @@ public class GrepTool implements Tool<GrepTool.Input, GrepTool.Output> {
             SearchOptions options,
             List<String> stdout
     ) {
-        List<String> lines = stdout.stream()
-                .map(this::displayCountLine)
-                .toList();
-        Page<String> page = page(lines, options);
-        List<CountLine> counts = page.items().stream()
+        List<CountLine> lines = stdout.stream()
                 .map(this::parseCountLine)
                 .filter(count -> count.count() > 0)
+                .sorted(Comparator
+                        .comparingInt(CountLine::count)
+                        .reversed()
+                        .thenComparing(CountLine::path))
                 .toList();
-        int totalMatches = counts.stream().mapToInt(CountLine::count).sum();
+        Page<CountLine> page = page(lines, options);
+        List<String> content = page.items().stream()
+                .map(count -> count.path() + ":" + count.count())
+                .toList();
+        int totalMatches = page.items().stream().mapToInt(CountLine::count).sum();
         return new Output(
                 MODE_COUNT,
-                counts.size(),
+                page.items().size(),
                 List.of(),
-                String.join("\n", page.items()),
+                String.join("\n", content),
                 null,
                 totalMatches,
                 page.appliedLimit(),
@@ -503,11 +507,6 @@ public class GrepTool implements Tool<GrepTool.Input, GrepTool.Output> {
         }
         String path = cleaned.substring(0, index);
         return displayPath(path) + cleaned.substring(index);
-    }
-
-    private String displayCountLine(String line) {
-        CountLine count = parseCountLine(line);
-        return count.path() + ":" + count.count();
     }
 
     private CountLine parseCountLine(String line) {

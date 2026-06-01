@@ -75,6 +75,7 @@ public class GrepToolTest extends TestCase {
                 .build());
 
         assertFalse(result.isError());
+        assertToolTextContains(result, "nested/b.txt:2");
         assertToolTextContains(result, "Found 2 total occurrences across 1 file.");
         assertToolTextContains(result, "with pagination = limit: 1");
     }
