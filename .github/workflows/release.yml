@@ -91,7 +91,8 @@ jobs:
           backend_path="$(scripts/build-backend-native.sh)"
           node scripts/smoke-native-backend.mjs \
             --backend "$backend_path" \
-            --version "${{ steps.version.outputs.version }}"
+            --version "${{ steps.version.outputs.version }}" \
+            --ensure-test-config true
           if [[ "${{ matrix.platform }}" == win32-* ]]; then
             backend_path="$(cygpath -w "$backend_path")"
           fi

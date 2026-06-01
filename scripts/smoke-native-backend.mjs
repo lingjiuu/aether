@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
 let child;
+let createdConfigPath;
 let sessionCwd;
 let timeout;
 
@@ -15,6 +16,10 @@ const backend = requireArg(args, 'backend');
 const expectedVersion = args.version;
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 sessionCwd = mkdtempSync(resolve(tmpdir(), 'aether-native-smoke-'));
+
+if (args['ensure-test-config']) {
+  ensureTestConfig();
+}
 
 let stdout = '';
 let stderr = '';
@@ -132,4 +137,32 @@ function cleanup() {
   if (sessionCwd) {
     rmSync(sessionCwd, { recursive: true, force: true });
   }
+  if (createdConfigPath) {
+    rmSync(createdConfigPath, { force: true });
+  }
+}
+
+function ensureTestConfig() {
+  const configPath = resolve(homedir(), '.aether', 'config.toml');
+  if (existsSync(configPath)) {
+    return;
+  }
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, `default_provider = "smoke"
+default_model = "smoke-model"
+
+[model_providers.smoke]
+name = "Smoke"
+api = "openai"
+base_url = "https://example.invalid/v1"
+api_key = "smoke-key"
+
+[[model_providers.smoke.models]]
+id = "smoke-model"
+name = "Smoke Model"
+api = "openai"
+base_url = "https://example.invalid/v1"
+context_window = 100000
+`, 'utf8');
+  createdConfigPath = configPath;
 }
