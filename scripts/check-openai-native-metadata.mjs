@@ -5,8 +5,9 @@ import { readdir, readFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = resolve(new URL('..', import.meta.url).pathname);
+const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const targetClassesPath = resolve(repoRoot, 'target/classes');
 const reflectConfigPath = resolve(
   repoRoot,
