@@ -17,7 +17,7 @@ brew install lingjiuu/aether/aether
 macOS and Windows:
 
 ```bash
-npm install -g @lingjiuu/aether@latest
+npm install -g @lingjiuu/aether@latest --include=optional
 ```
 
 Aether requires Node.js 22+. The backend Java runtime is bundled.
