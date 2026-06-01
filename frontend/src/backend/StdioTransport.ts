@@ -22,10 +22,12 @@ export type StdioTransportOptions = {
 };
 
 export class StdioTransport {
+  private static readonly maxCapturedStderr = 4000;
   private readonly events = new EventEmitter();
   private readonly pending = new Map<string, PendingRequest>();
   private child?: ChildProcessWithoutNullStreams;
   private output?: Interface;
+  private capturedStderr = '';
   private closed = false;
 
   constructor(private readonly options: StdioTransportOptions) {}
@@ -51,13 +53,18 @@ export class StdioTransport {
     this.output.on('line', line => this.handleLine(line));
 
     this.child.stderr.on('data', chunk => {
-      this.events.emit('stderr', String(chunk));
+      const text = String(chunk);
+      this.captureStderr(text);
+      this.events.emit('stderr', text);
     });
 
-    this.child.on('error', () => this.failAll(backendStartupError()));
+    this.child.on('error', error => {
+      this.closed = true;
+      this.failAll(this.backendStartupError({ error }));
+    });
     this.child.on('exit', (code, signal) => {
       this.closed = true;
-      this.failAll(backendStartupError());
+      this.failAll(this.backendStartupError({ code, signal }));
       this.events.emit('exit', { code, signal });
     });
   }
@@ -152,6 +159,37 @@ export class StdioTransport {
     }
     this.pending.clear();
   }
+
+  private captureStderr(text: string): void {
+    this.capturedStderr = `${this.capturedStderr}${text}`;
+    if (this.capturedStderr.length > StdioTransport.maxCapturedStderr) {
+      this.capturedStderr = this.capturedStderr.slice(-StdioTransport.maxCapturedStderr);
+    }
+  }
+
+  private backendStartupError(details: {
+    error?: Error;
+    code?: number | null;
+    signal?: NodeJS.Signals | null;
+  }): Error {
+    const lines = [
+      'Aether backend failed to start.',
+      `command: ${this.options.command}`,
+      `args: ${this.options.args.join(' ')}`,
+      `cwd: ${this.options.cwd}`,
+    ];
+    if (details.error) {
+      lines.push(`spawn error: ${details.error.message}`);
+    }
+    if (details.code !== undefined || details.signal !== undefined) {
+      lines.push(`exit: code=${details.code ?? 'null'} signal=${details.signal ?? 'null'}`);
+    }
+    const stderr = this.capturedStderr.trim();
+    if (stderr) {
+      lines.push('stderr:', stderr);
+    }
+    return new Error(lines.join('\n'));
+  }
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -163,8 +201,4 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
-}
-
-function backendStartupError(): Error {
-  return new Error('Aether backend failed to start.');
 }

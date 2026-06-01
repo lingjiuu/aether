@@ -114,6 +114,13 @@ jobs:
             --package platform \
             --pack
 
+      - name: Check Windows runtime DLLs
+        if: matrix.platform == 'win32-x64'
+        run: |
+          tarball="target/npm/dist/lingjiuu-aether-win32-x64-${{ steps.version.outputs.version }}.tgz"
+          tar -tf "$tarball" | grep -i 'package/bin/VCRUNTIME140.dll'
+          tar -tf "$tarball" | grep -i 'package/bin/VCRUNTIME140_1.dll'
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:

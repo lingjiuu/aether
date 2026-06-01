@@ -4,7 +4,7 @@
   <groupId>io.github.lingjiuu</groupId>
   <artifactId>aether</artifactId>
   <packaging>jar</packaging>
-  <version>0.1.5</version>
+  <version>0.1.6</version>
   <name>aether</name>
   <url>http://maven.apache.org</url>
 
