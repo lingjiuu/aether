@@ -34,6 +34,7 @@ case "$(uname -s)" in
   *) exe_suffix="" ;;
 esac
 
+echo "Building GraalVM native backend in ${repo_root}..." >&2
 (
   cd "$repo_root"
   mvn -Pnative -DskipTests native:compile
@@ -49,4 +50,5 @@ if [ -z "$exe_suffix" ]; then
   chmod +x "$binary"
 fi
 
+echo "Native backend built: $binary" >&2
 echo "$binary"

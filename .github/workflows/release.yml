@@ -89,14 +89,18 @@ jobs:
         id: backend
         run: |
           backend_path="$(scripts/build-backend-native.sh)"
-          node scripts/smoke-native-backend.mjs \
-            --backend "$backend_path" \
-            --version "${{ steps.version.outputs.version }}" \
-            --ensure-test-config true
+          echo "smoke_path=$backend_path" >> "$GITHUB_OUTPUT"
           if [[ "${{ matrix.platform }}" == win32-* ]]; then
             backend_path="$(cygpath -w "$backend_path")"
           fi
           echo "path=$backend_path" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke native backend
+        run: |
+          node scripts/smoke-native-backend.mjs \
+            --backend "${{ steps.backend.outputs.smoke_path }}" \
+            --version "${{ steps.version.outputs.version }}" \
+            --ensure-test-config true
 
       - name: Stage platform npm package
         run: |

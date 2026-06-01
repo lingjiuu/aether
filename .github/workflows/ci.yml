@@ -78,10 +78,15 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Build and smoke native backend
+      - name: Build native backend
+        id: backend
         run: |
           backend_path="$(scripts/build-backend-native.sh)"
+          echo "path=$backend_path" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke native backend
+        run: |
           node scripts/smoke-native-backend.mjs \
-            --backend "$backend_path" \
+            --backend "${{ steps.backend.outputs.path }}" \
             --version "${{ steps.version.outputs.version }}" \
             --ensure-test-config true
